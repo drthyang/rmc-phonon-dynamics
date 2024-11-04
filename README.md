@@ -6,9 +6,28 @@ This repository contains code for conducting phonon calculations in solid materi
 
 To use this code, ensure that you have the following dependencies installed:
 
-RMCProfile (latest version)
-Python 3.x (for scripting and data handling)
-NumPy, SciPy (for numerical operations)
-Matplotlib (for data visualization)
+- RMCProfile (https://rmcprofile.ornl.gov)
+- Python 3.x (for scripting and data handling)
+- NumPy, SciPy (for numerical operations)
+- Matplotlib (for data visualization)
 
+## Installation
+
+## Code Structure
+
+## Usage
+1. Generating initial files for ensemble calculations.
+   ```python
+   ./gen_configs.sh
+2. Performing RMC modelings.
+   ```python
+   ./submit_seq.sh
+3. Obtaining fractional coordinations for phonon calculations.
+   ```python
+   ./gen_coords.sh
+4. Setting up input files for phonon calculation
+   ```python
+   python ./rmc_phonon_calc.py
+   
+## Example
 
