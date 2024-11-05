@@ -7,9 +7,11 @@ This repository contains code for conducting phonon calculations in solid materi
 To use this code, ensure that you have the following dependencies installed:
 
 - RMCProfile (https://rmcprofile.ornl.gov)
-- Python 3.x (for scripting and data handling)
-- NumPy, SciPy (for numerical operations)
-- Matplotlib (for data visualization)
+- Python 3.x
+- NumPy, SciPy
+- Matplotlib
+- seaborn
+- tqdm
 
 ## Installation
 
