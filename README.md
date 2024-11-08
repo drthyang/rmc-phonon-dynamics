@@ -2,6 +2,15 @@
 ## Overview
 This repository contains code for conducting phonon calculations in solid materials, integrating RMCProfile to analyze total scattering data. The code calculates phonon band structure and irreducible representations using structural ensemble calculated by reverse Monte Carlo modelings.
 
+Main features:
+
+- Phonon band structure
+- Phonon density of states
+- Irreducible representations (IRs)
+- Visualize IRs in real-space
+- Partial phonon density of states
+- Calculate phonon density of states for inelatsic neutron scattering 
+
 ## Prerequisites
 
 To use this code, ensure that you have the following dependencies installed:
