@@ -5,6 +5,7 @@ This repository contains code for conducting phonon calculations in solid materi
 Main features:
 
 - Phonon band structure
+- Weighted phonon band structure
 - Phonon density of states
 - Irreducible representations (IRs)
 - Visualize IRs in real-space
