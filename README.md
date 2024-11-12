@@ -1,4 +1,4 @@
-# rmcph - Phonon Calculation Code for reverse Monte Carlo modelings
+# rmcph - Phonon Calculation Code for RMCProfile
 ## Overview
 This repository contains code for conducting phonon calculations in solid materials, integrating RMCProfile to analyze total scattering data. The code calculates phonon band structure and irreducible representations using structural ensemble calculated by reverse Monte Carlo modelings.
 
