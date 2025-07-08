@@ -11,6 +11,7 @@ from tqdm.auto import trange
 import csv
 import os
 from pathlib import Path
+from scipy.stats import gaussian_kde
 
 plt.rcParams['font.family'] = 'Dejavu Sans'
 plt.rcParams['mathtext.fontset'] = 'dejavusans'
@@ -114,6 +115,26 @@ def get_atom_idx(fname,verbose=1) :
 		atom_dic[key] = list(set(atom_dic[key]))
 	return atom_dic
 
+# Convert fractional coordinates to Cartesian using normalized lattice vectors
+def cvt_pos(frac,v1_norm,v2_norm,v3_norm):
+	"""Convert fractional coordinates to Cartesian positions.
+	
+	Parameters
+	----------
+	frac : array-like
+	Fractional coordinates within the unit cell.
+	v1_norm, v2_norm, v3_norm : array-like
+	Normalized lattice vectors (unit vectors) along a, b and c.
+	
+	Returns
+	-------
+	numpy.ndarray
+	Cartesian coordinates expressed in the same units as the lattice
+	vectors.
+	"""
+	frac = np.asarray(frac)
+	return frac[0]*v1_norm + frac[1]*v2_norm + frac[2]*v3_norm
+
 # fname is the file name of Frac*.txt
 # Read the fractional atomic coordinates from Frac*.txt
 def read_frac_atom_ph(fname,atom_dic,dim,atype=0,mode='Frac') :
@@ -173,9 +194,9 @@ def read_frac_atom_ph(fname,atom_dic,dim,atype=0,mode='Frac') :
 				cell_idx.append(cell)
 	return atmtype, np.array(data), np.array(cell_idx)
 
-def gen_3d_plot(fpath,atype='Ta') :
-	# 3D plot
-	atmtype, data = read_frac_atom(fpath,atype)
+def gen_3d_plot(fpath, atom_dic, dim, atype='Ta'):
+	"""Visualize the atomic probability density for a given configuration."""
+	atmtype, data, _ = read_frac_atom_ph(fpath, atom_dic, dim, atype=atype)
 	xyz = np.transpose(data)
 	kde = gaussian_kde(xyz)
 	density = kde(xyz)
