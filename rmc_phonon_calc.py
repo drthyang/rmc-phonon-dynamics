@@ -26,6 +26,8 @@ kb = 8.6173303 * 10**-5 # eV/K
 
 plot_PDOS = True
 
+##### Input section #####
+
 # Initial configuration (high symmetry)
 #fpath_eq = '/Users/tt9/Research/LacunarSpinels/structure/phonon/GTS_{}K/GTS_{}K.rmc6f'.format(T,T)
 #fpath_eq_frac = '/Users/tt9/Research/LacunarSpinels/structure/phonon/GTS_{}K/Frac_coord_GTS_{}K.txt'.format(T,T)
