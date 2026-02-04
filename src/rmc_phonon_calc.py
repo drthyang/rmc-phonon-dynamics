@@ -200,9 +200,7 @@ def select_atom_type(tag,atype,config,cell_idx) :
 
 # Generate a mass array for calculating U_k
 def get_mass_array(atom_idx,atom_dic) :
-	# atomic_mass = {'Ga':69.723,
-	# 				'V':50.942,'Nb':92.906,'Ta':180.95,
-	# 				'Se':78.971}
+	# Atomic mass in amu (g/mol)
 	atomic_mass = {
 		'H': 1.008, 'He': 4.0026, 'Li': 6.94, 'Be': 9.0122, 'B': 10.81, 'C': 12.011,
 		'N': 14.007, 'O': 15.999, 'F': 18.998, 'Ne': 20.180, 'Na': 22.990, 'Mg': 24.305,
