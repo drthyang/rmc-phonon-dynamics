@@ -43,14 +43,14 @@ plot_PDOS = True
 #fpath = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_20A_250K/configs/'
 
 # NERSC GTS 5K 8*8*8 20A 
-fpath_eq = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/5K_ini/GTS_5K.rmc6f'
-fpath_eq_frac = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/5K_ini/Frac_coord_GTS_5K.txt'
-fpath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/ensemble_20A_5K/configs/'
+# fpath_eq = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/5K_ini/GTS_5K.rmc6f'
+# fpath_eq_frac = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/5K_ini/Frac_coord_GTS_5K.txt'
+# fpath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/ensemble_20A_5K/configs/'
 
 # NERSC GTS 250K 10*10*10 50A
-#fpath_eq = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/initial/GTS_250K_0.rmc6f'
-#fpath_eq_frac = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/initial/Frac_coord_0.txt'
-#fpath = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/configs/'
+fpath_eq = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/initial/GTS_250K_0.rmc6f'
+fpath_eq_frac = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/initial/Frac_coord_0.txt'
+fpath = '/Users/tt9/Research/LacunarSpinels/rmc/NERSC/ensemble_250K/configs/'
 
 
 sym_pnts = {
