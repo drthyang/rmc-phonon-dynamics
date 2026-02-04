@@ -27,19 +27,28 @@ To use this code, ensure that you have the following dependencies installed:
 
 ## Code Structure
 
+- `src/`: Main source code directory
+  - `rmc_phonon_calc.py`: Primary script for phonon calculations
+- `data/`: Input data files
+- `results/`: Output results directory
+
 ## Usage
 1. Generating initial files for ensemble calculations.
    ```python
    ./gen_configs.sh
+   ```
 2. Performing RMC modelings.
    ```python
    ./submit_seq.sh
+   ```
 3. Obtaining fractional coordinations for phonon calculations.
    ```python
    ./gen_coords.sh
+   ```
 4. Setting up input files for phonon calculation
    ```python
-   python ./rmc_phonon_calc.py
+   python ./src/rmc_phonon_calc.py
+   ```
    
 ## Example
 
