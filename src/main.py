@@ -21,7 +21,7 @@ fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
 fpath = stempath + 'ensemble_20A_5K/configs/'
 
 plot_PDOS = True
-plot_PartialDOS = False
+plot_PartialDOS = True
 
 sym_pnts = {
     'A': np.array([0.5, 0.5, 0.5]),
@@ -77,10 +77,10 @@ if __name__ == "__main__":
     #         # if jj == 0:
     #         #     Writers.gen_ev_mcif('./test.cif', atom_dic, eigenvectors, name=k_path[ii])
 
-    # 1. Calculate total expected iterations
+    # 4-1. Calculate total expected iterations
     total_iterations = (len(k_path) - 1) * kstep
 
-    # 2. Create the main progress bar
+    # 4-2. Create the main progress bar
     with tqdm(total=total_iterations, desc='⏩️ Total Progress') as pbar:
         
         # Loop over path segments
@@ -100,9 +100,12 @@ if __name__ == "__main__":
                 with np.errstate(divide='ignore', invalid='ignore'):
                     ph_band.append(np.sqrt(kb * T / eigenvalues)) 
 
-                # 3. Manually update the bar by 1 step
+                # 4-3. Manually update the bar by 1 step
                 pbar.update(1)
-                
+                #(Optional) Generate MCIF at Gamma point
+                if jj == 0:
+                    Writers.gen_ev_mcif('../data/GTS_5K.cif', atom_dic, eigenvectors, name=k_path[ii])          
+                       
     # 5. Plot Bands
     Visualization.plot_phonon_bands(ph_band, k_path, kstep)
 

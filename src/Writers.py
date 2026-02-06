@@ -1,5 +1,6 @@
 import numpy as np
-# Assuming pymatgen is available as per original script comments
+import os
+
 from pymatgen.core import Structure
 from pymatgen.io.cif import CifWriter
 
@@ -33,7 +34,9 @@ def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
 
         mcif_writer = CifWriter(structure, write_magmoms=True)
         
-        out_dir = './Eigenvectors/'
+        out_dir = '../results/Eigenvectors/'
+        # Create the directory if it doesn't exist
+        os.makedirs(out_dir, exist_ok=True)        
         if name is None:
             fname = f'{out_dir}Eigenvector_#{ii}.mcif'
         else:
