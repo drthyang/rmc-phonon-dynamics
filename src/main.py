@@ -2,6 +2,7 @@
 import numpy as np
 import glob
 from tqdm.auto import trange
+from tqdm.auto import tqdm  # Make sure to import tqdm specifically
 
 # Import modules
 import Readers
@@ -55,27 +56,53 @@ if __name__ == "__main__":
     kstep = 16
 
     # 4. Loop over k-path
-    for ii in trange(len(k_path)-1, desc='Overall progress', disable=True):
-        k_plot_vec = sym_pnts[k_path[ii+1]] - sym_pnts[k_path[ii]]
+    # for ii in trange(len(k_path)-1, desc='Overall progress', disable=True):
+    #     k_plot_vec = sym_pnts[k_path[ii+1]] - sym_pnts[k_path[ii]]
         
-        for jj in trange(kstep, desc=f'k-path {k_path[ii]}–{k_path[ii+1]}', disable=True):
-            current_k = sym_pnts[k_path[ii]] + jj * k_plot_vec / kstep
+    #     for jj in trange(kstep, desc=f'k-path {k_path[ii]}–{k_path[ii+1]}', disable=True):
+    #         current_k = sym_pnts[k_path[ii]] + jj * k_plot_vec / kstep
             
-            # Calculate S(k)
-            Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k)
+    #         # Calculate S(k)
+    #         Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k)
             
-            # Diagonalize
-            eigenvalues, eigenvectors = np.linalg.eigh(Sk)
+    #         # Diagonalize
+    #         eigenvalues, eigenvectors = np.linalg.eigh(Sk)
             
-            # Store bands (using meV conversion)
-            # Note: Avoid division by zero if eigenvalues are very small/negative
-            with np.errstate(divide='ignore', invalid='ignore'):
-                ph_band.append(np.sqrt(kb * T / eigenvalues)) 
+    #         # Store bands (using meV conversion)
+    #         # Note: Avoid division by zero if eigenvalues are very small/negative
+    #         with np.errstate(divide='ignore', invalid='ignore'):
+    #             ph_band.append(np.sqrt(kb * T / eigenvalues)) 
 
-            # (Optional) Generate MCIF at Gamma point
-            # if jj == 0:
-            #     Writers.gen_ev_mcif('./test.cif', atom_dic, eigenvectors, name=k_path[ii])
+    #         # (Optional) Generate MCIF at Gamma point
+    #         # if jj == 0:
+    #         #     Writers.gen_ev_mcif('./test.cif', atom_dic, eigenvectors, name=k_path[ii])
 
+    # 1. Calculate total expected iterations
+    total_iterations = (len(k_path) - 1) * kstep
+
+    # 2. Create the main progress bar
+    with tqdm(total=total_iterations, desc='⏩️ Total Progress') as pbar:
+        
+        # Loop over path segments
+        for ii in range(len(k_path)-1):  # Use range, not trange
+            k_plot_vec = sym_pnts[k_path[ii+1]] - sym_pnts[k_path[ii]]
+            
+            # Loop over steps in segment
+            for jj in range(kstep):      # Use range, not trange
+                current_k = sym_pnts[k_path[ii]] + jj * k_plot_vec / kstep
+                
+                # Calculate S(k)
+                Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k)
+                
+                # Diagonalize
+                eigenvalues, eigenvectors = np.linalg.eigh(Sk)
+                
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    ph_band.append(np.sqrt(kb * T / eigenvalues)) 
+
+                # 3. Manually update the bar by 1 step
+                pbar.update(1)
+                
     # 5. Plot Bands
     Visualization.plot_phonon_bands(ph_band, k_path, kstep)
 

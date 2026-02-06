@@ -108,7 +108,7 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True):
     
     ini_idx = 0
     Sk_sum = None
-    show_prog = False # Default unless loading fails/starts fresh
+    show_prog = True # Default unless loading fails/starts fresh
 
     if loadfile and os.path.exists(saved_Sk):
         with open(saved_Sk, 'r') as file:
