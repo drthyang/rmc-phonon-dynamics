@@ -261,6 +261,7 @@ def get_nxs_array(atom_idx,atom_dic) :
 	nxs_array = [neutron_scatt_sigma[atom] for atom in replaced_list]
 	return nxs_array
 
+
 # Calculate the displacement 
 #@njit(parallel=True)
 def calc_collect_var(kvec,atype,configuration,cell_idx,hsymconfig,atom_dic) :
