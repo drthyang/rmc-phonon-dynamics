@@ -123,7 +123,7 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac'):
     # skiprows=5 skips the header lines
     # sep='\s+' handles variable whitespace
     try:
-        df = pd.read_csv(fname, skiprows=5, header=None, sep='\s+', 
+        df = pd.read_csv(fname, skiprows=5, header=None, sep=r'\s+', 
                          usecols=[0, 1, 2, 3, 4, 5, 6],
                          names=['type', 'x', 'y', 'z', 'c1', 'c2', 'c3'],
                          engine='c') # Engine 'c' is faster

@@ -201,105 +201,121 @@ def get_ph_weights(atom_dic, IRs):
     return np.transpose(weights_all)
 
 # Parallelized version of Partial_Sk_avg with resume capability and optimized aggregation
-# 1. Define a helper function to process a SINGLE file.
-# This must be defined outside the main function to be picklable by workers.
-def process_single_frame(fname, atom_dic, dim, kpnt, hsym_config):
-    """
-    Reads a single file and calculates Sk for that specific frame.
-    """
-    # Read the file
-    test = Readers.read_frac_atom_ph(fname, atom_dic, dim)
-    
-    # Calculate intermediate variables
-    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
-    
-    # Calculate Sk
-    Sk = calc_Sk(U_k)
-    return Sk
+# --- WORKER FUNCTIONS (Must be defined at module level) ---
 
-def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, n_jobs=-1):
+def process_single_frame(fname, atom_dic, dim, kpnt, hsym_config):
+    """Worker for Sk_avg: Processes one file."""
+    # Ensure you are using the optimized reader we defined previously
+    # If not, change this to: Readers.read_frac_atom_ph(fname, atom_dic, dim)
+    test = Readers.read_frac_atom_ph(fname, atom_dic, dim) 
+    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
+    return calc_Sk(U_k)
+
+def process_partial_frame(fname, atom_dic, dim, kpnt, hsym_config, atype):
+    """Worker for Partial_Sk_avg: Processes one file with atype."""
+    # Ensure you are using the optimized reader we defined previously
+    test = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
+    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
+    return calc_Sk(U_k)
+
+# --- MAIN FUNCTIONS ---
+
+def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, n_jobs=-1):
+    # 1. Sort files to ensure 'Resume' index is always consistent
     fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
-    total_files = len(fnames)
-    
-    # print(f"--- 🚀 Starting Parallel Calculation for {total_files} files ---") # Commented out for clean output
-    
-    # verbose=0 silences the backend reporting
-    results = Parallel(n_jobs=n_jobs, verbose=0)(
-        delayed(process_single_frame)(
-            f, atom_dic, dim, kpnt, hsym_config
-        ) for f in fnames
-    )
-    
-    # print("--- ∑ Summing results ---") # Commented out
-    Sk_sum = np.sum(results, axis=0)
-    
     saved_Sk = fpath + 'Sk_sum_kvec_{}_{}_{}.csv'.format(*kpnt)
-    with open(saved_Sk, 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow([total_files])
-        writer.writerows(Sk_sum)
-            
-    Sk_avg_val = Sk_sum / total_files
+    
+    ini_idx = 0
+    Sk_sum = None
+    
+    # 2. RESUME LOGIC: Load existing data
+    if loadfile and os.path.exists(saved_Sk):
+        with open(saved_Sk, 'r') as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            # Correction: If header says "100", it means 0-99 are done. Start at 100.
+            ini_idx = int(header[0]) 
+            Sk_sum = np.array([list(map(complex, row)) for row in reader])
+    
+    # 3. Identify remaining work
+    files_to_process = fnames[ini_idx:]
+    
+    # If there is work to do, run it in parallel
+    if files_to_process:
+        # verbose=0 keeps the output clean as requested
+        new_results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(process_single_frame)(
+                f, atom_dic, dim, kpnt, hsym_config
+            ) for f in files_to_process
+        )
+        
+        # Sum the NEW results (Vectorized sum)
+        new_sum = np.sum(new_results, axis=0)
+        
+        # Combine with OLD results
+        if Sk_sum is None:
+            Sk_sum = new_sum
+        else:
+            Sk_sum += new_sum
+
+        # 4. Save Logic
+        if save:
+            total_count = ini_idx + len(files_to_process)
+            with open(saved_Sk, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([total_count])
+                writer.writerows(Sk_sum)
+
+    # 5. Final Calculation
+    # Note: We divide by the actual total number of files processed
+    Sk_avg_val = Sk_sum / len(fnames)
     return Sk_avg_val
 
-# 1. Helper Function for Partial Sk
-# This runs on a single CPU core for a single file.
-def process_partial_frame(fname, atom_dic, dim, kpnt, hsym_config, atype):
-    """
-    Reads a file and calculates Partial Sk for a specific atom type.
-    """
-    # Note the addition of 'atype' in the reader call
-    test = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
-    
-    # Calculate intermediate variables
-    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
-    
-    # Calculate Sk
-    Sk = calc_Sk(U_k)
-    return Sk
 
 def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True, save=True, n_jobs=-1):
+    # 1. Sort files
     fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
     saved_Sk = fpath + '{}_Sk_sum_kvec_{}_{}_{}.csv'.format(atype, *kpnt)
     
     ini_idx = 0
     Sk_sum = None
-    
+
+    # 2. RESUME LOGIC
     if loadfile and os.path.exists(saved_Sk):
-        # print(f"--- 📂 Loading existing progress... ---") # Silent
         with open(saved_Sk, 'r') as file:
             reader = csv.reader(file)
             header = next(reader)
-            ini_idx = int(header[0]) 
+            ini_idx = int(header[0])
             Sk_sum = np.array([list(map(complex, row)) for row in reader])
-
+    
+    # 3. Identify remaining work
     files_to_process = fnames[ini_idx:]
     
-    if not files_to_process:
-        if Sk_sum is None: return None
-        return Sk_sum / len(fnames)
+    if files_to_process:
+        # verbose=0 for clean output
+        new_results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(process_partial_frame)(
+                f, atom_dic, dim, kpnt, hsym_config, atype
+            ) for f in files_to_process
+        )
+        
+        # Sum NEW results
+        new_sum = np.sum(new_results, axis=0)
+        
+        # Combine
+        if Sk_sum is None:
+            Sk_sum = new_sum
+        else:
+            Sk_sum += new_sum
 
-    # verbose=0 is key here
-    new_results = Parallel(n_jobs=n_jobs, verbose=0)(
-        delayed(process_partial_frame)(
-            f, atom_dic, dim, kpnt, hsym_config, atype
-        ) for f in files_to_process
-    )
-
-    new_sum = np.sum(new_results, axis=0)
-
-    if Sk_sum is None:
-        Sk_sum = new_sum
-    else:
-        Sk_sum += new_sum
-
-    total_processed_count = ini_idx + len(files_to_process)
-    
-    if save:
-        with open(saved_Sk, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([total_processed_count])
-            writer.writerows(Sk_sum)
+        # 4. Save Logic
+        if save:
+            total_count = ini_idx + len(files_to_process)
+            with open(saved_Sk, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([total_count])
+                writer.writerows(Sk_sum)
             
-    Sk_avg_val = Sk_sum / total_processed_count
+    # 5. Final Calculation
+    Sk_avg_val = Sk_sum / len(fnames)
     return Sk_avg_val
