@@ -5,6 +5,10 @@ import glob
 from tqdm.auto import trange
 import Readers  # Import your Readers module
 
+# Constants
+amu = 1.66 * 10**-27 
+kb = 8.6173303 * 10**-2 # meV/K
+
 # Generate a mass array for calculating U_k
 def get_mass_array(atom_idx,atom_dic) :
 	# Atomic mass in amu (g/mol)
