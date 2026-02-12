@@ -15,13 +15,14 @@ amu = 1.66 * 10**-27
 kb = 8.6173303 * 10**-2 # meV/K
 T = 5
 
-stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
+#stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
+stempath = '../data/' 
 fpath_eq = stempath + '5K_ini/GTS_5K.rmc6f'
 fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
 fpath = stempath + 'ensemble_20A_5K/configs/'
 
 plot_PDOS = True
-plot_PartialDOS = True
+plot_PartialDOS = False
 
 sym_pnts = {
     'A': np.array([0.5, 0.5, 0.5]),
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
     ph_band = []
-    kstep = 32
+    kstep = 16
 
     # 4. Loop over k-path
     # for ii in trange(len(k_path)-1, desc='Overall progress', disable=True):
