@@ -1,6 +1,8 @@
 import numpy as np
 import glob
 from tqdm.auto import trange
+import pandas as pd
+from joblib import Parallel, delayed
 
 def read_cell_vec(fname, verbose=1):
     '''Read cell vectors and supercell dimension from a *.rmc6f'''
@@ -53,7 +55,7 @@ def get_atom_idx(fname, verbose=1):
         atom_dic[key] = list(set(atom_dic[key]))
     return atom_dic
 
-def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac', v1_norm=None, v2_norm=None, v3_norm=None):
+def read_frac_atom_ph_legacy(fname, atom_dic, dim, atype=0, mode='Frac', v1_norm=None, v2_norm=None, v3_norm=None):
     '''Read fractional coordinates from Frac*.txt'''
     with open(fname, 'r') as f:
         lines = f.readlines()
@@ -90,7 +92,7 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac', v1_norm=None, 
                 
     return atmtype, np.array(data), np.array(cell_idx)
 
-def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode='Frac'):
+def avg_frac_atom_ph_legacy(fnames, atom_dic, dim, atype=0, mode='Frac'):
     '''Calculate average configuration from multiple files'''
     data_accum = None
     cell_tmp = None
@@ -110,3 +112,100 @@ def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode='Frac'):
         
     data_avg = np.array(data_accum) / len(fnames)
     return atmtype, np.array(data_avg), np.array(cell_tmp)
+
+
+
+def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac'):
+    '''
+    Fast vectorized reader using Pandas.
+    '''
+    # 1. Read the file efficiently
+    # skiprows=5 skips the header lines
+    # sep='\s+' handles variable whitespace
+    try:
+        df = pd.read_csv(fname, skiprows=5, header=None, sep=r'\s+', 
+                         usecols=[0, 1, 2, 3, 4, 5, 6],
+                         names=['type', 'x', 'y', 'z', 'c1', 'c2', 'c3'],
+                         engine='c') # Engine 'c' is faster
+    except pd.errors.EmptyDataError:
+        # Handle empty files gracefully
+        return np.array([]), np.array([]), np.array([])
+
+    # 2. Vectorized Filtering
+    if atype != 0:
+        # Filter rows where 'type' is in the dictionary list
+        valid_types = atom_dic[atype]
+        df = df[df['type'].isin(valid_types)]
+    
+    # If filtered result is empty
+    if df.empty:
+        return np.array([]), np.array([]), np.array([])
+
+    # 3. Coordinate Calculation (Vectorized)
+    # Convert fractional to cartesian
+    xyz = df[['x', 'y', 'z']].to_numpy(dtype=np.float64) * dim
+    
+    # Apply the specific boundary condition logic:
+    # "if x > 1: x - dim[0]"
+    # We use a boolean mask to do this for the whole array at once.
+    mask = xyz > 1
+    xyz[mask] -= dim[0] 
+
+    # 4. Extract other arrays
+    atmtype = df['type'].to_numpy(dtype=int)
+    cell_idx = df[['c1', 'c2', 'c3']].to_numpy(dtype=int)
+
+    # Note: mode='Frac' is the only one implemented in your original snippet
+    # so we return directly.
+    return atmtype, xyz, cell_idx
+
+def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode='Frac', n_jobs=-1):
+    '''
+    Parallelized average configuration calculator.
+    '''
+    print(f"📊 Calculating average across {len(fnames)} files (Parallel)")
+
+    # 1. Define the worker function for a single file
+    def process_file(f):
+        t, d, c = read_frac_atom_ph(f, atom_dic, dim, atype, mode)
+        return d, c  # Return data and cell_idx
+    
+    # 2. Run in parallel
+    # We only need the first file's atom types to return at the end
+    first_atmtype, _, _ = read_frac_atom_ph(fnames[0], atom_dic, dim, atype, mode)
+    
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(process_file)(f) for f in fnames
+    )
+    
+    # results is a list of tuples: [(data1, cell1), (data2, cell2), ...]
+    
+    # 3. Validation and Aggregation
+    # We unzip the results into two lists
+    all_data = []
+    all_cells = []
+    
+    for d, c in results:
+        all_data.append(d)
+        all_cells.append(c)
+
+    # Convert to arrays for easier checking
+    # Note: Using a loop for the consistency check is safer/easier than vectorizing 
+    # the check across ragged arrays, and it's fast enough here.
+    ref_cell = all_cells[0]
+    for i, c in enumerate(all_cells[1:]):
+        # Quick shape check first, then value check
+        if c.shape != ref_cell.shape or not np.array_equal(c, ref_cell):
+            print(f'⚠️ Warning: Cell indices do not match in file index {i+1} ... Please check ...')
+
+    # 4. Summation and Averaging
+    # Stack along a new axis and take the mean
+    # Stack shape: (n_files, n_atoms, 3) -> mean axis 0 -> (n_atoms, 3)
+    try:
+        data_stack = np.array(all_data)
+        data_avg = np.mean(data_stack, axis=0)
+    except ValueError as e:
+        print("❌ Error combining data: Atom counts might vary between frames.")
+        raise e
+
+    return first_atmtype, data_avg, ref_cell

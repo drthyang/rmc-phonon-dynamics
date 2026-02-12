@@ -15,7 +15,10 @@ amu = 1.66 * 10**-27
 kb = 8.6173303 * 10**-2 # meV/K
 T = 5
 
-stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
+#stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
+#stempath = '/Users/thyang/ORNL/LacunarSpinels/rmc/server_data/phonon/' 
+stempath = '../data/'
+
 fpath_eq = stempath + '5K_ini/GTS_5K.rmc6f'
 fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
 fpath = stempath + 'ensemble_20A_5K/configs/'

@@ -3,7 +3,12 @@ import csv
 import os
 import glob
 from tqdm.auto import trange
-import Readers  # Import your Readers module
+import Readers  
+from joblib import Parallel, delayed
+
+# Constants
+amu = 1.66 * 10**-27 
+kb = 8.6173303 * 10**-2 # meV/K
 
 # Generate a mass array for calculating U_k
 def get_mass_array(atom_idx,atom_dic) :
@@ -102,7 +107,7 @@ def calc_Sk(U_k_t):
     result = U_l @ U_r
     return result
 
-def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True):
+def Sk_avg_legacy(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True):
     fnames = glob.glob(fpath + 'Frac*.txt')
     saved_Sk = fpath + 'Sk_sum_kvec_{}_{}_{}.csv'.format(*kpnt)
     
@@ -136,7 +141,7 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True):
     Sk_avg_val = Sk_sum/len(fnames)
     return Sk_avg_val
 
-def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True, save=True):
+def Partial_Sk_avg_legacy(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True, save=True):
     fnames = glob.glob(fpath + 'Frac*.txt')
     saved_Sk = fpath + '{}_Sk_sum_kvec_{}_{}_{}.csv'.format(atype, *kpnt)
     
@@ -194,3 +199,123 @@ def get_ph_weights(atom_dic, IRs):
             weight_tmp.append(accum_disp)
         weights_all.append(weight_tmp)
     return np.transpose(weights_all)
+
+# Parallelized version of Partial_Sk_avg with resume capability and optimized aggregation
+# --- WORKER FUNCTIONS (Must be defined at module level) ---
+
+def process_single_frame(fname, atom_dic, dim, kpnt, hsym_config):
+    """Worker for Sk_avg: Processes one file."""
+    # Ensure you are using the optimized reader we defined previously
+    # If not, change this to: Readers.read_frac_atom_ph(fname, atom_dic, dim)
+    test = Readers.read_frac_atom_ph(fname, atom_dic, dim) 
+    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
+    return calc_Sk(U_k)
+
+def process_partial_frame(fname, atom_dic, dim, kpnt, hsym_config, atype):
+    """Worker for Partial_Sk_avg: Processes one file with atype."""
+    # Ensure you are using the optimized reader we defined previously
+    test = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
+    U_k = calc_collect_var(kpnt, test[0], test[1], test[2], hsym_config[1], atom_dic)
+    return calc_Sk(U_k)
+
+# --- MAIN FUNCTIONS ---
+
+def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, n_jobs=-1):
+    # 1. Sort files to ensure 'Resume' index is always consistent
+    fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
+    saved_Sk = fpath + 'Sk_sum_kvec_{}_{}_{}.csv'.format(*kpnt)
+    
+    ini_idx = 0
+    Sk_sum = None
+    
+    # 2. RESUME LOGIC: Load existing data
+    if loadfile and os.path.exists(saved_Sk):
+        with open(saved_Sk, 'r') as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            # Correction: If header says "100", it means 0-99 are done. Start at 100.
+            ini_idx = int(header[0]) 
+            Sk_sum = np.array([list(map(complex, row)) for row in reader])
+    
+    # 3. Identify remaining work
+    files_to_process = fnames[ini_idx:]
+    
+    # If there is work to do, run it in parallel
+    if files_to_process:
+        # verbose=0 keeps the output clean as requested
+        new_results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(process_single_frame)(
+                f, atom_dic, dim, kpnt, hsym_config
+            ) for f in files_to_process
+        )
+        
+        # Sum the NEW results (Vectorized sum)
+        new_sum = np.sum(new_results, axis=0)
+        
+        # Combine with OLD results
+        if Sk_sum is None:
+            Sk_sum = new_sum
+        else:
+            Sk_sum += new_sum
+
+        # 4. Save Logic
+        if save:
+            total_count = ini_idx + len(files_to_process)
+            with open(saved_Sk, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([total_count])
+                writer.writerows(Sk_sum)
+
+    # 5. Final Calculation
+    # Note: We divide by the actual total number of files processed
+    Sk_avg_val = Sk_sum / len(fnames)
+    return Sk_avg_val
+
+
+def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True, save=True, n_jobs=-1):
+    # 1. Sort files
+    fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
+    saved_Sk = fpath + '{}_Sk_sum_kvec_{}_{}_{}.csv'.format(atype, *kpnt)
+    
+    ini_idx = 0
+    Sk_sum = None
+
+    # 2. RESUME LOGIC
+    if loadfile and os.path.exists(saved_Sk):
+        with open(saved_Sk, 'r') as file:
+            reader = csv.reader(file)
+            header = next(reader)
+            ini_idx = int(header[0])
+            Sk_sum = np.array([list(map(complex, row)) for row in reader])
+    
+    # 3. Identify remaining work
+    files_to_process = fnames[ini_idx:]
+    
+    if files_to_process:
+        # verbose=0 for clean output
+        new_results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(process_partial_frame)(
+                f, atom_dic, dim, kpnt, hsym_config, atype
+            ) for f in files_to_process
+        )
+        
+        # Sum NEW results
+        new_sum = np.sum(new_results, axis=0)
+        
+        # Combine
+        if Sk_sum is None:
+            Sk_sum = new_sum
+        else:
+            Sk_sum += new_sum
+
+        # 4. Save Logic
+        if save:
+            total_count = ini_idx + len(files_to_process)
+            with open(saved_Sk, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([total_count])
+                writer.writerows(Sk_sum)
+            
+    # 5. Final Calculation
+    Sk_avg_val = Sk_sum / len(fnames)
+    return Sk_avg_val
