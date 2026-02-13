@@ -13,13 +13,13 @@ import Visualization
 # --- Configuration Constants ---
 amu = 1.66 * 10**-27 
 kb = 8.6173303 * 10**-2 # meV/K
-T = 5
+T = 250
 
 #stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
 stempath = '../data/' 
-fpath_eq = stempath + '5K_ini/GTS_5K.rmc6f'
-fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
-fpath = stempath + 'ensemble_20A_5K/configs/'
+fpath_eq = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
+fpath_eq_frac = stempath + f'{T}K_ini/Frac_coord_GTS_{T}K.txt'
+fpath = stempath + f'ensemble_20A_{T}K/configs/'
 
 plot_PDOS = True
 plot_PartialDOS = False
