@@ -54,7 +54,7 @@ if __name__ == "__main__":
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
     ph_band = []
-    kstep = 16
+    kstep = 32
 
     # 4. Loop over k-path
     # for ii in trange(len(k_path)-1, desc='Overall progress', disable=True):
