@@ -28,7 +28,13 @@ To use this code, ensure that you have the following dependencies installed:
 ## Code Structure
 
 - `src/`: Main source code directory
-  - `rmc_phonon_calc.py`: Primary script for phonon calculations
+  - `main.py`: Primary script for phonon calculations
+  - `Readers.py`: 
+  - `Calculators.py`: 
+  - `Writers.py`:
+  - `Visualization.py`: 
+- `src_gpu/`: GPU Main source code directory
+  - `main.py`: Primary script for phonon calculations
 - `data/`: Input data files
 - `results/`: Output results directory
 
