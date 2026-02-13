@@ -11,6 +11,8 @@ import jax.numpy as jnp
 from jax import jit, vmap
 import jax
 
+os.environ["JAX_ENABLE_X64"] = "True"
+
 # Global cache to store the mass table on the GPU so we don't rebuild it every frame.
 _GPU_MASS_TABLE = None
 
@@ -57,7 +59,7 @@ def get_mass_array(atom_idx, atom_dic):
 
         # Create a dense array: index = atom_id, value = mass
         # We use float32 for Metal GPU efficiency
-        lut_cpu = np.zeros(max_idx + 1, dtype=np.float32)
+        lut_cpu = np.zeros(max_idx + 1, dtype=np.float64)
 
         for symbol, indices in atom_dic.items():
             mass = atomic_mass.get(symbol, 0.0)
@@ -246,9 +248,9 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
                     Sk_sum = np.array([[complex(x) for x in row] for row in reader])
         except Exception:
             print("Load failed, starting fresh.")
-            Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex64)
+            Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex128)
     else:
-        Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex64)
+        Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex128)
 
     # Main Batch Loop
     # Iterate through files in chunks of 'batch_size'
@@ -328,10 +330,10 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
     
     # Mass is constant for all atoms of this type
     mass_val = get_mass_array([atype], atom_dic)[0] # Get scalar mass
-    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float32)
+    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float64)
     
     # All atoms belong to group "0"
-    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int32)
+    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int64)
     num_types = 1
     
     kvec_gpu = jnp.array(kpnt)
@@ -348,10 +350,10 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
                     Sk_sum = np.array([[complex(x) for x in row] for row in reader])
         except Exception:
             print("Load failed, starting fresh.")
-            Sk_sum = np.zeros((3, 3), dtype=np.complex64)
+            Sk_sum = np.zeros((3, 3), dtype=np.complex128)
     else:
         # Partial Sk is usually 3x3 for a single species
-        Sk_sum = np.zeros((3, 3), dtype=np.complex64)
+        Sk_sum = np.zeros((3, 3), dtype=np.complex128)
 
     # --- 3. Batch Processing Loop ---
     for i in tqdm(range(start_idx, len(fnames), batch_size), desc=f'Partial Sk ({atype})'):
