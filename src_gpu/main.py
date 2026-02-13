@@ -50,7 +50,7 @@ if __name__ == "__main__":
     hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
 
     # 3. Define k-path
-    k_path = ['GM', 'h00']
+    k_path = ['GM', 'hh-h']
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
     ph_band = []

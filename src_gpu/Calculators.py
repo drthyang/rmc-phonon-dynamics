@@ -252,7 +252,7 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
 
     # Main Batch Loop
     # Iterate through files in chunks of 'batch_size'
-    for i in tqdm(range(start_idx, len(fnames), batch_size), desc=f'Processing Batches'):
+    for i in tqdm(range(start_idx, len(fnames), batch_size), desc=f'Processing Batches', disable=True):
         # Get list of files for this batch
         batch_files = fnames[i : i + batch_size]
         
