@@ -15,9 +15,8 @@
 
 This repository contains both CPU (`src/`) and GPU (`src_gpu/`) implementations.
 
-* **Standard Version (`src/`):** Compatible with **macOS (Apple Silicon)**, Linux, and Windows. Runs on standard CPUs.
-* **GPU Version (`src_gpu/`):** Requires an **NVIDIA GPU** with CUDA support.
-    * *Note for Mac Users:* The GPU modules in `src_gpu/` likely utilize CUDA and **will not run natively on Apple Silicon** (M1/M2/M3). For local development on a Mac, use the standard `src/` directory. Use `src_gpu/` only when deploying to a Linux cluster with NVIDIA hardware.
+* **Standard Version (`src/`):** Compatible with **macOS**, **Linux**, and **Windows**. Runs on standard CPUs.
+* **GPU Version (`src_gpu/`):** Currently optimized for **macOS (Apple Silicon)** using the Metal framework.
 
 ## Prerequisites
 
