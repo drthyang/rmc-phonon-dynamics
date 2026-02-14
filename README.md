@@ -1,60 +1,90 @@
 # rmcph - Phonon Calculation Code for RMCProfile
+
 ## Overview
-This repository contains code for conducting phonon calculations in solid materials, integrating RMCProfile to analyze total scattering data. The code calculates phonon band structure and irreducible representations using structural ensemble calculated by reverse Monte Carlo modelings.
+**rmcph** is a research code repository for conducting phonon calculations in solid materials, designed to integrate with [RMCProfile](https://rmcprofile.ornl.gov) for analyzing total scattering data. The toolkit calculates phonon band structures and irreducible representations using structural ensembles generated via Reverse Monte Carlo (RMC) modeling.
 
-Main features:
+### Key Features
+- **Phonon Band Structure:** Calculate and plot standard dispersion relations.
+- **Weighted Bands:** Analysis of phonon band weighting.
+- **Phonon DOS:** Calculate total Phonon Density of States.
+- **Partial DOS:** Decompose DOS into partial contributions by element.
+- **Inelastic Neutron Scattering:** Calculate phonon DOS specifically for INS comparison.
+- **Irreducible Representations (IRs):** Compute and visualize IRs in real-space.
 
-- Phonon band structure
-- Weighted phonon band structure
-- Phonon density of states
-- Irreducible representations (IRs)
-- Visualize IRs in real-space
-- Partial phonon density of states
-- Calculate phonon density of states for inelatsic neutron scattering 
+## System Requirements
+
+This repository contains both CPU (`src/`) and GPU (`src_gpu/`) implementations.
+
+* **Standard Version (`src/`):** Compatible with **macOS (Apple Silicon)**, Linux, and Windows. Runs on standard CPUs.
+* **GPU Version (`src_gpu/`):** Requires an **NVIDIA GPU** with CUDA support.
+    * *Note for Mac Users:* The GPU modules in `src_gpu/` likely utilize CUDA and **will not run natively on Apple Silicon** (M1/M2/M3). For local development on a Mac, use the standard `src/` directory. Use `src_gpu/` only when deploying to a Linux cluster with NVIDIA hardware.
 
 ## Prerequisites
 
-To use this code, ensure that you have the following dependencies installed:
+Ensure you have the following installed:
 
-- RMCProfile (https://rmcprofile.ornl.gov)
-- Python 3.x
-- NumPy, SciPy
-- Matplotlib
-- seaborn
-- tqdm
+* [RMCProfile](https://rmcprofile.ornl.gov) (Essential for generating input configurations)
+* **Python 3.x**
+* **Python Dependencies:**
+    * `numpy`
+    * `scipy`
+    * `matplotlib`
+    * `seaborn`
+    * `tqdm`
 
 ## Installation
 
+1.  **Clone the repository:**
+    ```bash
+    git clone [https://github.com/drthyang/rmcph.git](https://github.com/drthyang/rmcph.git)
+    cd rmcph
+    ```
+
+2.  **Install Python dependencies:**
+    ```bash
+    pip install numpy scipy matplotlib seaborn tqdm
+    ```
+
 ## Code Structure
 
-- `src/`: Main source code directory
-  - `main.py`: Primary script for phonon calculations
-  - `Readers.py`: 
-  - `Calculators.py`: 
-  - `Writers.py`:
-  - `Visualization.py`: 
-- `src_gpu/`: GPU Main source code directory
-  - `main.py`: Primary script for phonon calculations
-- `data/`: Input data files
-- `results/`: Output results directory
+The codebase is split between CPU and GPU implementations:
+
+- **`src/`**: Main source code (CPU-based, compatible with all systems)
+  - `main.py`: Core logic and entry point for standard phonon calculations.
+  - `Readers.py`: Handles parsing of RMCProfile output files and structural configuration data.
+  - `Calculators.py`: Contains the core physics algorithms for dynamical matrices and DOS computations.
+  - `Writers.py`: Manages file output for logs, data tables, and visualization exports.
+  - `Visualization.py`: Plotting utilities for band structures and densities of states.
+
+- **`src_gpu/`**: High-performance GPU source code
+  - `main.py`: Primary script for CUDA-accelerated phonon calculations.
+
+- **`data/`**: Input data files and configuration templates.
+- **`results/`**: Directory where output plots and calculation results are saved.
 
 ## Usage
-1. Generating initial files for ensemble calculations.
-   ```python
-   ./gen_configs.sh
-   ```
-2. Performing RMC modelings.
-   ```python
-   ./submit_seq.sh
-   ```
-3. Obtaining fractional coordinations for phonon calculations.
-   ```python
-   ./gen_coords.sh
-   ```
-4. Setting up input files for phonon calculation
-   ```python
-   python ./src/rmc_phonon_calc.py
-   ```
-   
-## Example
 
+The workflow involves generating ensembles, performing RMC modeling, and then running the phonon analysis.
+
+**1. Generate Initial Files**
+Create the initial configuration files required for the ensemble calculations.
+```bash
+./gen_configs.sh
+
+**2. Run RMC modelings**
+Create the initial configuration files required for the ensemble calculations.
+```bash
+./submit_seq.sh
+```
+
+**3. Run RMC modelings**
+Create the initial configuration files required for the ensemble calculations.
+```bash
+./gen_coords.sh
+```
+
+**4. Run RMC modelings**
+Create the initial configuration files required for the ensemble calculations.
+```bash
+python ./src_gpu/main.py
+```
