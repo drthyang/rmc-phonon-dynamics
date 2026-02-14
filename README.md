@@ -70,19 +70,17 @@ The workflow involves generating ensembles, performing RMC modeling, and then ru
 Create the initial configuration files required for the ensemble calculations.
 ```bash
 ./gen_configs.sh
-
+```
 **2. Run RMC modelings**
 Create the initial configuration files required for the ensemble calculations.
 ```bash
 ./submit_seq.sh
 ```
-
 **3. Run RMC modelings**
 Create the initial configuration files required for the ensemble calculations.
 ```bash
 ./gen_coords.sh
 ```
-
 **4. Run RMC modelings**
 Create the initial configuration files required for the ensemble calculations.
 ```bash
