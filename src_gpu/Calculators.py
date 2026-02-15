@@ -179,7 +179,9 @@ def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type
     def single_frame_calc(disp, cell):
         # 1. Phase & Term
         dot_products = jnp.dot(cell, kvec)
+        # check if it has 2*pi
         phase = jnp.exp(1j * dot_products)
+        #phase = jnp.exp(1j * 2 * jnp.pi * dot_products)
         weights = jnp.sqrt(masses)[:, None] * phase[:, None]
         weighted_disp = disp * weights
         
