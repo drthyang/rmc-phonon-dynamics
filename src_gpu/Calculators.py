@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from jax import jit, vmap
 import jax
 
-os.environ["JAX_ENABLE_X64"] = "True"
+#os.environ["JAX_ENABLE_X64"] = "True"
 
 amu = 1.66 * 10**-27 # kg
 kb = 8.6173303 * 10**-2 # meV/K
@@ -64,7 +64,7 @@ def get_mass_array(atom_idx, atom_dic):
 
         # Create a dense array: index = atom_id, value = mass
         # We use float32 for Metal GPU efficiency
-        lut_cpu = np.zeros(max_idx + 1, dtype=np.float64)
+        lut_cpu = np.zeros(max_idx + 1, dtype=np.float32)
 
         for symbol, indices in atom_dic.items():
             mass = atomic_mass.get(symbol, 0.0)
@@ -337,10 +337,10 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
     
     # Mass is constant for all atoms of this type
     mass_val = get_mass_array([atype], atom_dic)[0] # Get scalar mass
-    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float64)
+    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float32)
     
     # All atoms belong to group "0"
-    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int64)
+    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int32)
     num_types = 1
     
     kvec_gpu = jnp.array(kpnt)

@@ -6,7 +6,7 @@ from tqdm import trange
 from collections import defaultdict
 
 # Enable 64-bit precision
-jax.config.update("jax_enable_x64", True)
+#jax.config.update("jax_enable_x64", True)
 
 
 def read_cell_vec(fname, verbose=1):
@@ -31,7 +31,7 @@ def read_cell_vec(fname, verbose=1):
             if key == "Supercell":
                 # Expect last 3 tokens are dimensions
                 try:
-                    dim = np.array(parts[-3:], dtype=np.float64)
+                    dim = np.array(parts[-3:], dtype=np.float32)
                     if verbose:
                         print(f"Supercell dimensions = {dim}")
                 except ValueError:
@@ -40,9 +40,9 @@ def read_cell_vec(fname, verbose=1):
             elif key == "Lattice":
                 # Next three lines contain the lattice vectors
                 try:
-                    v1 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float64)
-                    v2 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float64)
-                    v3 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float64)
+                    v1 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float32)
+                    v2 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float32)
+                    v3 = np.fromstring(next(lines_iter), sep=" ", dtype=np.float32)
                 except StopIteration:
                     raise ValueError("Unexpected end of file while reading Lattice vectors.")
                 except ValueError:
@@ -56,7 +56,7 @@ def read_cell_vec(fname, verbose=1):
                 break
 
     if dim is None:
-        dim = np.array([], dtype=np.float64)  # or raise, depending on your expectation
+        dim = np.array([], dtype=np.float32)  # or raise, depending on your expectation
 
     return v1, v2, v3, dim
 
@@ -119,7 +119,7 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode="Frac"):
         mask = np.isin(atom_type, allowed)
 
     atom_type = atom_type[mask]
-    xyz = arr[mask, 1:4].astype(np.float64) * np.asarray(dim, dtype=np.float64)
+    xyz = arr[mask, 1:4].astype(np.float32) * np.asarray(dim, dtype=np.float32)
     cell_idx = arr[mask, -3:].astype(np.int32)
 
     # Your original wrap: x-dim[0] if x > 1 else x
