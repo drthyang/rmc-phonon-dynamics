@@ -85,3 +85,9 @@ Create the initial configuration files required for the ensemble calculations.
 ```bash
 python ./src_gpu/main.py
 ```
+
+## References
+If you use this code, please cite the following text for the theoretical background on lattice dynamics:
+
+1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
+2. 
