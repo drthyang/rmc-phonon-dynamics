@@ -1,7 +1,9 @@
 # Phonon Calculation Code for RMCProfile
 
 ## Overview
-**rmcph** is a research code repository for conducting phonon calculations in solid materials, designed to integrate with [RMCProfile](https://rmcprofile.ornl.gov) for analyzing total scattering data. The toolkit calculates phonon band structures and irreducible representations using structural ensembles generated via Reverse Monte Carlo (RMC) modeling.
+**rmcph** is a research code repository for conducting phonon calculations in solid materials. The theoretical background and methodology for these calculations are based on previous works [1, 2]. 
+
+The code is designed to integrate with [RMCProfile](https://rmcprofile.ornl.gov) for analyzing total scattering data. The toolkit calculates phonon band structures and irreducible representations using structural ensembles generated via Reverse Monte Carlo (RMC) modeling.
 
 ### Key Features
 - **Phonon Band Structure:** Calculate and plot standard dispersion relations.
