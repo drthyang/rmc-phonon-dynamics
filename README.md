@@ -87,7 +87,6 @@ python ./src_gpu/main.py
 ```
 
 ## References
-If you use this code, please cite the following text for the theoretical background on lattice dynamics:
 
 1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
-2. 
+2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2005). Phonons from Powder Diffraction: A Quantitative Model-Independent Evaluation. *Phys. Rev. Lett.*, **95**, 119901.
