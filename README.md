@@ -90,3 +90,4 @@ python ./src_gpu/main.py
 
 1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
 2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2005). Phonons from Powder Diffraction: A Quantitative Model-Independent Evaluation. *Phys. Rev. Lett.*, **95**, 119901.
+3. Tucker, M. G., Keen, D. A., Dove, M. T., Goodwin, A. L., & Hui, Q. (2007). RMCProfile: Reverse Monte Carlo for polycrystalline materials. *J. Phys.: Condens. Matter*, **19**, 335218.
