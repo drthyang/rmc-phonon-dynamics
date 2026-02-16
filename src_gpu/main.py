@@ -11,9 +11,12 @@ import Writers
 import Visualization
 
 # --- Configuration Constants ---
-amu = 1.66 * 10**-27 
+amu = 1.66 * 10**-27 # kg
 kb = 8.6173303 * 10**-2 # meV/K
-T = 250
+hbar_Js = 1.054571817e-34 # Planck's constant over 2π in Joule-seconds
+meV_to_J = 1.602176634e-22 # 1 meV in Joules
+
+T = 5
 
 #stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
 stempath = '../data/' 
@@ -47,14 +50,18 @@ if __name__ == "__main__":
     print('🔎 Found ** {} ** configurations ... '.format(len(rmcfiles)))
     
     # Calculate average configuration (High Symmetry)
-    hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
+    #hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
+
+    rmcfiles_ini = glob.glob(fpath_eq_frac)
+    hsym_test = Readers.avg_frac_atom_ph(rmcfiles_ini, atom_dic, dim)
 
     # 3. Define k-path
-    k_path = ['GM', 'hh-h']
+    #k_path = ['GM', 'hh-h']
+    k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
     ph_band = []
-    kstep = 32
+    kstep = 16
 
     # 4. Loop over k-path
     # for ii in trange(len(k_path)-1, desc='Overall progress', disable=True):
@@ -99,7 +106,8 @@ if __name__ == "__main__":
                 eigenvalues, eigenvectors = np.linalg.eigh(Sk)
                 
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    ph_band.append(np.sqrt(kb * T / eigenvalues)) 
+                    #ph_band.append(hbar_Js * np.sqrt(kb * T / eigenvalues) / meV_to_J)  # Convert to meV
+                    ph_band.append(np.sqrt(kb * T / eigenvalues))
 
                 # 4-3. Manually update the bar by 1 step
                 pbar.update(1)

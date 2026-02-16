@@ -13,6 +13,11 @@ import jax
 
 os.environ["JAX_ENABLE_X64"] = "True"
 
+amu = 1.66 * 10**-27 # kg
+kb = 8.6173303 * 10**-2 # meV/K
+hbar_Js = 1.054571817e-34 # Planck's constant over 2π in Joule-seconds
+meV_to_J = 1.602176634e-22 # 1 meV in Joules
+
 # Global cache to store the mass table on the GPU so we don't rebuild it every frame.
 _GPU_MASS_TABLE = None
 
@@ -132,7 +137,7 @@ def calc_collect_var(kvec, atype, configuration, cell_idx, hsymconfig, atom_dic)
     """
     # --- Pre-processing (CPU side) ---
     kvec = jnp.array(kvec)
-    displacements = jnp.array(configuration - hsymconfig)
+    displacements = jnp.array(configuration - hsymconfig) # Frac coordinates
     cell_idx = jnp.array(cell_idx)
     
     # 1. Get Masses (using your optimized get_mass_array)
@@ -179,7 +184,9 @@ def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type
     def single_frame_calc(disp, cell):
         # 1. Phase & Term
         dot_products = jnp.dot(cell, kvec)
+        # check if it has 2*pi
         phase = jnp.exp(1j * dot_products)
+        #phase = jnp.exp(1j * 2 * jnp.pi * dot_products)
         weights = jnp.sqrt(masses)[:, None] * phase[:, None]
         weighted_disp = disp * weights
         
