@@ -5,6 +5,10 @@ import jax.numpy as jnp
 from tqdm import trange
 from collections import defaultdict
 
+# Enable 64-bit precision
+jax.config.update("jax_enable_x64", True)
+
+
 def read_cell_vec(fname, verbose=1):
     """Read lattice vectors and supercell dimension from a *.rmc6f (streaming, robust)."""
     if verbose:
