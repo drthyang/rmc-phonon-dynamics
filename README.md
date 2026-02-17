@@ -33,7 +33,7 @@ Ensure you have the following installed:
     * `seaborn`
     * `tqdm`
 
-## Installation
+<!-- ## Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -44,7 +44,7 @@ Ensure you have the following installed:
 2.  **Install Python dependencies:**
     ```bash
     pip install numpy scipy matplotlib seaborn tqdm
-    ```
+    ``` -->
 
 ## Code Structure
 
