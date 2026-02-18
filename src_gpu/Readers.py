@@ -106,17 +106,17 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode="Frac"):
     # col0 = atom_type
     # col1:4 = fractional coords
     # last 3 cols = cell indices
-    atom_type = arr[:, 0].astype(np.int32)
+    atom_type = arr[:, 0].astype(np.int64)
 
     if atype == 0:
         mask = np.ones(atom_type.shape[0], dtype=bool)
     else:
-        allowed = np.array(list(atom_dic[atype]), dtype=np.int32)
+        allowed = np.array(list(atom_dic[atype]), dtype=np.int64)
         mask = np.isin(atom_type, allowed)
 
     atom_type = atom_type[mask]
     xyz = arr[mask, 1:4].astype(np.float64) * np.asarray(dim, dtype=np.float64)
-    cell_idx = arr[mask, -3:].astype(np.int32)
+    cell_idx = arr[mask, -3:].astype(np.int64)
 
     # Your original wrap: x-dim[0] if x > 1 else x
     # This is odd because you compare to 1 after scaling by dim.
@@ -126,7 +126,7 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode="Frac"):
     return atom_type.tolist(), xyz, cell_idx
 
 
-def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=jnp.float32):
+def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=jnp.float64):
     """Calculate average configuration from multiple files (GPU reduction with JAX).
     
     Notes:

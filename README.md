@@ -1,7 +1,9 @@
 # Phonon Calculation Code for RMCProfile
 
 ## Overview
-**rmcph** is a research code repository for conducting phonon calculations in solid materials, designed to integrate with [RMCProfile](https://rmcprofile.ornl.gov) for analyzing total scattering data. The toolkit calculates phonon band structures and irreducible representations using structural ensembles generated via Reverse Monte Carlo (RMC) modeling.
+**rmcph** is a research code repository for conducting phonon calculations in solid materials. The theoretical background and methodology for these calculations are based on previous works [1, 2]. 
+
+The code calculates phonon band structures and irreducible representations using structural ensembles generated via [RMCProfile](https://rmcprofile.ornl.gov). 
 
 ### Key Features
 - **Phonon Band Structure:** Calculate and plot standard dispersion relations.
@@ -31,7 +33,7 @@ Ensure you have the following installed:
     * `seaborn`
     * `tqdm`
 
-## Installation
+<!-- ## Installation
 
 1.  **Clone the repository:**
     ```bash
@@ -42,7 +44,7 @@ Ensure you have the following installed:
 2.  **Install Python dependencies:**
     ```bash
     pip install numpy scipy matplotlib seaborn tqdm
-    ```
+    ``` -->
 
 ## Code Structure
 
@@ -85,3 +87,9 @@ Create the initial configuration files required for the ensemble calculations.
 ```bash
 python ./src_gpu/main.py
 ```
+
+## References
+
+1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
+2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2005). Phonons from Powder Diffraction: A Quantitative Model-Independent Evaluation. *Phys. Rev. Lett.*, **95**, 119901.
+3. Tucker, M. G., Keen, D. A., Dove, M. T., Goodwin, A. L., & Hui, Q. (2007). RMCProfile: Reverse Monte Carlo for polycrystalline materials. *J. Phys.: Condens. Matter*, **19**, 335218.
