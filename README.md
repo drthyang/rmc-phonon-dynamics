@@ -16,7 +16,7 @@
 This repository contains both CPU (`src/`) and GPU (`src_gpu/`) implementations.
 
 * **Standard Version (`src/`):** Compatible with **macOS**, **Linux**, and **Windows**. Runs on standard CPUs.
-* **GPU Version (`src_gpu/`):** Currently optimized for **macOS (Apple Silicon)** using the Metal framework.
+* **GPU Version (`src_gpu/`):** High-performance implementation using JAX, achieving a 20x speedup over the standard CPU version for massive dataset processing.
 
 ## Prerequisites
 
