@@ -126,12 +126,11 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode="Frac"):
     return atom_type.tolist(), xyz, cell_idx
 
 
-def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=jnp.float64):
-    """Calculate average configuration from multiple files (GPU reduction with JAX).
-    
-    Notes:
-      - File I/O stays on CPU (read_frac_atom_ph).
-      - Numeric reduction (mean) runs on GPU via JAX/Metal.
+def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=np.float64):
+    """Calculate average configuration from multiple files (CPU mean with numpy).
+
+    Metal does not support float64, so the mean is computed on CPU with numpy.
+    GPU acceleration is reserved for the heavier Sk_avg computation.
     """
     data_list = []
     cell_tmp = None
@@ -150,13 +149,7 @@ def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=jnp.floa
         cell_tmp = cell_np
         data_list.append(data_np)
 
-    # Stack once on CPU, then move once to GPU
-    data_stack_np = np.stack(data_list, axis=0)  # shape: (nfiles, ...)
-
-    data_stack = jnp.asarray(data_stack_np, dtype=dtype)  # device put (GPU)
-    data_avg = jnp.mean(data_stack, axis=0)
-
-    # If you want a NumPy array returned (CPU), convert back:
-    data_avg_np = np.asarray(jax.device_get(data_avg))
+    data_stack_np = np.stack(data_list, axis=0)
+    data_avg_np = np.mean(data_stack_np, axis=0, dtype=dtype)
 
     return atmtype, data_avg_np, np.asarray(cell_tmp)
