@@ -18,7 +18,7 @@ def gen_vasp_phonon(atom_dic, hsym_test, v1, v2, v3, dim,
     os.makedirs(out_dir, exist_ok=True)
 
     # Supercell lattice matrix (rows = lattice vectors)
-    v_super = np.array([dim[0] * v1, dim[1] * v2, dim[2] * v3])
+    v_super = np.array([v1 / dim[0], v2 / dim[1], v3 / dim[2]])
 
     # Element names and per-element counts, preserving atom_dic insertion order
     elements = list(atom_dic.keys())
@@ -139,7 +139,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     atom_type_list, xyz, _ = hsym_test
 
     # Supercell lattice (rows = vectors, Å)
-    v_super = np.array([dim[0] * v1, dim[1] * v2, dim[2] * v3])
+    v_super = np.array([v1 / dim[0], v2 / dim[1], v3 / dim[2]])
 
     # Reciprocal lattice without 2π: B = inv(A).T  (Å^-1)
     recip = np.linalg.inv(v_super).T

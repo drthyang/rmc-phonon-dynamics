@@ -12,12 +12,16 @@ import Writers
 # atom_dic: element -> sorted list of atom indices (1-based, matching RMC convention)
 atom_dic = {'Ta': [1, 2], 'Ga': [3], 'Se': [4]}
 
-# Primitive cell vectors (Å) and supercell dimension (1×1×1 for simplicity)
-a = 5.178
-v1 = np.array([a, 0.0, 0.0])
-v2 = np.array([0.0, a, 0.0])
-v3 = np.array([0.0, 0.0, a])
-dim = np.array([1.0, 1.0, 1.0])
+# v1/v2/v3 are the RMC SUPERCELL vectors (as read from .rmc6f "Lattice" block).
+# dim is the supercell multiplier. Unit cell = v / dim.
+# This mirrors the real GTS data where v1=82.85 Å and dim=[8,8,8] → a=10.356 Å.
+a_unit = 5.178
+n_sc = 2.0          # 2×2×2 supercell
+a_super = a_unit * n_sc
+v1 = np.array([a_super, 0.0, 0.0])
+v2 = np.array([0.0, a_super, 0.0])
+v3 = np.array([0.0, 0.0, a_super])
+dim = np.array([n_sc, n_sc, n_sc])
 
 # hsym_test = (atom_type_list, xyz, cell_idx)
 # xyz is fractional * dim (here dim=1 so xyz = fractional coords)
@@ -84,8 +88,10 @@ lines = content.splitlines()
 print(f'  Lines written       : {len(lines)}')
 
 # Spot-check key fields
+expected_a = f'{a_unit:.10f}'
 checks = {
     'nqpoint': f'nqpoint: {n_qpts}',
+    f'lattice a = {a_unit} Å (unit cell, not supercell)': expected_a,
     'npath':   f'npath: {len(k_path)-1}',
     'natom':   f'natom: {len(atom_type_list)}',
     'lattice present':       'lattice:',
