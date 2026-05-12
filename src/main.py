@@ -56,6 +56,7 @@ if __name__ == "__main__":
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
     ph_band = []
+    eigenvectors_all = []
     kstep = 32
 
     # 4. Loop over k-path
@@ -101,16 +102,23 @@ if __name__ == "__main__":
                 eigenvalues, eigenvectors = np.linalg.eigh(Sk)
                 
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    ph_band.append(np.sqrt(kb * T / eigenvalues)) 
+                    ph_band.append(np.sqrt(kb * T / eigenvalues))
+
+                eigenvectors_all.append(eigenvectors)
 
                 # 4-3. Manually update the bar by 1 step
                 pbar.update(1)
                 #(Optional) Generate MCIF at Gamma point
                 if jj == 0:
-                    Writers.gen_ev_mcif('../data/GTS_5K.cif', atom_dic, eigenvectors, name=k_path[ii])          
-                       
+                    Writers.gen_ev_mcif('../data/GTS_5K.cif', atom_dic, eigenvectors, name=k_path[ii])
+
     # 5. Plot Bands
     Visualization.plot_phonon_bands(ph_band, k_path, kstep)
+
+    # 6-alt. Write phonopy band.yaml
+    Writers.gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
+                                  ph_band, eigenvectors_all,
+                                  k_path, sym_pnts, kstep)
 
     # 6. PDOS Calculation
     if plot_PDOS:
