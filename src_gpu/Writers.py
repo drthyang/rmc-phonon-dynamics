@@ -1,8 +1,46 @@
 import numpy as np
 import os
 
+from scipy.optimize import linear_sum_assignment
 from pymatgen.core import Structure
 from pymatgen.io.cif import CifWriter
+
+
+def connect_bands(ph_band, eigenvectors_all):
+    """Reorder bands by eigenvector continuity (BAND_CONNECTION=.TRUE. equivalent).
+
+    At each q-point, builds an overlap matrix |<psi_i(q) | psi_j(q+dq)>| and
+    uses the Hungarian algorithm to find the permutation that maximises overlap
+    with the previous q-point's modes.  Degenerate modes are handled gracefully:
+    the assignment still maximises global overlap within the degenerate subspace.
+
+    Parameters
+    ----------
+    ph_band          : list of 1-D arrays (n_modes,), one per q-point
+    eigenvectors_all : list of (n_modes x n_modes) arrays, columns = eigenvectors,
+                       as returned by np.linalg.eigh
+
+    Returns
+    -------
+    ph_band_conn, eigvecs_conn : same structure, with columns/entries reordered
+    """
+    ph_band_conn  = [ph_band[0].copy()]
+    eigvecs_conn  = [eigenvectors_all[0].copy()]
+
+    for qi in range(1, len(ph_band)):
+        ev_prev = eigvecs_conn[qi - 1]          # already reordered at previous step
+        ev_curr = eigenvectors_all[qi]           # raw from np.linalg.eigh
+
+        # Overlap |<prev_i | curr_j>|, shape (n_modes, n_modes)
+        overlap = np.abs(ev_prev.conj().T @ ev_curr)
+
+        # Hungarian: maximise overlap → minimise negative overlap
+        _, col_ind = linear_sum_assignment(-overlap)
+
+        ph_band_conn.append(ph_band[qi][col_ind])
+        eigvecs_conn.append(ev_curr[:, col_ind])
+
+    return ph_band_conn, eigvecs_conn
 
 
 def gen_vasp_phonon(atom_dic, hsym_test, v1, v2, v3, dim,

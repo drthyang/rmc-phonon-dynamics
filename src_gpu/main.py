@@ -60,7 +60,8 @@ if __name__ == "__main__":
     k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
     print('📊 Calculating phonon bands along : {} ...'.format(k_path))
     
-    ph_band = []
+    ph_band          = []
+    eigenvectors_all = []
     kstep = 16
 
     # 4. Loop over k-path
@@ -106,8 +107,8 @@ if __name__ == "__main__":
                 eigenvalues, eigenvectors = np.linalg.eigh(Sk)
                 
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    #ph_band.append(hbar_Js * np.sqrt(kb * T / eigenvalues) / meV_to_J)  # Convert to meV
                     ph_band.append(np.sqrt(kb * T / eigenvalues))
+                eigenvectors_all.append(eigenvectors)
 
                 # 4-3. Manually update the bar by 1 step
                 pbar.update(1)
@@ -115,7 +116,10 @@ if __name__ == "__main__":
                 if jj == 0:
                     Writers.gen_ev_mcif('../data/GTS_5K.cif', atom_dic, eigenvectors, name=k_path[ii])          
                        
-    # 5. Plot Bands
+    # 5. Band connection (eigenvector-based reordering)
+    ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all)
+
+    # 6. Plot Bands
     Visualization.plot_phonon_bands(ph_band, k_path, kstep)
 
     # 6. PDOS Calculation

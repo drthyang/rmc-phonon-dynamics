@@ -61,6 +61,9 @@ for ii in range(len(k_path) - 1):
         eigenvectors_all.append(eigenvectors)
         print('done')
 
+print('Applying band connection ...')
+ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all)
+
 print('Writing band.yaml ...')
 Writers.gen_phonopy_band_yaml(
     atom_dic, hsym_test, v1, v2, v3, dim,
