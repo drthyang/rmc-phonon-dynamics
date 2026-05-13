@@ -12,8 +12,8 @@ import Writers
 
 kb = 8.6173303e-2   # meV/K
 
-#T = 5
-T = 300
+T = 5
+#T = 250
 
 #stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
 stempath = '../data/' 
