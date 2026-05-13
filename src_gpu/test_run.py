@@ -35,7 +35,8 @@ sym_pnts = {
     'h00': np.array([0.5, 0.0, 0.0]),
 }
 
-k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
+#k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
+k_path = ['GM', 'X', 'M', 'GM']
 kstep  = 16          # just 3 q-points — fast enough to verify
 
 print(f'Running {(len(k_path)-1)*kstep} k-points ...')
