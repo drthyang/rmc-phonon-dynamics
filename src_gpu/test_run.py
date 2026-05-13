@@ -39,7 +39,7 @@ sym_pnts = {
 k_path = ['GM', 'X', 'M', 'GM']
 kstep  = 16          # just 3 q-points — fast enough to verify
 
-print(f'Running {(len(k_path)-1)*kstep} k-points ...')
+print(f'Running {(len(k_path)-1)*(kstep+1)} k-points ...')
 
 ph_band          = []
 eigenvectors_all = []
@@ -47,7 +47,7 @@ eigenvectors_all = []
 for ii in range(len(k_path) - 1):
     k_start = sym_pnts[k_path[ii]]
     k_vec   = sym_pnts[k_path[ii + 1]] - k_start
-    for jj in range(kstep):
+    for jj in range(kstep + 1):
         current_k = k_start + jj * k_vec / kstep
         print(f'  k = {current_k}', end=' ... ', flush=True)
 

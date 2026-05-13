@@ -205,7 +205,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
         k_start = sym_pnts[k_path[ii]]
         k_vec   = sym_pnts[k_path[ii + 1]] - k_start
         hsym_qi[len(k_points)] = _hsym_label(k_path[ii], sym_labels)
-        for jj in range(kstep):
+        for jj in range(kstep + 1):
             k_points.append(k_start + jj * k_vec / kstep)
     # Label the very last q-point with the endpoint of the final segment
     hsym_qi[len(k_points) - 1] = _hsym_label(k_path[-1], sym_labels)
@@ -230,7 +230,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     lines.append(f'npath: {n_segments}')
     lines.append('segment_nqpoint:')
     for _ in range(n_segments):
-        lines.append(f'- {kstep}')
+        lines.append(f'- {kstep + 1}')
 
     lines.append('reciprocal_lattice:')
     for rv, lab in zip(recip, ['a*', 'b*', 'c*']):

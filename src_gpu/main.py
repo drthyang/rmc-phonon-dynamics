@@ -86,17 +86,17 @@ if __name__ == "__main__":
     #         #     Writers.gen_ev_mcif('./test.cif', atom_dic, eigenvectors, name=k_path[ii])
 
     # 4-1. Calculate total expected iterations
-    total_iterations = (len(k_path) - 1) * kstep
+    total_iterations = (len(k_path) - 1) * (kstep + 1)
 
     # 4-2. Create the main progress bar
     with tqdm(total=total_iterations, desc='⏩️ Total Progress') as pbar:
-        
+
         # Loop over path segments
         for ii in range(len(k_path)-1):  # Use range, not trange
             k_plot_vec = sym_pnts[k_path[ii+1]] - sym_pnts[k_path[ii]]
-            
-            # Loop over steps in segment
-            for jj in range(kstep):      # Use range, not trange
+
+            # Loop over steps in segment (kstep+1 includes the endpoint)
+            for jj in range(kstep + 1):
                 current_k = sym_pnts[k_path[ii]] + jj * k_plot_vec / kstep
                 
                 # Calculate S(k)
