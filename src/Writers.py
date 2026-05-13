@@ -6,39 +6,83 @@ from pymatgen.core import Structure
 from pymatgen.io.cif import CifWriter
 
 
-def connect_bands(ph_band, eigenvectors_all):
+def _degenerate_groups(freqs, tol):
+    """Return list of index-groups whose frequencies are within tol of each other."""
+    n = len(freqs)
+    visited = [False] * n
+    groups = []
+    for i in range(n):
+        if visited[i]:
+            continue
+        grp = [i]
+        visited[i] = True
+        for j in range(i + 1, n):
+            if not visited[j] and np.isfinite(freqs[i]) and np.isfinite(freqs[j]):
+                if abs(freqs[i] - freqs[j]) <= tol:
+                    grp.append(j)
+                    visited[j] = True
+        groups.append(grp)
+    return groups
+
+
+def connect_bands(ph_band, eigenvectors_all, degenerate_tol=1e-3):
     """Reorder bands by eigenvector continuity (BAND_CONNECTION=.TRUE. equivalent).
 
-    At each q-point, builds an overlap matrix |<psi_i(q) | psi_j(q+dq)>| and
-    uses the Hungarian algorithm to find the permutation that maximises overlap
-    with the previous q-point's modes.  Degenerate modes are handled gracefully:
-    the assignment still maximises global overlap within the degenerate subspace.
+    Algorithm (per q-step):
+      1. Hungarian assignment on |overlap| to get the best global permutation.
+      2. Within each group of near-degenerate modes, SVD-rotate the eigenvectors
+         to best align with the previous q-point's basis before finalising.
+         This removes the arbitrary mixing of degenerate modes that causes
+         spurious crossings near high-symmetry points.
 
     Parameters
     ----------
     ph_band          : list of 1-D arrays (n_modes,), one per q-point
     eigenvectors_all : list of (n_modes x n_modes) arrays, columns = eigenvectors,
                        as returned by np.linalg.eigh
+    degenerate_tol   : float
+        Relative frequency tolerance for grouping near-degenerate modes.
+        Modes within ``degenerate_tol * max(|freq|)`` of each other are treated
+        as a degenerate subspace and SVD-rotated for better alignment.
+        - Default 1e-3 handles numerical noise at genuinely degenerate points.
+        - Increase to ~0.05 if avoided crossings or soft modes still swap.
+        - Set to 0 to disable subspace rotation (pure Hungarian only).
+        Note: increasing kstep (denser q-mesh) is the most effective fix for
+        crossings that occur far from high-symmetry points.
 
     Returns
     -------
     ph_band_conn, eigvecs_conn : same structure, with columns/entries reordered
     """
-    ph_band_conn  = [ph_band[0].copy()]
-    eigvecs_conn  = [eigenvectors_all[0].copy()]
+    ph_band_conn = [ph_band[0].copy()]
+    eigvecs_conn = [eigenvectors_all[0].copy()]
 
     for qi in range(1, len(ph_band)):
-        ev_prev = eigvecs_conn[qi - 1]          # already reordered at previous step
-        ev_curr = eigenvectors_all[qi]           # raw from np.linalg.eigh
+        ev_prev = eigvecs_conn[qi - 1]       # already reordered
+        ev_curr = eigenvectors_all[qi].copy()
 
-        # Overlap |<prev_i | curr_j>|, shape (n_modes, n_modes)
+        # ── Step 1: global Hungarian assignment ──────────────────────────────
         overlap = np.abs(ev_prev.conj().T @ ev_curr)
-
-        # Hungarian: maximise overlap → minimise negative overlap
         _, col_ind = linear_sum_assignment(-overlap)
+        ev_curr      = ev_curr[:, col_ind]
+        freqs_curr   = ph_band[qi][col_ind]
 
-        ph_band_conn.append(ph_band[qi][col_ind])
-        eigvecs_conn.append(ev_curr[:, col_ind])
+        # ── Step 2: SVD rotation within degenerate subspaces ─────────────────
+        if degenerate_tol > 0 and np.any(np.isfinite(freqs_curr)):
+            freq_scale = np.nanmax(np.abs(freqs_curr[np.isfinite(freqs_curr)]))
+            tol = degenerate_tol * max(freq_scale, 1e-12)
+            for grp in _degenerate_groups(freqs_curr, tol):
+                if len(grp) < 2:
+                    continue
+                sub_p = ev_prev[:, grp]
+                sub_c = ev_curr[:, grp]
+                # Find unitary R that maximises Re Tr(sub_p† sub_c R)
+                U, _, Vh = np.linalg.svd(sub_p.conj().T @ sub_c)
+                R = Vh.conj().T @ U.conj().T
+                ev_curr[:, grp] = sub_c @ R
+
+        ph_band_conn.append(freqs_curr)
+        eigvecs_conn.append(ev_curr)
 
     return ph_band_conn, eigvecs_conn
 
