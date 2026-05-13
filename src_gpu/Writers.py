@@ -116,10 +116,20 @@ def _write_kpoints_template(fname):
     with open(fname, 'w') as f:
         f.write(content)
 
+def _hsym_label(name, sym_labels):
+    """Return the display label for a high-symmetry point name."""
+    if sym_labels and name in sym_labels:
+        return sym_labels[name]
+    if name in ('GM', 'Gamma', 'GAMMA', 'G'):
+        return '$\\Gamma$'
+    return name
+
+
 def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
                           ph_band, eigenvectors_all,
                           k_path, sym_pnts, kstep,
                           freq_factor=1.0,
+                          sym_labels=None,
                           out_dir='../results/'):
     '''Write a phonopy-compatible band.yaml from RMC phonon results.
 
@@ -131,6 +141,8 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     sym_pnts         : dict label -> fractional reciprocal coordinates
     kstep            : number of q-points per segment
     freq_factor      : multiply all frequencies by this to convert to THz
+    sym_labels       : optional dict overriding display labels, e.g. {'GM': '$\\Gamma$', 'X': 'X'}
+                       'GM' -> '$\\Gamma$' is applied automatically if not overridden.
 
     Collect eigenvectors in main.py by adding:
         eigenvectors_all = []
@@ -185,13 +197,18 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     all_sorted = sorted(int(idx) for el in elements for idx in atom_dic[el])
     rank = {atom_idx: r for r, atom_idx in enumerate(all_sorted)}
 
-    # Reconstruct k-points in the same order as ph_band (matching main.py loop)
-    k_points = []
+    # Reconstruct k-points in the same order as ph_band (matching main.py loop).
+    # Also record which flat q-point index is a high-symmetry point and its label.
+    k_points  = []
+    hsym_qi   = {}   # qi -> display label string
     for ii in range(len(k_path) - 1):
         k_start = sym_pnts[k_path[ii]]
         k_vec   = sym_pnts[k_path[ii + 1]] - k_start
+        hsym_qi[len(k_points)] = _hsym_label(k_path[ii], sym_labels)
         for jj in range(kstep):
             k_points.append(k_start + jj * k_vec / kstep)
+    # Label the very last q-point with the endpoint of the final segment
+    hsym_qi[len(k_points) - 1] = _hsym_label(k_path[-1], sym_labels)
 
     n_qpoints  = len(k_points)
     n_segments = len(k_path) - 1
@@ -242,6 +259,8 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
 
         lines.append(f'- q-position: [ {kpt[0]:12.8f}, {kpt[1]:12.8f}, {kpt[2]:12.8f} ]')
         lines.append(f'  distance:   {dist:14.8f}')
+        if qi in hsym_qi:
+            lines.append(f'  label: \'{hsym_qi[qi]}\'')
         lines.append('  band:')
 
         for mode_idx in range(n_modes):
