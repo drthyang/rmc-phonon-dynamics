@@ -29,9 +29,10 @@ def gen_vasp_phonon(atom_dic, hsym_test, v1, v2, v3, dim,
     file_order = {int(idx): int(np.where(atom_type_arr == idx)[0][0])
                   for el in elements for idx in atom_dic[el]}
 
-    # Fractional coords in POSCAR element order, wrapped to [0, 1)
+    # Fractional coords in POSCAR element order, wrapped to [0, 1).
+    # xyz is frac_in_file * dim = unit-cell fractional coord; do NOT divide by dim again.
     frac_eq = np.array([
-        (xyz[file_order[idx]] / dim) % 1.0
+        xyz[file_order[idx]] % 1.0
         for el in elements for idx in atom_dic[el]
     ])
 
@@ -166,12 +167,14 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
         'Th':232.04,'Pa':231.04,'U':238.03,
     }
 
-    # Equilibrium fractional coords in element-grouped order
+    # Equilibrium fractional coords in element-grouped order.
+    # xyz from read_frac_atom_ph is frac_in_file * dim, i.e. already the unit-cell
+    # fractional coordinate in [0, 1). Do NOT divide by dim again.
     atom_type_arr = np.array(atom_type_list)
     file_order = {int(idx): int(np.where(atom_type_arr == idx)[0][0])
                   for el in elements for idx in atom_dic[el]}
     frac_eq = np.array([
-        (xyz[file_order[idx]] / dim) % 1.0
+        xyz[file_order[idx]] % 1.0
         for el in elements for idx in atom_dic[el]
     ])
 
@@ -267,7 +270,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
 def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
     '''Generate MCIF files for eigenvectors'''
     structure = Structure.from_file(cifpath)
-    
+
     # Reverse mapping
     rev_atm_dict = {}
     for element, numbers in atom_dic.items():
@@ -278,12 +281,12 @@ def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
 
     for ii in eigen_num:
         eigvecs = np.real(vectors[ii].reshape(len(vectors[ii])//3, 3))
-        
+
         for jj in np.arange(len(labels_list)):
             atm_tmp = rev_atm_dict[jj+1]
             # Assumes 1-based indexing in atom_dic
-            label_tmp = atm_tmp + str(jj+1) 
-            
+            label_tmp = atm_tmp + str(jj+1)
+
             # Find index in structure structure
             # Note: This requires the structure labels to match exactly
             try:
@@ -293,13 +296,13 @@ def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
                 print(f"Warning: Label {label_tmp} not found in structure.")
 
         mcif_writer = CifWriter(structure, write_magmoms=True)
-        
+
         out_dir = '../results/Eigenvectors/'
         # Create the directory if it doesn't exist
-        os.makedirs(out_dir, exist_ok=True)        
+        os.makedirs(out_dir, exist_ok=True)
         if name is None:
             fname = f'{out_dir}Eigenvector_#{ii}.mcif'
         else:
             fname = f'{out_dir}Eigenvector_#{ii}_{name}.mcif'
-            
+
         mcif_writer.write_file(fname)

@@ -25,12 +25,18 @@ rmcfiles_ini = glob.glob(fpath_eq_frac)
 hsym_test    = Readers.avg_frac_atom_ph(rmcfiles_ini, atom_dic, dim)
 
 sym_pnts = {
+    'A': np.array([0.5, 0.5, 0.5]),
     'GM': np.array([0.0, 0.0, 0.0]),
-    'X':  np.array([0.0, 0.5, 0.0]),
+    'M': np.array([0.5, 0.5, 0.0]),
+    'R': np.array([0.0, 0.5, 0.5]),
+    'X': np.array([0.0, 0.5, 0.0]),
+    'Z': np.array([0.0, 0.0, 0.5]),
+    'hh-h': np.array([0.5, 0.5, -0.5]),
+    'h00': np.array([0.5, 0.0, 0.0]),
 }
 
-k_path = ['GM', 'X']
-kstep  = 3          # just 3 q-points — fast enough to verify
+k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
+kstep  = 16          # just 3 q-points — fast enough to verify
 
 print(f'Running {(len(k_path)-1)*kstep} k-points ...')
 
