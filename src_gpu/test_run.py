@@ -11,12 +11,15 @@ import Calculators
 import Writers
 
 kb = 8.6173303e-2   # meV/K
-T  = 5
 
-stempath    = '../data/'
-fpath_eq    = stempath + '5K_ini/GTS_5K.rmc6f'
-fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
-fpath       = stempath + 'ensemble_20A_5K/configs/'
+#T = 5
+T = 300
+
+#stempath = '/Users/tt9/Research/LacunarSpinels/rmc/server_data/phonon/' 
+stempath = '../data/' 
+fpath_eq = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
+fpath_eq_frac = stempath + f'{T}K_ini/Frac_coord_GTS_{T}K.txt'
+fpath = stempath + f'ensemble_20A_{T}K/configs/'
 
 atom_dic        = Readers.get_atom_idx(fpath_eq)
 v1, v2, v3, dim = Readers.read_cell_vec(fpath_eq)
@@ -37,7 +40,7 @@ sym_pnts = {
 
 #k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
 k_path = ['GM', 'X', 'M', 'GM']
-kstep  = 16          # just 3 q-points — fast enough to verify
+kstep  = 16          
 
 print(f'Running {(len(k_path)-1)*(kstep+1)} k-points ...')
 
@@ -62,7 +65,7 @@ for ii in range(len(k_path) - 1):
         print('done')
 
 print('Applying band connection ...')
-ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all)
+ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all, degenerate_tol=5e-3)
 
 print('Writing band.yaml ...')
 Writers.gen_phonopy_band_yaml(

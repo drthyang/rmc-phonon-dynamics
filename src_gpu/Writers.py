@@ -25,66 +25,94 @@ def _degenerate_groups(freqs, tol):
     return groups
 
 
-def connect_bands(ph_band, eigenvectors_all, degenerate_tol=1e-3):
+def connect_bands(ph_band, eigenvectors_all,
+                  degenerate_tol=1e-3, n_passes=2, freq_weight=0.0):
     """Reorder bands by eigenvector continuity (BAND_CONNECTION=.TRUE. equivalent).
 
-    Algorithm (per q-step):
-      1. Hungarian assignment on |overlap| to get the best global permutation.
+    Algorithm (per q-step, repeated n_passes times):
+      1. Hungarian assignment on a combined score:
+            score = |overlap| * exp(-freq_weight * |Δω| / ω_scale)
+         Pure eigenvector overlap when freq_weight=0; add frequency continuity
+         as a tie-breaker by increasing freq_weight.
       2. Within each group of near-degenerate modes, SVD-rotate the eigenvectors
          to best align with the previous q-point's basis before finalising.
-         This removes the arbitrary mixing of degenerate modes that causes
-         spurious crossings near high-symmetry points.
+      Multiple passes improve reliability: pass 1 builds a globally consistent
+      ordering; pass 2+ refines it using the now-smoother eigenvectors as reference.
 
     Parameters
     ----------
     ph_band          : list of 1-D arrays (n_modes,), one per q-point
     eigenvectors_all : list of (n_modes x n_modes) arrays, columns = eigenvectors,
                        as returned by np.linalg.eigh
-    degenerate_tol   : float
-        Relative frequency tolerance for grouping near-degenerate modes.
-        Modes within ``degenerate_tol * max(|freq|)`` of each other are treated
-        as a degenerate subspace and SVD-rotated for better alignment.
-        - Default 1e-3 handles numerical noise at genuinely degenerate points.
-        - Increase to ~0.05 if avoided crossings or soft modes still swap.
-        - Set to 0 to disable subspace rotation (pure Hungarian only).
-        Note: increasing kstep (denser q-mesh) is the most effective fix for
-        crossings that occur far from high-symmetry points.
+    degenerate_tol   : float, default 1e-3
+        Relative frequency tolerance for degenerate-subspace SVD rotation.
+        Increase to 0.05–0.1 for densely packed spectra or avoided crossings.
+        Set to 0 to disable.
+    n_passes         : int, default 2
+        Number of forward passes over the full q-path.
+        Pass 1 gives approximate global continuity; pass 2+ refines ambiguous
+        assignments that were locally suboptimal in the previous pass.
+        Values of 2–3 are usually sufficient; rarely need more than 4.
+    freq_weight      : float, default 0.0
+        Weight for frequency-continuity penalty in the assignment score.
+        score[i,j] *= exp(-freq_weight * |ω_prev_i - ω_curr_j| / ω_scale)
+        Try 1–5 to penalise large frequency jumps when eigenvector overlaps
+        are ambiguous (dense spectrum, noisy RMC data).
+        Too large a value can override genuine band crossings — use cautiously.
 
     Returns
     -------
     ph_band_conn, eigvecs_conn : same structure, with columns/entries reordered
     """
-    ph_band_conn = [ph_band[0].copy()]
-    eigvecs_conn = [eigenvectors_all[0].copy()]
+    # Work on copies so the originals are not mutated
+    current_band   = [f.copy() for f in ph_band]
+    current_eigvec = [e.copy() for e in eigenvectors_all]
 
-    for qi in range(1, len(ph_band)):
-        ev_prev = eigvecs_conn[qi - 1]       # already reordered
-        ev_curr = eigenvectors_all[qi].copy()
+    for _ in range(n_passes):
+        new_band   = [current_band[0].copy()]
+        new_eigvec = [current_eigvec[0].copy()]
 
-        # ── Step 1: global Hungarian assignment ──────────────────────────────
-        overlap = np.abs(ev_prev.conj().T @ ev_curr)
-        _, col_ind = linear_sum_assignment(-overlap)
-        ev_curr      = ev_curr[:, col_ind]
-        freqs_curr   = ph_band[qi][col_ind]
+        for qi in range(1, len(current_band)):
+            ev_prev     = new_eigvec[qi - 1]           # already reordered this pass
+            ev_curr     = current_eigvec[qi].copy()
+            freqs_prev  = new_band[qi - 1]
+            freqs_curr  = current_band[qi]
 
-        # ── Step 2: SVD rotation within degenerate subspaces ─────────────────
-        if degenerate_tol > 0 and np.any(np.isfinite(freqs_curr)):
-            freq_scale = np.nanmax(np.abs(freqs_curr[np.isfinite(freqs_curr)]))
-            tol = degenerate_tol * max(freq_scale, 1e-12)
-            for grp in _degenerate_groups(freqs_curr, tol):
-                if len(grp) < 2:
-                    continue
-                sub_p = ev_prev[:, grp]
-                sub_c = ev_curr[:, grp]
-                # Find unitary R that maximises Re Tr(sub_p† sub_c R)
-                U, _, Vh = np.linalg.svd(sub_p.conj().T @ sub_c)
-                R = Vh.conj().T @ U.conj().T
-                ev_curr[:, grp] = sub_c @ R
+            # ── Step 1: combined assignment score ────────────────────────────
+            overlap = np.abs(ev_prev.conj().T @ ev_curr)
 
-        ph_band_conn.append(freqs_curr)
-        eigvecs_conn.append(ev_curr)
+            if freq_weight > 0 and np.any(np.isfinite(freqs_curr)):
+                finite_mask = np.isfinite(freqs_prev) & np.isfinite(freqs_curr[:1])
+                freq_scale  = np.nanmax(np.abs(freqs_curr[np.isfinite(freqs_curr)]))
+                freq_scale  = max(freq_scale, 1e-12)
+                # |ω_prev[i] - ω_curr[j]| for all (i,j) pairs
+                delta_freq  = np.abs(freqs_prev[:, None] - freqs_curr[None, :])
+                overlap     = overlap * np.exp(-freq_weight * delta_freq / freq_scale)
 
-    return ph_band_conn, eigvecs_conn
+            _, col_ind = linear_sum_assignment(-overlap)
+            ev_curr    = ev_curr[:, col_ind]
+            freqs_curr = freqs_curr[col_ind]
+
+            # ── Step 2: SVD rotation within degenerate subspaces ─────────────
+            if degenerate_tol > 0 and np.any(np.isfinite(freqs_curr)):
+                freq_scale = np.nanmax(np.abs(freqs_curr[np.isfinite(freqs_curr)]))
+                tol = degenerate_tol * max(freq_scale, 1e-12)
+                for grp in _degenerate_groups(freqs_curr, tol):
+                    if len(grp) < 2:
+                        continue
+                    sub_p = ev_prev[:, grp]
+                    sub_c = ev_curr[:, grp]
+                    U, _, Vh = np.linalg.svd(sub_p.conj().T @ sub_c)
+                    R = Vh.conj().T @ U.conj().T
+                    ev_curr[:, grp] = sub_c @ R
+
+            new_band.append(freqs_curr)
+            new_eigvec.append(ev_curr)
+
+        current_band   = new_band
+        current_eigvec = new_eigvec
+
+    return current_band, current_eigvec
 
 
 def gen_vasp_phonon(atom_dic, hsym_test, v1, v2, v3, dim,
