@@ -62,9 +62,8 @@ def get_mass_array(atom_idx, atom_dic):
         else:
             max_idx = max(all_indices)
 
-        # Create a dense array: index = atom_id, value = mass
-        # We use float32 for Metal GPU efficiency
-        lut_cpu = np.zeros(max_idx + 1, dtype=np.float64)
+        # float32: Metal does not support float64
+        lut_cpu = np.zeros(max_idx + 1, dtype=np.float32)
 
         for symbol, indices in atom_dic.items():
             mass = atomic_mass.get(symbol, 0.0)
@@ -136,9 +135,9 @@ def calc_collect_var(kvec, atype, configuration, cell_idx, hsymconfig, atom_dic)
     Wrapper function. Prepares data on CPU, executes on GPU.
     """
     # --- Pre-processing (CPU side) ---
-    kvec = jnp.array(kvec)
-    displacements = jnp.array(configuration - hsymconfig) # Frac coordinates
-    cell_idx = jnp.array(cell_idx)
+    kvec = jnp.array(kvec, dtype=jnp.float32)
+    displacements = jnp.array(configuration - hsymconfig, dtype=jnp.float32)
+    cell_idx = jnp.array(cell_idx, dtype=jnp.float32)
     
     # 1. Get Masses (using your optimized get_mass_array)
     mass_array = get_mass_array(atype, atom_dic)
@@ -151,7 +150,7 @@ def calc_collect_var(kvec, atype, configuration, cell_idx, hsymconfig, atom_dic)
     # CRITICAL: This must be a standard Python int, not a JAX array
     num_types = int(len(unique_types))
     
-    type_indices = jnp.array(type_indices)
+    type_indices = jnp.array(type_indices, dtype=jnp.int32)
     
     # --- GPU Execution ---
     return _calc_collect_var_kernel(
@@ -172,43 +171,46 @@ except ImportError:
 
 # --- 1. The Fixed GPU Kernel ---
 
-# FIX: We tell JAX that argument #5 (num_types) is a static integer.
-@partial(jit, static_argnums=(5,)) 
+# Metal does not support complex<f32> in GPU kernels, so we split U_k into
+# real (A) and imaginary (B) parts and compute:
+#   Sk_real = A^T A + B^T B
+#   Sk_imag = B^T A - A^T B
+# Both outputs are float32; the caller recombines them on CPU.
+@partial(jit, static_argnums=(5,))
 def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type_indices, num_types):
-    """
-    Computes Sk for a batch.
-    num_types (arg 5) MUST be static so JAX knows the output shape.
-    """
-    
-    # Define the logic for a single frame
-    def single_frame_calc(disp, cell):
-        # 1. Phase & Term
-        dot_products = jnp.dot(cell, kvec)
-        # check if it has 2*pi
-        phase = jnp.exp(1j * dot_products)
-        #phase = jnp.exp(1j * 2 * jnp.pi * dot_products)
-        weights = jnp.sqrt(masses)[:, None] * phase[:, None]
-        weighted_disp = disp * weights
-        
-        # 2. Segment Sum (Group by atom type)
-        # num_types is now a constant integer here, so this works!
-        summed = segment_sum(weighted_disp, type_indices, num_segments=num_types)
-        
-        # 3. Normalize
-        counts = segment_sum(jnp.ones_like(type_indices), type_indices, num_segments=num_types)
-        norm_factors = 1.0 / jnp.sqrt(jnp.maximum(counts, 1.0))
-        U_k = (summed * norm_factors[:, None]).reshape(1, -1)
-        
-        # 4. Calculate Sk (U.T @ U.conj)
-        # Result shape: (3*num_types, 3*num_types)
-        return jnp.matmul(U_k.T, U_k.conj())
+    """Returns (Sk_real, Sk_imag) as float32 arrays of shape (3*num_types, 3*num_types)."""
 
-    # Apply to batch using vmap
-    # in_axes=(0, 0) -> First two args map over axis 0 (Batch dimension)
-    batch_Sk = vmap(single_frame_calc, in_axes=(0, 0))(displacements_batch, cell_idx_batch)
-    
-    # Sum the results on the GPU before returning to Python
-    return jnp.sum(batch_Sk, axis=0)
+    def single_frame_calc(disp, cell):
+        # Phase: e^(i k·n) = cos(k·n) + i sin(k·n)
+        dot_products = jnp.dot(cell, kvec)          # (N,)
+        cos_p = jnp.cos(dot_products)               # (N,)
+        sin_p = jnp.sin(dot_products)               # (N,)
+
+        sqrt_m = jnp.sqrt(masses)                   # (N,)
+
+        # Weighted displacements split into real and imaginary contributions
+        wd_real = disp * (sqrt_m * cos_p)[:, None]  # (N, 3)
+        wd_imag = disp * (sqrt_m * sin_p)[:, None]  # (N, 3)
+
+        # Segment sum by atom type — use float32 ones to keep counts in float32
+        ones_f32 = jnp.ones(type_indices.shape[0], dtype=jnp.float32)
+        sum_real = segment_sum(wd_real, type_indices, num_segments=num_types)  # (T, 3)
+        sum_imag = segment_sum(wd_imag, type_indices, num_segments=num_types)
+        counts   = segment_sum(ones_f32, type_indices, num_segments=num_types) # (T,) float32
+
+        norm = (jnp.float32(1.0) / jnp.sqrt(jnp.maximum(counts, jnp.float32(1.0))))[:, None]
+
+        A = (sum_real * norm).reshape(-1)   # real part of U_k, shape (3T,)
+        B = (sum_imag * norm).reshape(-1)   # imag part of U_k, shape (3T,)
+
+        # Sk = U.T @ U.conj,  U = A + iB
+        Sk_real = jnp.outer(A, A) + jnp.outer(B, B)
+        Sk_imag = jnp.outer(B, A) - jnp.outer(A, B)
+        return Sk_real, Sk_imag
+
+    batch_real, batch_imag = vmap(single_frame_calc, in_axes=(0, 0))(
+        displacements_batch, cell_idx_batch)
+    return jnp.sum(batch_real, axis=0), jnp.sum(batch_imag, axis=0)
 
 
 # --- 2. The Driver Function ---
@@ -232,76 +234,66 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
         masses_gpu = jnp.array(mass_array)
         
         unique_types, type_indices_cpu = np.unique(atype_static, return_inverse=True)
-        type_indices_gpu = jnp.array(type_indices_cpu)
+        type_indices_gpu = jnp.array(type_indices_cpu, dtype=jnp.int32)
         
         # CRITICAL: Ensure this is a standard Python int
         num_types = int(len(unique_types))
         
-        kvec_gpu = jnp.array(kpnt)
+        kvec_gpu = jnp.array(kpnt, dtype=jnp.float32)
         
         # Calculate matrix dimension size for initialization
         dim_size = num_types * 3
 
     # Load previous progress if exists
+    Sk_sum_real = np.zeros((dim_size, dim_size), dtype=np.float32)
+    Sk_sum_imag = np.zeros((dim_size, dim_size), dtype=np.float32)
+
     if loadfile and os.path.exists(saved_Sk_path):
         print(f"Loading from {saved_Sk_path}...")
         try:
             with open(saved_Sk_path, 'r') as file:
                 reader = csv.reader(file)
                 header = next(reader)
-                # Check if file matches expected dimensions
                 if int(header[0]) <= len(fnames):
                     start_idx = int(header[0])
-                    Sk_sum = np.array([[complex(x) for x in row] for row in reader])
+                    Sk_loaded = np.array([[complex(x) for x in row] for row in reader])
+                    Sk_sum_real = np.real(Sk_loaded).astype(np.float32)
+                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float32)
         except Exception:
             print("Load failed, starting fresh.")
-            Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex128)
-    else:
-        Sk_sum = np.zeros((dim_size, dim_size), dtype=np.complex128)
 
     # Main Batch Loop
-    # Iterate through files in chunks of 'batch_size'
     for i in tqdm(range(start_idx, len(fnames), batch_size), desc=f'Processing Batches', disable=True):
-        # Get list of files for this batch
         batch_files = fnames[i : i + batch_size]
-        
+
         disp_list = []
         cell_list = []
-        
-        # Read batch from disk (CPU bottleneck)
+
         for fname in batch_files:
             _, config, cell_idx = Readers.read_frac_atom_ph(fname, atom_dic, dim)
-            # Calculate displacement relative to reference structure
             disp = config - hsym_config[1]
             disp_list.append(disp)
             cell_list.append(cell_idx)
-            
-        # Stack and Move to GPU
-        # Convert list of arrays -> single numpy array -> JAX array
-        disp_batch_gpu = jnp.array(np.stack(disp_list))
-        cell_batch_gpu = jnp.array(np.stack(cell_list))
-        
-        # Execute Kernel
-        batch_result = process_batch_kernel(
-            kvec_gpu, 
-            disp_batch_gpu, 
-            cell_batch_gpu, 
-            masses_gpu, 
-            type_indices_gpu, 
-            num_types  # Passed as static int
-        )
-        
-        # Accumulate result (Wait for GPU here)
-        Sk_sum += np.array(batch_result)
-        
-        # Optional: Save every 500 frames or so to prevent data loss
+
+        disp_batch_gpu = jnp.array(np.stack(disp_list), dtype=jnp.float32)
+        cell_batch_gpu = jnp.array(np.stack(cell_list), dtype=jnp.float32)
+
+        batch_real, batch_imag = process_batch_kernel(
+            kvec_gpu, disp_batch_gpu, cell_batch_gpu,
+            masses_gpu, type_indices_gpu, num_types)
+
+        Sk_sum_real += np.array(batch_real)
+        Sk_sum_imag += np.array(batch_imag)
+
         if (i + len(batch_files)) % 500 == 0 and save:
-             with open(saved_Sk_path, 'w', newline='') as file:
+            Sk_save = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
+            with open(saved_Sk_path, 'w', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow([i + len(batch_files)])
-                writer.writerows(Sk_sum)
+                writer.writerows(Sk_save)
 
-    # Final Save
+    Sk_sum = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
+
     if save:
         with open(saved_Sk_path, 'w', newline='') as file:
             writer = csv.writer(file)
@@ -337,15 +329,18 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
     
     # Mass is constant for all atoms of this type
     mass_val = get_mass_array([atype], atom_dic)[0] # Get scalar mass
-    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float64)
+    masses_gpu = jnp.full((num_target_atoms,), mass_val, dtype=jnp.float32)
     
     # All atoms belong to group "0"
-    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int64)
+    type_indices_gpu = jnp.zeros(num_target_atoms, dtype=jnp.int32)
     num_types = 1
     
-    kvec_gpu = jnp.array(kpnt)
+    kvec_gpu = jnp.array(kpnt, dtype=jnp.float32)
 
     # --- 2. Load Previous Progress ---
+    Sk_sum_real = np.zeros((3, 3), dtype=np.float32)
+    Sk_sum_imag = np.zeros((3, 3), dtype=np.float32)
+
     if loadfile and os.path.exists(saved_Sk_path):
         print(f"Loading partial progress from {saved_Sk_path}...")
         try:
@@ -354,63 +349,45 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
                 header = next(reader)
                 if int(header[0]) <= len(fnames):
                     start_idx = int(header[0])
-                    Sk_sum = np.array([[complex(x) for x in row] for row in reader])
+                    Sk_loaded = np.array([[complex(x) for x in row] for row in reader])
+                    Sk_sum_real = np.real(Sk_loaded).astype(np.float32)
+                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float32)
         except Exception:
             print("Load failed, starting fresh.")
-            Sk_sum = np.zeros((3, 3), dtype=np.complex128)
-    else:
-        # Partial Sk is usually 3x3 for a single species
-        Sk_sum = np.zeros((3, 3), dtype=np.complex128)
 
     # --- 3. Batch Processing Loop ---
     for i in tqdm(range(start_idx, len(fnames), batch_size), desc=f'Partial Sk ({atype})'):
         batch_files = fnames[i : i + batch_size]
-        
+
         disp_list = []
         cell_list = []
-        
+
         for fname in batch_files:
-            # Readers.read... returns ONLY the atoms of 'atype' because we passed it as an arg
             test = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
-            
-            # test[1] is config (N_subset, 3)
-            # test[2] is cell_idx (N_subset, 3)
-            current_config = test[1]
-            current_cell_idx = test[2]
-            
-            # Calculate displacement using the sliced reference
-            # Note: We do this on CPU before stacking
-            disp = current_config - hsym_ref_subset
-            
+            disp = test[1] - hsym_ref_subset
             disp_list.append(disp)
-            cell_list.append(current_cell_idx)
-            
-        # Stack into (Batch, N_subset, 3)
-        disp_batch_gpu = jnp.array(np.stack(disp_list))
-        cell_batch_gpu = jnp.array(np.stack(cell_list))
-        
-        # Execute GPU Kernel
-        # We reuse the SAME kernel from the previous answer!
-        batch_result = process_batch_kernel(
-            kvec_gpu, 
-            disp_batch_gpu, 
-            cell_batch_gpu, 
-            masses_gpu, 
-            type_indices_gpu, 
-            num_types  # Passed as static int (1)
-        )
-        
-        # Accumulate
-        Sk_sum += np.array(batch_result)
-        
-        # Periodic Save
+            cell_list.append(test[2])
+
+        disp_batch_gpu = jnp.array(np.stack(disp_list), dtype=jnp.float32)
+        cell_batch_gpu = jnp.array(np.stack(cell_list), dtype=jnp.float32)
+
+        batch_real, batch_imag = process_batch_kernel(
+            kvec_gpu, disp_batch_gpu, cell_batch_gpu,
+            masses_gpu, type_indices_gpu, num_types)
+
+        Sk_sum_real += np.array(batch_real)
+        Sk_sum_imag += np.array(batch_imag)
+
         if (i + len(batch_files)) % 500 == 0 and save:
-             with open(saved_Sk_path, 'w', newline='') as file:
+            Sk_save = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
+            with open(saved_Sk_path, 'w', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow([i + len(batch_files)])
-                writer.writerows(Sk_sum)
+                writer.writerows(Sk_save)
 
     # --- 4. Final Save ---
+    Sk_sum = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
+
     if save:
         with open(saved_Sk_path, 'w', newline='') as file:
             writer = csv.writer(file)
