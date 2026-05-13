@@ -57,9 +57,17 @@ for ii in range(len(k_path) - 1):
         Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k,
                                 loadfile=False, save=False)
 
+        # Enforce exact Hermitian — float32 GPU output is slightly asymmetric
+        Sk = (Sk + Sk.conj().T) / 2
         eigenvalues, eigenvectors = np.linalg.eigh(Sk)
+
+        # Signed frequency: negative eigenvalues → imaginary (soft/unstable) modes
         with np.errstate(divide='ignore', invalid='ignore'):
-            ph_band.append(np.sqrt(kb * T / eigenvalues))
+            safe_ev = np.where(eigenvalues != 0, eigenvalues, 1.0)
+            freqs = np.where(eigenvalues > 0,
+                             np.sqrt(kb * T / safe_ev),
+                             -np.sqrt(kb * T / np.abs(safe_ev)))
+        ph_band.append(freqs)
 
         eigenvectors_all.append(eigenvectors)
         print('done')

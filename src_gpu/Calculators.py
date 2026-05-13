@@ -244,9 +244,9 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
         # Calculate matrix dimension size for initialization
         dim_size = num_types * 3
 
-    # Load previous progress if exists
-    Sk_sum_real = np.zeros((dim_size, dim_size), dtype=np.float32)
-    Sk_sum_imag = np.zeros((dim_size, dim_size), dtype=np.float32)
+    # Accumulate in float64 on CPU to avoid rounding error when summing many float32 batches
+    Sk_sum_real = np.zeros((dim_size, dim_size), dtype=np.float64)
+    Sk_sum_imag = np.zeros((dim_size, dim_size), dtype=np.float64)
 
     if loadfile and os.path.exists(saved_Sk_path):
         print(f"Loading from {saved_Sk_path}...")
@@ -282,8 +282,8 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
             kvec_gpu, disp_batch_gpu, cell_batch_gpu,
             masses_gpu, type_indices_gpu, num_types)
 
-        Sk_sum_real += np.array(batch_real)
-        Sk_sum_imag += np.array(batch_imag)
+        Sk_sum_real += np.array(batch_real, dtype=np.float64)
+        Sk_sum_imag += np.array(batch_imag, dtype=np.float64)
 
         if (i + len(batch_files)) % 500 == 0 and save:
             Sk_save = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
@@ -375,8 +375,8 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
             kvec_gpu, disp_batch_gpu, cell_batch_gpu,
             masses_gpu, type_indices_gpu, num_types)
 
-        Sk_sum_real += np.array(batch_real)
-        Sk_sum_imag += np.array(batch_imag)
+        Sk_sum_real += np.array(batch_real, dtype=np.float64)
+        Sk_sum_imag += np.array(batch_imag, dtype=np.float64)
 
         if (i + len(batch_files)) % 500 == 0 and save:
             Sk_save = Sk_sum_real.astype(np.complex128) + 1j * Sk_sum_imag
