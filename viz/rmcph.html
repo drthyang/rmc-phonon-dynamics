@@ -5,326 +5,360 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rmcph — RMC Phonon Viewer</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="phonon_assets/css/style.css">
 
 <style>
-/* ── Design tokens ───────────────────────────────────────────────────── */
+/* ── Tokens ──────────────────────────────────────────────────────────── */
 :root {
-    --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --blue:       #0ea5e9;
-    --blue-dark:  #0284c7;
-    --blue-deep:  #0369a1;
-    --navy:       #0f2744;
-    --bg-page:    #f8fafc;
-    --bg-sidebar: #f1f5f9;
-    --bg-input:   #ffffff;
-    --border:     #cbd5e1;
-    --border-light: #e2e8f0;
-    --text:       #1e293b;
-    --text-muted: #64748b;
-    --text-faint: #94a3b8;
-    --radius-sm:  4px;
-    --radius:     6px;
-    --shadow-sm:  0 1px 2px rgba(0,0,0,0.07);
-    --shadow:     0 2px 6px rgba(0,0,0,0.1);
-    --transition: 0.13s ease;
+    --font:       'Inter', system-ui, -apple-system, sans-serif;
+
+    /* Accent */
+    --accent:     #2563eb;
+    --accent-h:   #1d4ed8;
+    --accent-dim: rgba(37,99,235,0.15);
+
+    /* Neutrals */
+    --c0:  #ffffff;
+    --c50: #fafafa;
+    --c100:#f4f4f5;
+    --c200:#e4e4e7;
+    --c300:#d4d4d8;
+    --c400:#a1a1aa;
+    --c500:#71717a;
+    --c700:#3f3f46;
+    --c900:#18181b;
+
+    /* Header */
+    --hdr-bg: #111827;
+
+    /* Component sizing */
+    --h: 24px;           /* universal input/button height */
+    --r: 5px;            /* border-radius */
+    --r-pill: 999px;
+
+    /* Shadows */
+    --sh1: 0 1px 2px rgba(0,0,0,0.08);
+    --sh2: 0 4px 12px rgba(0,0,0,0.10);
+
+    --dur: 0.12s;
 }
 
-/* ── Base ────────────────────────────────────────────────────────────── */
+/* ── Reset / base ────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
 html, body {
-    margin: 0; padding: 0; height: 100%;
-    overflow: hidden;
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
     font-family: var(--font);
-    font-size: 12px;
-    color: var(--text);
+    font-size: 12px; line-height: 1.4;
+    color: var(--c900);
+    background: var(--c100);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Root: header + content stacked vertically ───────────────────────── */
+/* ── App shell ───────────────────────────────────────────────────────── */
 #rmcph-root {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
+    display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
 }
 
-/* ── Header bar ──────────────────────────────────────────────────────── */
+/* ── Header ──────────────────────────────────────────────────────────── */
 #rmcph-header {
-    display: flex; align-items: center; gap: 14px;
-    padding: 0 16px; height: 38px; flex-shrink: 0;
-    background: linear-gradient(90deg, var(--navy) 0%, #14457a 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 18px; height: 42px; flex-shrink: 0;
+    background: var(--hdr-bg);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.4), var(--sh2);
+    z-index: 10;
 }
-#rmcph-header .brand {
-    font-size: 15px; font-weight: 700; letter-spacing: -0.3px;
+.hdr-brand {
+    font-size: 14px; font-weight: 700; letter-spacing: -0.4px;
     color: #fff;
 }
-#rmcph-header .subtitle {
-    font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.6);
-    letter-spacing: 0.01em;
+.hdr-sub {
+    font-size: 11px; color: rgba(255,255,255,0.4);
+    font-weight: 400; letter-spacing: 0.01em;
 }
-#rmcph-header .sep {
-    width: 1px; height: 18px; background: rgba(255,255,255,0.18);
+.hdr-sep {
+    width: 1px; height: 16px;
+    background: rgba(255,255,255,0.12); flex-shrink: 0;
 }
-#rmcph-header label {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 11px; color: rgba(255,255,255,0.8);
+.hdr-load {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 28px; padding: 0 11px;
+    font-family: var(--font); font-size: 11px; font-weight: 500;
+    color: rgba(255,255,255,0.75);
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: var(--r);
     cursor: pointer;
-    padding: 4px 10px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: var(--radius-sm);
-    transition: background var(--transition);
+    transition: background var(--dur), border-color var(--dur), color var(--dur);
+    user-select: none;
 }
-#rmcph-header label:hover { background: rgba(255,255,255,0.18); }
-#rmcph-header input[type=file] {
-    width: 0; height: 0; opacity: 0; position: absolute; pointer-events: none;
+.hdr-load:hover {
+    background: rgba(255,255,255,0.13);
+    border-color: rgba(255,255,255,0.25);
+    color: #fff;
 }
+.hdr-load svg { flex-shrink: 0; opacity: 0.7; }
+#file-input { display: none; }
 
-/* ── Main grid ───────────────────────────────────────────────────────────
-   Columns: sidebar | 3D crystal | right column (band + SQE stacked)
-   Rows:    top (band plot) | bottom (S(Q,E))
-──────────────────────────────────────────────────────────────────────── */
+/* ── Main grid ───────────────────────────────────────────────────────── */
 #rmcph-main {
     display: grid;
     grid-template-columns: 240px 1.6fr 1fr;
     grid-template-rows: 55% 45%;
-    flex: 1 1 0;
-    min-height: 0;
-    overflow: hidden;
+    flex: 1 1 0; min-height: 0; overflow: hidden;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────── */
 .flex-menu {
     grid-column: 1; grid-row: 1 / 3;
-    overflow-y: auto;
-    background: var(--bg-sidebar);
-    border-right: 1px solid var(--border-light);
-    padding: 6px 7px;
+    overflow-y: auto; overflow-x: hidden;
+    background: var(--c50);
+    border-right: 1px solid var(--c200);
+    padding: 10px 10px 16px;
     font-size: 11.5px;
     scrollbar-width: thin;
-    scrollbar-color: var(--border) transparent;
+    scrollbar-color: var(--c300) transparent;
 }
-.flex-menu::-webkit-scrollbar { width: 5px; }
-.flex-menu::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.flex-menu::-webkit-scrollbar { width: 4px; }
+.flex-menu::-webkit-scrollbar-thumb { background: var(--c300); border-radius: 2px; }
 
-/* override phononwebsite's absolute positioning */
-#menu          { position: relative !important; height: auto !important;
-                 display: flex; flex-direction: column; }
-#material-list { display: none; }
-#options-list  { flex: 1; overflow: visible; }
+/* phononwebsite positioning overrides */
+#menu         { position: relative !important; height: auto !important;
+                display: flex; flex-direction: column; }
+#material-list{ display: none; }
+#options-list { flex: 1; overflow: visible; }
 
-/* Sidebar section headers */
-#options-list h3 {
-    margin: 9px 0 3px;
-    font-size: 9px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-faint);
+/* Section headers — uniform, clean */
+#options-list h3,
+.appearance-subsection {
+    display: block;
+    margin: 14px 0 5px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--c200);
+    font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--c400);
 }
-#options-list h3:first-child { margin-top: 3px; }
+#options-list h3:first-of-type { margin-top: 2px; }
 
-/* Sidebar row spacing */
-#options-list > div { margin-bottom: 2px; }
+/* Sidebar row */
+#options-list > div { margin-bottom: 4px; }
 
-/* ── Shared input base ───────────────────────────────────────────────── */
-input[type=number], input[type=text], select {
+/* ── Universal input / select ────────────────────────────────────────── */
+input[type=number],
+input[type=text],
+select {
     font-family: var(--font);
-    font-size: 11px;
-    color: var(--text);
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 2px 5px;
+    font-size: 11.5px; color: var(--c900);
+    height: var(--h);
+    background: var(--c0);
+    border: 1px solid var(--c300);
+    border-radius: var(--r);
+    padding: 0 6px;
     outline: none;
-    transition: border-color var(--transition), box-shadow var(--transition);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--sh1);
+    transition: border-color var(--dur), box-shadow var(--dur);
     -moz-appearance: textfield;
 }
 input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button { opacity: 0.5; }
+input[type=number]::-webkit-outer-spin-button { opacity: 0.4; }
+input[type=number]:hover, input[type=text]:hover, select:hover { border-color: var(--c400); }
 input[type=number]:focus, input[type=text]:focus, select:focus {
-    border-color: var(--blue);
-    box-shadow: 0 0 0 2.5px rgba(14,165,233,0.18);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
 }
-input[type=number]:hover, input[type=text]:hover, select:hover {
-    border-color: #94a3b8;
-}
-select {
-    cursor: pointer; padding-right: 4px;
-}
+select { cursor: pointer; }
 
-/* ── Checkboxes ─────────────────────────────────────────────────────── */
-input[type=checkbox] { accent-color: var(--blue); cursor: pointer; }
+/* Checkbox */
+input[type=checkbox] { accent-color: var(--accent); cursor: pointer; vertical-align: -1px; }
 
-/* ── Shared button base ──────────────────────────────────────────────── */
+/* ── Universal button ────────────────────────────────────────────────── */
 button {
-    font-family: var(--font);
-    font-size: 11px; font-weight: 500;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font); font-size: 11.5px; font-weight: 500;
+    height: var(--h);
+    padding: 0 10px;
+    color: var(--c700);
+    background: var(--c0);
+    border: 1px solid var(--c300);
+    border-radius: var(--r);
     cursor: pointer;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: var(--bg-input);
-    color: var(--text);
-    padding: 2px 8px;
-    transition: background var(--transition), border-color var(--transition),
-                box-shadow var(--transition), transform 0.07s;
-    box-shadow: var(--shadow-sm);
-    user-select: none;
-    white-space: nowrap;
+    box-shadow: var(--sh1);
+    user-select: none; white-space: nowrap;
+    transition: background var(--dur), border-color var(--dur), color var(--dur), transform 0.08s;
 }
-button:hover  { background: #e9eef4; border-color: #94a3b8; }
-button:active { background: var(--border); transform: scale(0.97); box-shadow: none; }
+button:hover  { background: var(--c100); border-color: var(--c400); color: var(--c900); }
+button:active { background: var(--c200); transform: scale(0.97); box-shadow: none; }
 
 /* ── Range sliders ───────────────────────────────────────────────────── */
 input[type=range] {
-    -webkit-appearance: none;
-    appearance: none;
-    height: 4px;
-    background: var(--border-light);
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
-    transition: background var(--transition);
+    -webkit-appearance: none; appearance: none;
+    height: 3px; width: 100%;
+    background: var(--c200); border-radius: 2px;
+    outline: none; cursor: pointer;
+    transition: background var(--dur);
     vertical-align: middle;
 }
-input[type=range]:hover { background: #cbd5e1; }
+input[type=range]:hover { background: var(--c300); }
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 13px; height: 13px;
-    border-radius: 50%;
-    background: var(--blue);
-    border: 2px solid white;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--c0);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
     cursor: pointer;
-    transition: background var(--transition), transform 0.1s;
+    transition: transform 0.1s, background var(--dur);
 }
-input[type=range]::-webkit-slider-thumb:hover {
-    background: var(--blue-dark);
-    transform: scale(1.2);
-}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); background: var(--accent-h); }
 input[type=range]::-moz-range-thumb {
-    width: 13px; height: 13px;
-    border-radius: 50%; border: 2px solid white;
-    background: var(--blue);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-    cursor: pointer;
+    width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--c0);
+    background: var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,0.2); cursor: pointer;
 }
-input[type=range]::-moz-range-track {
-    height: 4px; background: var(--border-light); border-radius: 2px;
-}
+input[type=range]::-moz-range-track { height: 3px; background: var(--c200); border-radius: 2px; }
 
-/* ── 3D crystal — middle column, full height ─────────────────────────── */
+/* ── 3D crystal ──────────────────────────────────────────────────────── */
 .flex-vibcrystal {
     grid-column: 2; grid-row: 1 / 3;
     position: relative;
-    border-right: 1px solid var(--border-light);
+    border-right: 1px solid var(--c200);
+    background: var(--c0);
 }
 #vibcrystal { position: absolute; inset: 0; }
 
-/* ── Band dispersion — top-right ─────────────────────────────────────── */
+/* ── Band dispersion ─────────────────────────────────────────────────── */
 .flex-highcharts {
     grid-column: 3; grid-row: 1;
     position: relative;
-    border-bottom: 2px solid var(--blue);
+    background: var(--c0);
+    border-bottom: 1px solid var(--c200);
 }
 #highcharts { position: absolute; inset: 0; }
 
-/* ── S(Q,E) panel — bottom-right ─────────────────────────────────────── */
+/* ── S(Q,E) panel ────────────────────────────────────────────────────── */
 #sqe-panel {
     grid-column: 3; grid-row: 2;
     display: flex; flex-direction: column;
-    overflow: hidden; background: #f8fafc; min-height: 0;
+    overflow: hidden; background: var(--c0); min-height: 0;
 }
+
+/* Control strip */
 #sqe-header {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
-    padding: 4px 8px; flex-shrink: 0;
-    background: #f1f5f9;
-    border-bottom: 1px solid var(--border-light);
+    display: flex; align-items: center; gap: 0;
+    padding: 0 10px; height: 36px; flex-shrink: 0;
+    background: var(--c50);
+    border-bottom: 1px solid var(--c200);
 }
+
+/* Toggle pill */
 #sqe-toggle {
-    font-weight: 600; cursor: pointer;
-    background: var(--navy);
-    color: white;
-    border: none;
-    padding: 3px 9px;
-    border-radius: 20px;
-    font-size: 11px;
-    box-shadow: var(--shadow-sm);
-    transition: background var(--transition);
-}
-#sqe-toggle:hover  { background: #1a3a5c; }
-#sqe-toggle:active { background: var(--blue-deep); transform: scale(0.97); }
-
-#sqe-status {
-    font-size: 10px; color: var(--text-muted);
-    margin-left: auto;
-    font-style: italic;
-    white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-}
-#sqe-body { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden; }
-
-/* Compute button */
-button#sqe-compute {
-    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-deep) 100%);
-    color: white;
-    border: none;
-    padding: 3px 11px;
-    border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center;
+    height: 22px; padding: 0 10px;
     font-size: 11px; font-weight: 600;
-    box-shadow: 0 1px 4px rgba(3,105,161,0.35);
-    letter-spacing: 0.01em;
+    color: var(--c0);
+    background: var(--c900);
+    border: none; border-radius: var(--r-pill);
+    cursor: pointer; box-shadow: none;
+    transition: background var(--dur), transform 0.08s;
+    margin-right: 8px;
+    flex-shrink: 0;
 }
-button#sqe-compute:hover  { background: linear-gradient(135deg, var(--blue-dark) 0%, #025f8f 100%); }
-button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
+#sqe-toggle:hover  { background: var(--c700); }
+#sqe-toggle:active { background: var(--accent); transform: scale(0.97); }
 
-/* SQE control labels */
+/* Ctrl groups — logical clusters */
+.ctrl-group {
+    display: flex; align-items: center; gap: 5px;
+    padding: 0 8px;
+}
+.ctrl-sep {
+    width: 1px; height: 18px;
+    background: var(--c200); flex-shrink: 0;
+}
+
+/* Labels inside ctrl groups */
 .sqe-ctrl { display: flex; align-items: center; gap: 4px; }
 .sqe-ctrl label {
     white-space: nowrap;
-    font-size: 10px; font-weight: 500; color: var(--text-muted);
+    font-size: 10px; font-weight: 500; color: var(--c500);
+    cursor: default;
 }
-.sqe-ctrl input[type=number] { width: 52px; font-size: 11px; padding: 2px 4px; }
-.sqe-ctrl select { font-size: 11px; }
+.sqe-ctrl input[type=number] {
+    width: 50px; height: 22px;
+    font-size: 11px; padding: 0 4px;
+    border-radius: 4px;
+}
+.sqe-ctrl select {
+    height: 22px; font-size: 11px; padding: 0 4px;
+}
+.sqe-ctrl input[type=checkbox] { width: 13px; height: 13px; }
 
-/* Two side-by-side sub-panels inside sqe-body */
+/* Compute button */
+button#sqe-compute {
+    height: 24px; padding: 0 13px;
+    font-size: 11.5px; font-weight: 600;
+    color: var(--c0);
+    background: var(--accent);
+    border: none;
+    border-radius: var(--r);
+    box-shadow: 0 1px 3px rgba(37,99,235,0.35), 0 0 0 0 var(--accent-dim);
+    transition: background var(--dur), box-shadow var(--dur), transform 0.08s;
+    margin-left: 6px; flex-shrink: 0;
+}
+button#sqe-compute:hover  { background: var(--accent-h); box-shadow: 0 2px 8px rgba(37,99,235,0.4); }
+button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
+
+#sqe-status {
+    flex: 1; min-width: 0;
+    font-size: 10px; color: var(--c400);
+    font-style: italic;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding-left: 8px;
+}
+
+/* Canvas area */
+#sqe-body { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden; }
+
 #sqe-canvas-wrap {
     display: flex; flex-direction: row;
     flex: 1 1 0; min-height: 0;
-    padding: 5px; gap: 5px;
+    padding: 6px; gap: 6px;
 }
 .sqe-sub {
     display: flex; flex-direction: column;
     flex: 1 1 0; min-width: 0; overflow: hidden;
 }
 #sqe-path-wrap { flex: 1.35 1 0; }
+
 .sqe-sub-title {
-    font-size: 9.5px; font-weight: 600;
-    color: var(--text-muted);
-    text-align: center; padding: 1px 0 3px; flex-shrink: 0;
-    text-transform: uppercase; letter-spacing: 0.05em;
+    font-size: 9px; font-weight: 600;
+    color: var(--c400);
+    text-align: center; padding: 0 0 3px; flex-shrink: 0;
+    text-transform: uppercase; letter-spacing: 0.06em;
 }
 .sqe-canvas-row {
     display: flex; flex-direction: row;
     flex: 1 1 0; min-height: 0; gap: 3px;
 }
-.sqe-canvas-row canvas.heatmap  { flex: 1 1 0; display: block; min-width: 0; }
+.sqe-canvas-row canvas.heatmap  { flex: 1 1 0; display: block; min-width: 0; border-radius: 2px; }
 .sqe-canvas-row canvas.colorbar { width: 36px; flex-shrink: 0; display: block; }
-.sqe-divider {
-    width: 1px; background: var(--border-light);
-    flex-shrink: 0; margin: 3px 0;
-}
+.sqe-divider { width: 1px; background: var(--c200); flex-shrink: 0; margin: 2px 0; }
 
-/* Appearance subsection headers (phononwebsite) */
-.appearance-subsection {
-    font-size: 9px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    color: var(--text-faint);
-    margin: 8px 0 3px;
+/* Appearance rows (phononwebsite) */
+.appearance-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 3px;
+    font-size: 11px;
 }
+.appearance-row label { color: var(--c500); min-width: 56px; }
+.appearance-controls { display: flex; align-items: center; gap: 4px; }
 
-/* required by phononwebsite, hidden */
+/* Hidden */
 .material-name { display: none; }
 </style>
 </head>
@@ -333,23 +367,27 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
 
   <!-- ── Header ──────────────────────────────────────────────────────── -->
   <div id="rmcph-header">
-    <span class="brand">rmcph</span>
-    <span class="subtitle">RMC Phonon Viewer</span>
-    <div class="sep"></div>
-    <label for="file-input">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    <span class="hdr-brand">rmcph</span>
+    <span class="hdr-sub">RMC Phonon Viewer</span>
+    <div class="hdr-sep"></div>
+    <label class="hdr-load" for="file-input">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
       Load band.yaml
     </label>
     <input type="file" id="file-input" accept=".yaml,.yml">
   </div>
 
-  <!-- required by phononwebsite, hidden -->
+  <!-- required by phononwebsite -->
   <div class="material-name"><h1 id="name">Material</h1></div>
 
-  <!-- ── Grid: sidebar | 3D crystal | [band plot / S(Q,E)] ────────────── -->
+  <!-- ── Grid ──────────────────────────────────────────────────────────── -->
   <div id="rmcph-main">
 
-    <!-- col 1: sidebar controls -->
+    <!-- Sidebar -->
     <div class="flex-menu">
       <div id="menu">
         <div id="material-list" style="display:none">
@@ -357,60 +395,75 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
           <ul id="mat"></ul><ul id="ref"></ul>
         </div>
         <div id="options-list">
+
           <div>
-            <h3>Repetitions</h3>
-            <input id="nx" value="2" type="number">
-            <input id="ny" value="2" type="number">
-            <input id="nz" value="2" type="number">
-            <button id="update" type="button">update</button>
+            <h3>Supercell</h3>
+            <input id="nx" value="2" type="number" style="width:44px">
+            <input id="ny" value="2" type="number" style="width:44px">
+            <input id="nz" value="2" type="number" style="width:44px">
+            <button id="update" type="button">apply</button>
           </div>
+
           <div>
             <h3>Mode</h3>
-            k <input id="kindex" value="1" type="number" style="width:40px">
-            band <input id="nindex" value="1" type="number" style="width:40px">
-            <button id="modeselect" type="button">apply</button>
+            k <input id="kindex" value="1" type="number" style="width:44px">
+            band <input id="nindex" value="1" type="number" style="width:44px">
+            <button id="modeselect" type="button">go</button>
           </div>
-          <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">
+
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
             <div>
               <h3>Camera</h3>
-              <button id="camerax" type="button">x</button>
-              <button id="cameray" type="button">y</button>
-              <button id="cameraz" type="button">z</button>
+              <button id="camerax">x</button>
+              <button id="cameray">y</button>
+              <button id="cameraz">z</button>
             </div>
             <div>
               <h3>Cell</h3>
-              <input id="drawcell" type="checkbox"> on
+              <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+                <input id="drawcell" type="checkbox"> show
+              </label>
             </div>
             <div>
               <h3>Export</h3>
-              <button id="gifbutton"  type="button">gif</button>
-              <button id="webmbutton" type="button">webm</button>
-              <div id="progress"></div>
+              <button id="gifbutton">gif</button>
+              <button id="webmbutton">webm</button>
+              <div id="progress" style="font-size:10px;color:var(--c500)"></div>
             </div>
           </div>
-          <div>
-            <input id="mode_weights_plot" type="checkbox"> weights&nbsp;
-            <input id="drawshading" type="checkbox" checked> shading
+
+          <div style="display:flex;gap:10px;align-items:center;margin-top:2px">
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+              <input id="mode_weights_plot" type="checkbox"> weights
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+              <input id="drawshading" type="checkbox" checked> shading
+            </label>
           </div>
+
           <div>
             <h3>Amplitude</h3>
-            <input id="amplitude_range" type="range">
-            <input id="amplitude_box" type="number">
+            <div style="display:flex;align-items:center;gap:6px">
+              <input id="amplitude_range" type="range" style="flex:1">
+              <input id="amplitude_box"   type="number" style="width:52px">
+            </div>
           </div>
+
           <div>
             <h3>Speed</h3>
-            <input id="speed_range" type="range">
-            <button id="playpause" type="button">pause</button>
+            <div style="display:flex;align-items:center;gap:6px">
+              <input id="speed_range" type="range" style="flex:1">
+              <button id="playpause">pause</button>
+            </div>
           </div>
+
           <div><h3>Lattice</h3><table id="lattice"></table></div>
-          <div>
-            <h3>Atomic positions</h3>
-            <div><table id="atompos"></table></div>
-          </div>
+          <div><h3>Atom positions</h3><table id="atompos"></table></div>
+
           <div class="advanced-appearance">
             <div class="appearance-subsection">Atom</div>
             <div class="appearance-row">
-              <label for="displaystyle">display</label>
+              <label for="displaystyle">style</label>
               <select id="displaystyle">
                 <option value="jmol">Jmol</option>
                 <option value="vesta">Vesta</option>
@@ -427,26 +480,29 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
             <div class="appearance-row">
               <label for="atom_radius_input">radius</label>
               <div class="appearance-controls">
-                <input id="atom_radius_input" type="number" min="0.1" max="5.0" step="0.05" value="1.0">
-                <button id="appearance_reset_atom_button" type="button">reset</button>
+                <input id="atom_radius_input" type="number" min="0.1" max="5.0" step="0.05" value="1.0" style="width:60px">
+                <button id="appearance_reset_atom_button">reset</button>
               </div>
             </div>
+
             <div class="appearance-subsection">Bonds</div>
             <div class="appearance-row">
               <label for="bond_color_input">color</label>
               <div class="appearance-controls">
                 <input id="bond_color_input" type="color">
-                <button id="appearance_reset_bonds_button" type="button">reset</button>
+                <button id="appearance_reset_bonds_button">reset</button>
               </div>
             </div>
             <div class="appearance-row">
               <label for="bond_radius_input">radius</label>
-              <input id="bond_radius_input" type="number" min="0.01" max="1.0" step="0.01" value="0.1">
+              <input id="bond_radius_input" type="number" min="0.01" max="1.0" step="0.01" value="0.1" style="width:60px">
             </div>
             <div class="appearance-row">
-              <label>split colors</label>
+              <label>split</label>
               <div class="appearance-controls">
-                <input id="bond_color_by_atom_checkbox" type="checkbox"> on
+                <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+                  <input id="bond_color_by_atom_checkbox" type="checkbox"> by atom
+                </label>
               </div>
             </div>
             <div class="appearance-row">
@@ -454,14 +510,15 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
               <div id="bond_rules_list"></div>
             </div>
             <div class="appearance-row">
-              <label>bond</label>
-              <div class="appearance-controls">
+              <label>add bond</label>
+              <div class="appearance-controls" style="flex-wrap:wrap;gap:3px">
                 <select id="bond_add_atom_a"></select>
                 <select id="bond_add_atom_b"></select>
-                <input id="bond_add_cutoff_input" type="number" min="0.01" step="0.01" placeholder="max">
-                <button id="bond_add_button" type="button">add</button>
+                <input id="bond_add_cutoff_input" type="number" min="0.01" step="0.01" placeholder="max Å" style="width:56px">
+                <button id="bond_add_button">add</button>
               </div>
             </div>
+
             <div class="appearance-subsection">Vectors</div>
             <div class="appearance-row">
               <label for="arrow_color_input">color</label>
@@ -469,77 +526,100 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
             </div>
             <div class="appearance-row">
               <label>visible</label>
-              <div class="appearance-controls">
-                <input id="drawvectors" type="checkbox"> on
-              </div>
+              <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+                <input id="drawvectors" type="checkbox"> show
+              </label>
             </div>
             <div class="appearance-row">
               <label>size</label>
-              <input id="vectors_amplitude_range" type="range">
+              <input id="vectors_amplitude_range" type="range" style="flex:1;min-width:60px">
             </div>
             <div class="appearance-row">
               <label for="arrow_radius_input">radius</label>
               <div class="appearance-controls">
-                <input id="arrow_radius_input" type="number" min="0.01" max="1.0" step="0.01" value="0.1">
-                <button id="appearance_reset_vectors_button" type="button">reset</button>
+                <input id="arrow_radius_input" type="number" min="0.01" max="1.0" step="0.01" value="0.1" style="width:60px">
+                <button id="appearance_reset_vectors_button">reset</button>
               </div>
             </div>
           </div>
+
         </div><!-- /options-list -->
       </div><!-- /menu -->
-    </div><!-- /flex-menu -->
+    </div><!-- /sidebar -->
 
-    <!-- col 2: 3D crystal (full height) -->
+    <!-- 3D crystal -->
     <div class="flex-vibcrystal"><div id="vibcrystal"></div></div>
 
-    <!-- col 3 top: band dispersion -->
+    <!-- Band dispersion -->
     <div class="flex-highcharts"><div id="highcharts"></div></div>
 
-    <!-- col 3 bottom: S(Q,E) — path + powder side by side -->
+    <!-- S(Q,E) panel -->
     <div id="sqe-panel">
       <div id="sqe-header">
-        <button id="sqe-toggle">▲ S(Q,E)</button>
-        <div class="sqe-ctrl">
-          <label for="sqe-temp">T (K)</label>
-          <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
+
+        <button id="sqe-toggle">S(Q,E)</button>
+
+        <!-- Group 1: resolution -->
+        <div class="ctrl-group">
+          <div class="sqe-ctrl">
+            <label for="sqe-temp">T</label>
+            <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
+            <span style="font-size:10px;color:var(--c400)">K</span>
+          </div>
+          <div class="sqe-ctrl">
+            <label for="sqe-sigma">σ</label>
+            <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
+            <span style="font-size:10px;color:var(--c400)">meV</span>
+          </div>
         </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-sigma">σ (meV)</label>
-          <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
+
+        <div class="ctrl-sep"></div>
+
+        <!-- Group 2: energy range + incident -->
+        <div class="ctrl-group">
+          <div class="sqe-ctrl">
+            <label for="sqe-emin">E<sub>min</sub></label>
+            <input id="sqe-emin" type="number" value="-5" step="1">
+          </div>
+          <div class="sqe-ctrl">
+            <label for="sqe-emax">E<sub>max</sub></label>
+            <input id="sqe-emax" type="number" value="30" step="1">
+          </div>
+          <div class="sqe-ctrl">
+            <label for="sqe-ei">E<sub>i</sub></label>
+            <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
+            <span style="font-size:10px;color:var(--c400)">meV</span>
+          </div>
         </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-emin">E<sub>min</sub></label>
-          <input id="sqe-emin" type="number" value="-5" step="1">
+
+        <div class="ctrl-sep"></div>
+
+        <!-- Group 3: display -->
+        <div class="ctrl-group">
+          <div class="sqe-ctrl">
+            <label for="sqe-cmap">cmap</label>
+            <select id="sqe-cmap">
+              <option value="inferno" selected>inferno</option>
+              <option value="viridis">viridis</option>
+              <option value="plasma">plasma</option>
+              <option value="hot">hot</option>
+              <option value="coolwarm">coolwarm</option>
+            </select>
+          </div>
+          <div class="sqe-ctrl">
+            <label for="sqe-log">log</label>
+            <input id="sqe-log" type="checkbox">
+          </div>
         </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-emax">E<sub>max</sub> (meV)</label>
-          <input id="sqe-emax" type="number" value="30" step="1">
-        </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-ei">E<sub>i</sub> (meV)</label>
-          <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy for kinematic cutoff">
-        </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-cmap">map</label>
-          <select id="sqe-cmap">
-            <option value="inferno" selected>inferno</option>
-            <option value="viridis">viridis</option>
-            <option value="plasma">plasma</option>
-            <option value="hot">hot</option>
-            <option value="coolwarm">coolwarm</option>
-          </select>
-        </div>
-        <div class="sqe-ctrl">
-          <label for="sqe-log">log</label>
-          <input id="sqe-log" type="checkbox">
-        </div>
+
         <button id="sqe-compute">Compute</button>
         <span id="sqe-status">Load a band.yaml to begin.</span>
-      </div>
+
+      </div><!-- /sqe-header -->
+
       <div id="sqe-body">
         <div id="sqe-canvas-wrap">
 
-          <!-- Left: path S(q,E) -->
           <div class="sqe-sub" id="sqe-path-wrap">
             <div class="sqe-sub-title">S(q, E) — along path</div>
             <div class="sqe-canvas-row">
@@ -550,9 +630,8 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
 
           <div class="sqe-divider"></div>
 
-          <!-- Right: powder S(|Q|,E) -->
           <div class="sqe-sub" id="sqe-pow-wrap">
-            <div class="sqe-sub-title">S(|Q|, E) — powder average</div>
+            <div class="sqe-sub-title">S(|Q|, E) — powder</div>
             <div class="sqe-canvas-row">
               <canvas id="sqe-pow-canvas" class="heatmap"></canvas>
               <canvas id="sqe-pow-cb"     class="colorbar" width="36"></canvas>
