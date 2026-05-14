@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Quick test run: 3 k-points along GM->X to verify the pipeline and generate band.yaml."""
 import os
 os.environ["JAX_ENABLE_X64"] = "True"
 
