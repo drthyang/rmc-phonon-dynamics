@@ -88,8 +88,16 @@ Create the initial configuration files required for the ensemble calculations.
 python ./src_gpu/main.py
 ```
 
-## References
+## References and Acknowledgments
+
+This project builds on established concepts in lattice dynamics, phonon analysis from powder diffraction, and reverse Monte Carlo modeling:
 
 1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
-2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2005). Phonons from Powder Diffraction: A Quantitative Model-Independent Evaluation. *Phys. Rev. Lett.*, **95**, 119901.
-3. Tucker, M. G., Keen, D. A., Dove, M. T., Goodwin, A. L., & Hui, Q. (2007). RMCProfile: Reverse Monte Carlo for polycrystalline materials. *J. Phys.: Condens. Matter*, **19**, 335218.
+
+2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2004). Phonons from powder diffraction: A quantitative model-independent evaluation. *Physical Review Letters*, **93**, 075502. https://doi.org/10.1103/PhysRevLett.93.075502
+
+3. Tucker, M. G., Keen, D. A., Dove, M. T., Goodwin, A. L., & Hui, Q. (2007). RMCProfile: Reverse Monte Carlo for polycrystalline materials. *Journal of Physics: Condensed Matter*, **19**, 335218.
+
+The browser-based phonon visualization components were adapted from:
+
+4. Miranda, H. P. C. *phononwebsite*. GitHub repository. https://github.com/henriquemiranda/phononwebsite
