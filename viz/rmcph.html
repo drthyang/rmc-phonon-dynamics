@@ -333,7 +333,6 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
     display: flex; flex-direction: column;
     flex: 1 1 0; min-width: 0; overflow: hidden;
 }
-#sqe-path-wrap { flex: 1.35 1 0; }
 
 .sqe-sub-title {
     font-size: 9px; font-weight: 600;
@@ -559,6 +558,8 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
 
         <button id="sqe-toggle">S(Q,E)</button>
 
+        <div class="ctrl-sep"></div>
+
         <!-- Group 1: resolution -->
         <div class="ctrl-group">
           <div class="sqe-ctrl">
@@ -620,21 +621,20 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
       <div id="sqe-body">
         <div id="sqe-canvas-wrap">
 
-          <div class="sqe-sub" id="sqe-path-wrap">
-            <div class="sqe-sub-title">S(q, E) — along path</div>
+          <div class="sqe-sub" id="sqe-pow-wrap">
+            <div class="sqe-sub-title">S(|Q|, E) — Powder Average</div>
             <div class="sqe-canvas-row">
-              <canvas id="sqe-path-canvas" class="heatmap"></canvas>
-              <canvas id="sqe-path-cb"     class="colorbar" width="36"></canvas>
+              <canvas id="sqe-pow-canvas" class="heatmap"></canvas>
+              <canvas id="sqe-pow-cb"     class="colorbar" width="36"></canvas>
             </div>
           </div>
 
           <div class="sqe-divider"></div>
 
-          <div class="sqe-sub" id="sqe-pow-wrap">
-            <div class="sqe-sub-title">S(|Q|, E) — powder</div>
+          <div class="sqe-sub" id="dos-wrap" style="flex: 0 0 110px; min-width: 70px;">
+            <div class="sqe-sub-title">Phonon DOS</div>
             <div class="sqe-canvas-row">
-              <canvas id="sqe-pow-canvas" class="heatmap"></canvas>
-              <canvas id="sqe-pow-cb"     class="colorbar" width="36"></canvas>
+              <canvas id="dos-canvas" class="heatmap"></canvas>
             </div>
           </div>
 

@@ -69,40 +69,6 @@ function accumulateModes(bands, atoms, b2m, T, sigma, Emin, dE, nE, xIdx, grid) 
     }
 }
 
-// ── Path S(q,E) ──────────────────────────────────────────────────────────────
-function computePathSqE(ydata, T, sigma, Emin, Emax, nE) {
-    const phonon = ydata.phonon;
-    const atoms  = ydata.points;
-    const nX     = phonon.length;
-    const b2m    = atoms.map(a => { const b = B_COH[a.symbol]||0; return a.mass>0 ? b*b/a.mass : 0; });
-
-    const dE    = (Emax - Emin) / (nE - 1);
-    const Eaxis = Float64Array.from({length: nE}, (_, i) => Emin + i * dE);
-    const S     = new Float64Array(nX * nE);
-
-    for (let qi = 0; qi < nX; qi++) {
-        accumulateModes(phonon[qi].band, atoms, b2m, T, sigma, Emin, dE, nE, qi, S);
-    }
-
-    let Smax = 0;
-    for (let i = 0; i < S.length; i++) if (S[i] > Smax) Smax = S[i];
-
-    const labels = [];
-    for (let qi = 0; qi < nX; qi++) {
-        if (phonon[qi].label !== undefined) {
-            const txt = phonon[qi].label
-                .replace(/\$\\Gamma\$/g, 'Γ')
-                .replace(/\$\\mathrm\{([^}]+)\}\$/g, '$1')
-                .replace(/\$/g, '');
-            labels.push({ xIdx: qi, text: txt });
-        }
-    }
-
-    return { S, nX, nE, Eaxis, Smax,
-             xMin: 0, xMax: nX - 1,
-             xLabel: 'q-path', labels };
-}
-
 // ── Powder S(|Q|,E) ──────────────────────────────────────────────────────────
 //
 // Correct physics:
@@ -110,8 +76,7 @@ function computePathSqE(ydata, T, sigma, Emin, Emax, nE) {
 //     lattice vector), so many Brillouin zones contribute to a given |Q|.
 //   - Powder cross-section ∝ Q² · Σ_λ F²(q,λ) · (n+1)/ω · G(E−ω, σ)
 //     where F² = Σ_α (b²/m) |e_{α,λ}|²  (no Debye-Waller for simplicity).
-//   - Kinematic constraint: if Ei given, forbidden region is E > Ei or
-//     Q outside [|ki−kf|, ki+kf] where ki=√(Ei/H2M), kf=√((Ei−E)/H2M).
+//   - Kinematic upper limit: only E ≤ ℏ²Q²/(2m_n) is accessible.
 //
 // Implementation:
 //   For each q-point on the path, compute S(q,E); then for every G-shell
@@ -210,6 +175,34 @@ function computePowderSqE(ydata, T, sigma, Emin, Emax, nE, nQbins, Ei) {
              Ei: Ei > 0 ? Ei : 0 };
 }
 
+// ── Phonon DOS ────────────────────────────────────────────────────────────────
+function computePhononDOS(ydata, sigma, Emin, Emax, nE) {
+    const phonon = ydata.phonon;
+    const dE     = (Emax - Emin) / (nE - 1);
+    const dos    = new Float64Array(nE);
+    const cutoff = 4 * sigma;
+    let count = 0;
+
+    for (let qi = 0; qi < phonon.length; qi++) {
+        for (const mode of phonon[qi].band) {
+            const omega = mode.frequency;
+            if (Math.abs(omega) < 1e-6) continue;
+            const iCenter = (omega - Emin) / dE;
+            const iLo = Math.max(0,    Math.floor(iCenter - cutoff / dE));
+            const iHi = Math.min(nE-1, Math.ceil( iCenter + cutoff / dE));
+            for (let Ei = iLo; Ei <= iHi; Ei++)
+                dos[Ei] += gauss(Emin + Ei * dE, omega, sigma);
+            count++;
+        }
+    }
+    if (count > 0) for (let i = 0; i < nE; i++) dos[i] /= count;
+
+    let dosMax = 0;
+    for (let i = 0; i < nE; i++) if (dos[i] > dosMax) dosMax = dos[i];
+
+    return { dos, nE, Emin, Emax, dosMax };
+}
+
 // ── Colormaps ────────────────────────────────────────────────────────────────
 
 function interpRGB(t, stops) {
@@ -301,6 +294,7 @@ function renderHeatmap(canvas, result, colormap, logScale) {
     // ── Kinematic boundary curves ────────────────────────────────────────
     if (Ei_fixed > 0) {
         ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+        const Eplot_max = Math.min(Emax, Ei_fixed);
 
         // Upper boundary: Q_max(E) = ki + kf
         ctx.strokeStyle = 'rgba(40,40,40,0.75)';
@@ -412,6 +406,73 @@ function renderHeatmap(canvas, result, colormap, logScale) {
     ctx.strokeRect(ML, MT, plotW, plotH);
 }
 
+// ── DOS renderer ─────────────────────────────────────────────────────────────
+// ML_D / MR_D: narrow margins; MT and MB reused from heatmap so y-axes align.
+const ML_D = 4, MR_D = 6;
+
+function renderDOS(canvas, dosResult) {
+    const { dos, nE, Emin, Emax, dosMax } = dosResult;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    if (dosMax <= 0) return;
+
+    const plotW = W - ML_D - MR_D;
+    const plotH = H - MT - MB;
+    if (plotW < 4 || plotH < 10) return;
+
+    // y(Ei) = MT + plotH*(1 - Ei/(nE-1)) — same mapping as renderHeatmap rows
+    // Filled area + outline
+    ctx.beginPath();
+    ctx.moveTo(ML_D, MT + plotH);
+    for (let Ei = 0; Ei < nE; Ei++) {
+        const x = ML_D + (dos[Ei] / dosMax) * plotW;
+        const y = MT + plotH * (1 - Ei / (nE - 1));
+        ctx.lineTo(x, y);
+    }
+    ctx.lineTo(ML_D, MT);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(37,99,235,0.15)';
+    ctx.fill();
+
+    ctx.beginPath();
+    for (let Ei = 0; Ei < nE; Ei++) {
+        const x = ML_D + (dos[Ei] / dosMax) * plotW;
+        const y = MT + plotH * (1 - Ei / (nE - 1));
+        Ei === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(37,99,235,0.75)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Horizontal gridlines aligned to heatmap E-ticks
+    const nEticks = Math.min(8, Math.floor(plotH / 28));
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 0.5;
+    for (let ti = 0; ti <= nEticks; ti++) {
+        const py = MT + plotH - plotH * ti / nEticks;
+        ctx.beginPath(); ctx.moveTo(ML_D, py); ctx.lineTo(ML_D + plotW, py); ctx.stroke();
+    }
+
+    // E=0 dashed line
+    if (Emin < 0 && Emax > 0) {
+        const y0 = MT + plotH * (1 - (0 - Emin) / (Emax - Emin));
+        ctx.strokeStyle = 'rgba(100,100,100,0.4)';
+        ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(ML_D, y0); ctx.lineTo(ML_D + plotW, y0); ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // x-axis label
+    ctx.font = '10px Arial'; ctx.fillStyle = '#444';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('PhDOS', ML_D + plotW / 2, H);
+
+    // Border
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    ctx.strokeRect(ML_D, MT, plotW, plotH);
+}
+
 // ── Colorbar ─────────────────────────────────────────────────────────────────
 
 function drawColorbar(cbCanvas, colormap) {
@@ -440,14 +501,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const panelBody  = document.getElementById('sqe-body');
     const statusEl   = document.getElementById('sqe-status');
 
-    const pathCanvas = document.getElementById('sqe-path-canvas');
-    const pathCb     = document.getElementById('sqe-path-cb');
     const powCanvas  = document.getElementById('sqe-pow-canvas');
     const powCb      = document.getElementById('sqe-pow-cb');
+    const dosCanvas  = document.getElementById('dos-canvas');
 
-    let ydata      = null;
-    let pathResult = null;
-    let powResult  = null;
+    let ydata     = null;
+    let powResult = null;
+    let dosResult = null;
 
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -478,12 +538,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const showing = panelBody.style.display !== 'none';
         panelBody.style.display = showing ? 'none' : '';
         toggleBtn.textContent   = showing ? '▼ S(Q,E)' : '▲ S(Q,E)';
-        if (!showing && ydata && !pathResult) triggerCompute();
-        if (!showing && pathResult) { resizeCanvases(); redraw(); }
+        if (!showing && ydata && !powResult) triggerCompute();
+        if (!showing && powResult) { resizeCanvases(); redraw(); }
     });
 
     window.addEventListener('resize', () => {
-        if (pathResult && panelBody.style.display !== 'none') { resizeCanvases(); redraw(); }
+        if (powResult && panelBody.style.display !== 'none') { resizeCanvases(); redraw(); }
     });
 
     function triggerCompute() {
@@ -499,13 +559,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     statusEl.textContent = '✗ Invalid energy range'; return;
                 }
                 const Ei_in = parseFloat(document.getElementById('sqe-ei').value) || 0;
-                pathResult = computePathSqE(ydata, T, sigma, Emin, Emax, 300);
-                powResult  = computePowderSqE(ydata, T, sigma, Emin, Emax, 300, 100, Ei_in);
+                powResult = computePowderSqE(ydata, T, sigma, Emin, Emax, 300, 100, Ei_in);
+                dosResult = computePhononDOS(ydata, sigma, Emin, Emax, 300);
                 resizeCanvases();
                 redraw();
                 const Qmx = powResult ? powResult.xMax.toFixed(2) : '?';
-                statusEl.textContent =
-                    `Done · path peak ${pathResult.Smax.toExponential(2)} · Q_max ${Qmx} Å⁻¹`;
+                statusEl.textContent = `Done · Q_max ${Qmx} Å⁻¹`;
             } catch(err) {
                 statusEl.textContent = '✗ ' + err.message;
                 console.error(err);
@@ -516,26 +575,25 @@ document.addEventListener('DOMContentLoaded', () => {
     function redraw() {
         const cmap = document.getElementById('sqe-cmap').value || 'inferno';
         const log  = document.getElementById('sqe-log').checked;
-        if (pathResult) { renderHeatmap(pathCanvas, pathResult, cmap, log); drawColorbar(pathCb, cmap); }
-        if (powResult)  { renderHeatmap(powCanvas,  powResult,  cmap, log); drawColorbar(powCb,  cmap); }
+        if (powResult) { renderHeatmap(powCanvas, powResult, cmap, log); drawColorbar(powCb, cmap); }
+        if (dosResult && dosCanvas) renderDOS(dosCanvas, dosResult);
     }
 
     function resizeCanvases() {
-        const wrap  = document.getElementById('sqe-canvas-wrap');
+        const wrap = document.getElementById('sqe-canvas-wrap');
         if (!wrap) return;
         const H = wrap.clientHeight || 280;
 
-        const pWrap = document.getElementById('sqe-path-wrap');
         const qWrap = document.getElementById('sqe-pow-wrap');
-        if (pWrap) {
-            pathCanvas.width  = Math.max(10, pWrap.clientWidth  - (pathCb.width||36) - 6);
-            pathCanvas.height = Math.max(10, H);
-            pathCb.height = pathCanvas.height;
-        }
         if (qWrap) {
-            powCanvas.width  = Math.max(10, qWrap.clientWidth  - (powCb.width||36) - 6);
+            powCanvas.width  = Math.max(10, qWrap.clientWidth - (powCb.width || 36) - 6);
             powCanvas.height = Math.max(10, H);
             powCb.height = powCanvas.height;
+        }
+        const dWrap = document.getElementById('dos-wrap');
+        if (dWrap && dosCanvas) {
+            dosCanvas.width  = Math.max(10, dWrap.clientWidth - 2);
+            dosCanvas.height = Math.max(10, H);
         }
     }
 });
