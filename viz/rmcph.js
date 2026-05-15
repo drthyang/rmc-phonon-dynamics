@@ -585,6 +585,15 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        // Snapshot all user-controlled settings before phononwebsite resets them
+        const snap = {};
+        ['nx','ny','nz','kindex','nindex',
+         'sqe-emin','sqe-emax','sqe-temp','sqe-sigma','sqe-ei'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) snap[id] = el.value;
+        });
+
         const reader = new FileReader();
         reader.onload = (evt) => {
             try {
@@ -597,7 +606,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nM = ydata.phonon?.[0]?.band?.length ?? '?';
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
-                if (panelBody.style.display !== 'none') triggerCompute();
+
+                // Restore settings after phononwebsite finishes its own load handler
+                setTimeout(() => {
+                    Object.entries(snap).forEach(([id, val]) => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = val;
+                    });
+                    document.getElementById('update')?.click();      // re-apply supercell
+                    document.getElementById('modeselect')?.click();   // re-apply mode
+                    if (panelBody.style.display !== 'none') triggerCompute();
+                }, 150);
             } catch(err) {
                 statusEl.textContent = '✗ ' + err.message;
                 console.error(err);
