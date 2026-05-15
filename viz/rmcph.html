@@ -384,6 +384,11 @@ details.sidebar-section > summary {
 details.sidebar-section > summary::-webkit-details-marker { display: none; }
 details.sidebar-section > summary::after { content: ' ▾'; }
 details.sidebar-section[open] > summary::after { content: ' ▴'; }
+details.sidebar-section.primary > summary {
+    font-size: 12.5px; color: var(--c700);
+    border-bottom: 2px solid var(--c300);
+    margin-top: 16px;
+}
 
 /* Appearance rows (phononwebsite) */
 .appearance-row {
@@ -432,7 +437,7 @@ details.sidebar-section[open] > summary::after { content: ' ▴'; }
         </div>
         <div id="options-list">
 
-          <details class="sidebar-section" open>
+          <details class="sidebar-section primary" open>
             <summary>Band Structure</summary>
 
             <div>
@@ -451,7 +456,7 @@ details.sidebar-section[open] > summary::after { content: ' ▴'; }
 
           </details>
 
-          <details class="sidebar-section" open>
+          <details class="sidebar-section primary" open>
             <summary>Structure</summary>
 
             <div>
