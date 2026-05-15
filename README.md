@@ -69,7 +69,7 @@ The codebase is split between CPU and GPU implementations:
   - `Visualization.py`: Plotting utilities for band structures and densities of states.
 
 - **`src_gpu/`**: High-performance GPU source code
-  - `main.py`: Primary script for CUDA-accelerated phonon calculations.
+  - `main.py`: Primary script for GPU-accelerated phonon calculations.
 
 - **`data/`**: Input data files and configuration templates.
 - **`results/`**: Directory where output plots and calculation results are saved.
