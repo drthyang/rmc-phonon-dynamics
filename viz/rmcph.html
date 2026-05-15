@@ -447,6 +447,13 @@ details.sidebar-section[open] > summary::after { content: ' ▴'; }
             <button id="modeselect" type="button">go</button>
           </div>
 
+          <div>
+            <h3>Energy range (meV)</h3>
+            <input id="band-emin" type="number" value="0"   step="10" style="width:58px" title="Band structure y-axis min (meV)">
+            –
+            <input id="band-emax" type="number" value="100" step="10" style="width:58px" title="Band structure y-axis max (meV)">
+          </div>
+
           <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
             <div>
               <h3>Camera</h3>
