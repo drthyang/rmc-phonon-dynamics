@@ -174,10 +174,10 @@ function computePowderSqE(ydata, T, sigma, Emin, Emax, nE, nQbins, Ei) {
 
             for (let Qi = Qi_lo; Qi <= Qi_hi; Qi++) {
                 const dQi = (Qi + 0.5) * dQ - Q;
-                const w   = Q2 * Math.exp(-0.5 * dQi*dQi / (sigQ*sigQ));
-                norm[Qi] += w;
+                const wG  = Math.exp(-0.5 * dQi*dQi / (sigQ*sigQ));
+                norm[Qi] += wG;                 // Gaussian-only — preserves Q² after division
                 const base = Qi * nE;
-                for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] += w * tmpS[Ei];
+                for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] += Q2 * wG * tmpS[Ei];
             }
         }
     }
