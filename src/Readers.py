@@ -53,7 +53,7 @@ def get_atom_idx(fname, verbose=1):
         atom_dic[key] = list(set(atom_dic[key]))
     return atom_dic
 
-def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac', v1_norm=None, v2_norm=None, v3_norm=None):
+def read_frac_atom_ph(fname, atom_dic, dim, atype=0):
     '''Read fractional coordinates from Frac*.txt'''
     with open(fname, 'r') as f:
         lines = f.readlines()
@@ -76,27 +76,20 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode='Frac', v1_norm=None, 
         if process:
             atmtype.append(current_atom_type)
             xyz = np.array(np.float64(ln[1:4])) * dim
-            xyz = np.array([x-dim[0] if x > 1 else x for x in xyz])
+            xyz = np.mod(xyz, dim)  # wrap each component to [0, dim[i]) independently
             cell = np.array([int(ln[-3]), int(ln[-2]), int(ln[-1])])
-            
-            if mode == 'Frac':
-                data.append(xyz)
-                cell_idx.append(cell)
-            else:
-                # NOTE: cvt_pos was not defined in the original script provided.
-                # You must define cvt_pos or ensure mode is always 'Frac'
-                # xyz = np.array(cvt_pos(xyz, v1_norm, v2_norm, v3_norm))
-                pass 
-                
+            data.append(xyz)
+            cell_idx.append(cell)
+
     return atmtype, np.array(data), np.array(cell_idx)
 
-def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode='Frac'):
+def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0):
     '''Calculate average configuration from multiple files'''
     data_accum = None
     cell_tmp = None
-    
+
     for fidx in trange(len(fnames), desc='📊 Calculating average configuration', disable=False):
-        atmtype, data, cell_idx = read_frac_atom_ph(fnames[fidx], atom_dic, dim, atype, mode)
+        atmtype, data, cell_idx = read_frac_atom_ph(fnames[fidx], atom_dic, dim, atype)
         
         if fidx == 0:
             data_accum = np.array(data)
