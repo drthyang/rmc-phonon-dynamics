@@ -432,73 +432,83 @@ details.sidebar-section[open] > summary::after { content: ' ▴'; }
         </div>
         <div id="options-list">
 
-          <div>
-            <h3>Supercell</h3>
-            <input id="nx" value="2" type="number" style="width:44px">
-            <input id="ny" value="2" type="number" style="width:44px">
-            <input id="nz" value="1" type="number" style="width:44px">
-            <button id="update" type="button">apply</button>
-          </div>
+          <details class="sidebar-section" open>
+            <summary>Band Structure</summary>
 
-          <div>
-            <h3>Mode</h3>
-            k <input id="kindex" value="1" type="number" style="width:44px">
-            band <input id="nindex" value="1" type="number" style="width:44px">
-            <button id="modeselect" type="button">go</button>
-          </div>
-
-          <div>
-            <h3>Energy range (meV)</h3>
-            <input id="band-emin" type="number" value="0"   step="10" style="width:58px" title="Band structure y-axis min (meV)">
-            –
-            <input id="band-emax" type="number" value="100" step="10" style="width:58px" title="Band structure y-axis max (meV)">
-          </div>
-
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
             <div>
-              <h3>Camera</h3>
-              <button id="camerax">x</button>
-              <button id="cameray">y</button>
-              <button id="cameraz">z</button>
+              <h3>Mode</h3>
+              k <input id="kindex" value="1" type="number" style="width:44px">
+              band <input id="nindex" value="1" type="number" style="width:44px">
+              <button id="modeselect" type="button">go</button>
             </div>
+
             <div>
-              <h3>Cell</h3>
+              <h3>Energy range (meV)</h3>
+              <input id="band-emin" type="number" value="0"   step="10" style="width:58px" title="Band structure y-axis min (meV)">
+              –
+              <input id="band-emax" type="number" value="100" step="10" style="width:58px" title="Band structure y-axis max (meV)">
+            </div>
+
+          </details>
+
+          <details class="sidebar-section" open>
+            <summary>Structure</summary>
+
+            <div>
+              <h3>Supercell</h3>
+              <input id="nx" value="2" type="number" style="width:44px">
+              <input id="ny" value="2" type="number" style="width:44px">
+              <input id="nz" value="1" type="number" style="width:44px">
+              <button id="update" type="button">apply</button>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end">
+              <div>
+                <h3>Camera</h3>
+                <button id="camerax">x</button>
+                <button id="cameray">y</button>
+                <button id="cameraz">z</button>
+              </div>
+              <div>
+                <h3>Cell</h3>
+                <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+                  <input id="drawcell" type="checkbox"> show
+                </label>
+              </div>
+              <div>
+                <h3>Export</h3>
+                <button id="gifbutton">gif</button>
+                <button id="webmbutton">webm</button>
+                <div id="progress" style="font-size:10px;color:var(--c500)"></div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:10px;align-items:center;margin-top:2px">
               <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
-                <input id="drawcell" type="checkbox"> show
+                <input id="mode_weights_plot" type="checkbox"> weights
+              </label>
+              <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
+                <input id="drawshading" type="checkbox" checked> shading
               </label>
             </div>
+
             <div>
-              <h3>Export</h3>
-              <button id="gifbutton">gif</button>
-              <button id="webmbutton">webm</button>
-              <div id="progress" style="font-size:10px;color:var(--c500)"></div>
+              <h3>Amplitude</h3>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input id="amplitude_range" type="range" style="flex:1">
+                <input id="amplitude_box"   type="number" style="width:52px">
+              </div>
             </div>
-          </div>
 
-          <div style="display:flex;gap:10px;align-items:center;margin-top:2px">
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
-              <input id="mode_weights_plot" type="checkbox"> weights
-            </label>
-            <label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--c700);cursor:pointer">
-              <input id="drawshading" type="checkbox" checked> shading
-            </label>
-          </div>
-
-          <div>
-            <h3>Amplitude</h3>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input id="amplitude_range" type="range" style="flex:1">
-              <input id="amplitude_box"   type="number" style="width:52px">
+            <div>
+              <h3>Speed</h3>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input id="speed_range" type="range" style="flex:1">
+                <button id="playpause">pause</button>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <h3>Speed</h3>
-            <div style="display:flex;align-items:center;gap:6px">
-              <input id="speed_range" type="range" style="flex:1">
-              <button id="playpause">pause</button>
-            </div>
-          </div>
+          </details>
 
           <details class="sidebar-section">
             <summary>Lattice</summary>
