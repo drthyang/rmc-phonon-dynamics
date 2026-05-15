@@ -10,6 +10,21 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="phonon_assets/css/style.css">
 
+<script>
+// Suppress alerts fired by phononwebsite during startup (missing localdb/graphene data).
+// Alerts triggered after user interaction (file load, etc.) pass through normally.
+(function () {
+    const _alert = window.alert.bind(window);
+    let userActive = false;
+    const activate = () => { userActive = true; };
+    window.addEventListener('pointerdown', activate, { once: true });
+    window.addEventListener('keydown',     activate, { once: true });
+    window.alert = function (msg) {
+        if (userActive) _alert(msg);
+    };
+})();
+</script>
+
 <style>
 /* ── Tokens ──────────────────────────────────────────────────────────── */
 :root {
@@ -110,7 +125,7 @@ html, body {
 #rmcph-main {
     display: grid;
     grid-template-columns: 240px 1.6fr 1fr;
-    grid-template-rows: 55% 45%;
+    grid-template-rows: 45% 55%;
     flex: 1 1 0; min-height: 0; overflow: hidden;
 }
 
@@ -247,18 +262,12 @@ input[type=range]::-moz-range-track { height: 3px; background: var(--c200); bord
     overflow: hidden; background: var(--c0); min-height: 0;
 }
 
-/* Control strip — 3 columns */
+/* Control strip — single row toolbar */
 #sqe-header {
-    display: flex; align-items: center; gap: 0;
-    padding: 0 10px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 10px; height: 34px; flex-shrink: 0;
     background: var(--c50);
     border-bottom: 1px solid var(--c200);
-}
-/* Each parameter column stacks its controls vertically */
-.sqe-col {
-    display: flex; flex-direction: column; justify-content: center; gap: 3px;
-    padding: 4px 7px;
-    border-left: 1px solid var(--c200);
 }
 
 /* Toggle pill */
@@ -271,28 +280,42 @@ input[type=range]::-moz-range-track { height: 3px; background: var(--c200); bord
     border: none; border-radius: var(--r-pill);
     cursor: pointer; box-shadow: none;
     transition: background var(--dur), transform 0.08s;
-    margin-right: 4px;
     flex-shrink: 0;
 }
 #sqe-toggle:hover  { background: var(--c700); }
 #sqe-toggle:active { background: var(--accent); transform: scale(0.97); }
 
-/* Labels inside ctrl groups */
-.sqe-ctrl { display: flex; align-items: center; gap: 4px; }
-.sqe-ctrl label {
-    white-space: nowrap;
-    font-size: 10px; font-weight: 500; color: var(--c500);
-    cursor: default;
+/* Thin vertical separator */
+.sqe-sep {
+    width: 1px; height: 20px;
+    background: var(--c200); flex-shrink: 0; margin: 0 3px;
 }
-.sqe-ctrl input[type=number] {
+
+/* Inline parameter group */
+.sqe-group { display: flex; align-items: center; gap: 4px; }
+
+.sqe-lbl {
+    font-size: 10px; font-weight: 500; color: var(--c500);
+    white-space: nowrap; cursor: default;
+}
+.sqe-unit {
+    font-size: 10px; color: var(--c400); white-space: nowrap;
+}
+
+.sqe-group input[type=number] {
     width: 44px; height: 20px;
     font-size: 10.5px; padding: 0 3px;
     border-radius: 4px;
 }
-.sqe-ctrl select {
+.sqe-group select {
     height: 20px; font-size: 10.5px; padding: 0 2px;
 }
-.sqe-ctrl input[type=checkbox] { width: 13px; height: 13px; }
+
+.sqe-check {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; color: var(--c700); cursor: pointer; white-space: nowrap;
+}
+.sqe-check input[type=checkbox] { width: 12px; height: 12px; }
 
 /* Compute button */
 button#sqe-compute {
@@ -302,9 +325,9 @@ button#sqe-compute {
     background: var(--accent);
     border: none;
     border-radius: var(--r);
-    box-shadow: 0 1px 3px rgba(37,99,235,0.35), 0 0 0 0 var(--accent-dim);
+    box-shadow: 0 1px 3px rgba(37,99,235,0.35);
     transition: background var(--dur), box-shadow var(--dur), transform 0.08s;
-    margin-left: 6px; flex-shrink: 0;
+    flex-shrink: 0;
 }
 button#sqe-compute:hover  { background: var(--accent-h); box-shadow: 0 2px 8px rgba(37,99,235,0.4); }
 button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
@@ -314,7 +337,7 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
     font-size: 10px; color: var(--c400);
     font-style: italic;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    padding-left: 8px;
+    padding-left: 4px;
 }
 
 /* Canvas area */
@@ -343,6 +366,24 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
 .sqe-canvas-row canvas.heatmap  { flex: 1 1 0; display: block; min-width: 0; border-radius: 2px; }
 .sqe-canvas-row canvas.colorbar { width: 36px; flex-shrink: 0; display: block; }
 .sqe-divider { width: 1px; background: var(--c200); flex-shrink: 0; margin: 2px 0; }
+
+/* Sidebar collapsible sections */
+details.sidebar-section { margin-bottom: 4px; }
+details.sidebar-section > summary {
+    display: block;
+    margin: 14px 0 5px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--c200);
+    font-size: 9.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--c400);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+details.sidebar-section > summary::-webkit-details-marker { display: none; }
+details.sidebar-section > summary::after { content: ' ▾'; }
+details.sidebar-section[open] > summary::after { content: ' ▴'; }
 
 /* Appearance rows (phononwebsite) */
 .appearance-row {
@@ -452,8 +493,14 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
             </div>
           </div>
 
-          <div><h3>Lattice</h3><table id="lattice"></table></div>
-          <div><h3>Atom positions</h3><table id="atompos"></table></div>
+          <details class="sidebar-section">
+            <summary>Lattice</summary>
+            <table id="lattice"></table>
+          </details>
+          <details class="sidebar-section">
+            <summary>Atom positions</summary>
+            <table id="atompos"></table>
+          </details>
 
           <div class="advanced-appearance">
             <div class="appearance-subsection">Atom</div>
@@ -554,51 +601,47 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
 
         <button id="sqe-toggle">S(Q,E)</button>
 
-        <!-- Col 1: Resolution -->
-        <div class="sqe-col">
-          <div class="sqe-ctrl">
-            <label for="sqe-temp">T</label>
-            <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
-            <span style="font-size:10px;color:var(--c400)">K</span>
-          </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-sigma">σ</label>
-            <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
-            <span style="font-size:10px;color:var(--c400)">meV</span>
-          </div>
+        <div class="sqe-sep"></div>
+
+        <!-- Physics: T and σ -->
+        <div class="sqe-group">
+          <span class="sqe-lbl">T</span>
+          <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
+          <span class="sqe-unit">K</span>
+          <span class="sqe-lbl" style="margin-left:4px">σ</span>
+          <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
+          <span class="sqe-unit">meV</span>
         </div>
 
-        <!-- Col 2: Energy range -->
-        <div class="sqe-col">
-          <div class="sqe-ctrl">
-            <label for="sqe-emin">E<sub>min</sub></label>
-            <input id="sqe-emin" type="number" value="-5" step="1">
-            <label for="sqe-emax" style="margin-left:4px">E<sub>max</sub></label>
-            <input id="sqe-emax" type="number" value="30" step="1">
-          </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-ei">E<sub>i</sub></label>
-            <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
-            <span style="font-size:10px;color:var(--c400)">meV</span>
-          </div>
+        <div class="sqe-sep"></div>
+
+        <!-- Energy range + incident energy -->
+        <div class="sqe-group">
+          <span class="sqe-lbl">E</span>
+          <input id="sqe-emin" type="number" value="-5" step="1">
+          <span class="sqe-unit">–</span>
+          <input id="sqe-emax" type="number" value="30" step="1">
+          <span class="sqe-unit">meV</span>
+          <span class="sqe-lbl" style="margin-left:4px">E<sub>i</sub></span>
+          <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
+          <span class="sqe-unit">meV</span>
         </div>
 
-        <!-- Col 3: Display -->
-        <div class="sqe-col">
-          <div class="sqe-ctrl">
-            <label for="sqe-cmap">cmap</label>
-            <select id="sqe-cmap">
-              <option value="inferno" selected>inferno</option>
-              <option value="viridis">viridis</option>
-              <option value="plasma">plasma</option>
-              <option value="hot">hot</option>
-              <option value="coolwarm">coolwarm</option>
-            </select>
-          </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-log">log scale</label>
+        <div class="sqe-sep"></div>
+
+        <!-- Display options -->
+        <div class="sqe-group">
+          <select id="sqe-cmap">
+            <option value="inferno" selected>inferno</option>
+            <option value="viridis">viridis</option>
+            <option value="plasma">plasma</option>
+            <option value="hot">hot</option>
+            <option value="coolwarm">coolwarm</option>
+          </select>
+          <label class="sqe-check">
             <input id="sqe-log" type="checkbox">
-          </div>
+            <span>log</span>
+          </label>
         </div>
 
         <button id="sqe-compute">Compute</button>
@@ -613,13 +656,13 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
             <div class="sqe-sub-title">S(|Q|, E) — Powder Average</div>
             <div class="sqe-canvas-row">
               <canvas id="sqe-pow-canvas" class="heatmap"></canvas>
-              <canvas id="sqe-pow-cb"     class="colorbar" width="36"></canvas>
+              <canvas id="sqe-pow-cb"     class="colorbar" width="44"></canvas>
             </div>
           </div>
 
           <div class="sqe-divider"></div>
 
-          <div class="sqe-sub" id="dos-wrap" style="flex: 0 0 110px; min-width: 70px;">
+          <div class="sqe-sub" id="dos-wrap" style="flex: 0 0 150px; min-width: 90px;">
             <div class="sqe-sub-title">Phonon DOS</div>
             <div class="sqe-canvas-row">
               <canvas id="dos-canvas" class="heatmap"></canvas>
