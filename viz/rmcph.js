@@ -373,7 +373,7 @@ function renderHeatmap(canvas, result, colormap, logScale) {
     }
 
     // ── E-axis ticks (left) ──────────────────────────────────────────────
-    ctx.font = '10px Arial'; ctx.fillStyle = '#222';
+    ctx.font = '10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#222';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     const nEticks = Math.min(8, Math.floor(plotH / 28));
     for (let ti = 0; ti <= nEticks; ti++) {
@@ -413,7 +413,7 @@ function renderHeatmap(canvas, result, colormap, logScale) {
     } else {
         // Powder: numeric |Q| ticks
         const nXticks = Math.min(6, Math.floor(plotW / 55));
-        ctx.font = '10px Arial';
+        ctx.font = '10px Inter, system-ui, sans-serif';
         for (let ti = 0; ti <= nXticks; ti++) {
             const Q  = xMin + (xMax-xMin) * ti / nXticks;
             const px = ML + plotW * ti / nXticks;
@@ -426,7 +426,7 @@ function renderHeatmap(canvas, result, colormap, logScale) {
 
     // x-axis label + border
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.font = '10px Arial'; ctx.fillStyle = '#444';
+    ctx.font = '10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#444';
     ctx.fillText(xLabel, ML + plotW/2, H);
     ctx.strokeStyle = '#555'; ctx.lineWidth = 1;
     ctx.strokeRect(ML, MT, plotW, plotH);
@@ -490,7 +490,7 @@ function renderDOS(canvas, dosResult) {
     }
 
     // x-axis label
-    ctx.font = '10px Arial'; ctx.fillStyle = '#444';
+    ctx.font = '10px Inter, system-ui, sans-serif'; ctx.fillStyle = '#444';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText('PhDOS', ML_D + plotW / 2, H);
 
@@ -505,17 +505,32 @@ function drawColorbar(cbCanvas, colormap) {
     const ctx = cbCanvas.getContext('2d');
     const W = cbCanvas.width, H = cbCanvas.height;
     ctx.clearRect(0, 0, W, H);
+
+    const plotH = H - MT - MB;
+    if (plotH < 10) return;
+
     const bw = 14;
-    for (let y = 0; y < H; y++) {
-        const [r,g,b] = applyColormap(1 - y/(H-1), colormap);
+    for (let y = 0; y < plotH; y++) {
+        const [r,g,b] = applyColormap(1 - y / plotH, colormap);
         ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fillRect(0, y, bw, 1);
+        ctx.fillRect(0, MT + y, bw, 1);
     }
     ctx.strokeStyle = '#666'; ctx.lineWidth = 0.5;
-    ctx.strokeRect(0, 0, bw, H);
-    ctx.fillStyle = '#333'; ctx.font = '9px Arial'; ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';    ctx.fillText('max', bw+2, 0);
-    ctx.textBaseline = 'bottom'; ctx.fillText('0',   bw+2, H);
+    ctx.strokeRect(0, MT, bw, plotH);
+
+    // Tick marks + labels at 0%, 25%, 50%, 75%, 100%
+    const nTicks = 4;
+    ctx.font = '9px Inter, system-ui, sans-serif';
+    ctx.fillStyle = '#333'; ctx.textAlign = 'left';
+    for (let ti = 0; ti <= nTicks; ti++) {
+        const t  = ti / nTicks;
+        const y  = MT + t * plotH;
+        ctx.strokeStyle = '#666'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(bw, y); ctx.lineTo(bw + 3, y); ctx.stroke();
+        const label = ti === 0 ? '1.0' : ti === nTicks ? '0.0' : (1 - t).toFixed(2);
+        ctx.textBaseline = ti === 0 ? 'top' : ti === nTicks ? 'bottom' : 'middle';
+        ctx.fillText(label, bw + 5, y);
+    }
 }
 
 // ── Main init ────────────────────────────────────────────────────────────────
