@@ -664,6 +664,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (powResult && panelBody.style.display !== 'none') { resizeCanvases(); redraw(); }
     });
 
+    // ── Responsive nav ────────────────────────────────────────────────────
+    const sidebarEl  = document.querySelector('.flex-menu');
+    const backdropEl = document.getElementById('sidebar-backdrop');
+    const rootEl     = document.getElementById('rmcph-root');
+
+    function closeSidebar() {
+        sidebarEl?.classList.remove('open');
+        backdropEl?.classList.remove('open');
+    }
+    document.getElementById('nav-toggle')?.addEventListener('click', () => {
+        const isOpen = sidebarEl.classList.toggle('open');
+        backdropEl.classList.toggle('open', isOpen);
+    });
+    backdropEl?.addEventListener('click', closeSidebar);
+
+    // Phone tab bar: 3D / Band / S(Q,E) tabs
+    document.querySelectorAll('#tab-bar [data-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#tab-bar [data-tab]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            rootEl.dataset.tab = btn.dataset.tab;
+            // Resize canvases when switching to S(Q,E) tab
+            if (btn.dataset.tab === 'sqe' && powResult) { resizeCanvases(); redraw(); }
+        });
+    });
+    // Settings tab toggles sidebar drawer
+    document.getElementById('tab-settings')?.addEventListener('click', () => {
+        const isOpen = sidebarEl.classList.toggle('open');
+        backdropEl.classList.toggle('open', isOpen);
+    });
+
     function triggerCompute() {
         if (!ydata) return;
         statusEl.textContent = 'Computing…';
