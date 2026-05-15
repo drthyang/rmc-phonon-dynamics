@@ -615,6 +615,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (el) el.value = val;
                     });
                     document.getElementById('update')?.click();
+                    // Re-fit camera after supercell update so the full structure is visible.
+                    setTimeout(() => document.getElementById('cameraz')?.click(), 150);
                     document.getElementById('modeselect')?.click();
                     if (andCompute && panelBody.style.display !== 'none') triggerCompute();
                 }
