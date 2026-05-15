@@ -628,7 +628,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     document.getElementById('update')?.click();
                     // Re-fit camera after supercell update so the full structure is visible.
-                    setTimeout(() => document.getElementById('cameraz')?.click(), 150);
+                    // Multiply cameraDistance by 1.35 so the 2×2×1 structure is fully visible.
+                    setTimeout(() => {
+                        document.getElementById('cameraz')?.click();
+                        setTimeout(() => { if (typeof v !== 'undefined') { v.cameraDistance *= 1.35; v.setCameraDirection('z'); } }, 80);
+                    }, 150);
                     document.getElementById('modeselect')?.click();
                     if (andCompute && panelBody.style.display !== 'none') triggerCompute();
                 }
