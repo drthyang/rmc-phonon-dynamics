@@ -15,10 +15,27 @@ const B_COH = {
     Os:10.7,Ir:10.6,Pt:9.60,Au:7.63,Hg:12.692,Tl:8.776,Pb:9.405,Bi:8.532
 };
 
-const KB       = 0.08617333; // meV / K
+const KB        = 0.08617333;   // meV / K
 // ℏ²/(2m_n) — recoil parabola E_recoil(Q) = HBAR2_2MN * Q²
 // Q in Å⁻¹ (2π convention), E in meV.  ℏ=1.0546e-34 J·s, m_n=1.6749e-27 kg
-const HBAR2_2MN = 2.0723;    // meV · Å²
+const HBAR2_2MN = 2.0723;       // meV · Å²
+// phonopy band.yaml stores frequencies in THz; all our physics uses meV
+const THZ_TO_MEV = 4.135667696; // h·10¹²/e  (h=6.62607e-34 J·s, e=1.60218e-19 C)
+
+// Hook Highcharts (loaded by phononwebsite) to display band frequencies in meV
+(function hookHighcharts() {
+    if (typeof Highcharts === 'undefined') { setTimeout(hookHighcharts, 50); return; }
+    const origSetData = Highcharts.Series.prototype.setData;
+    Highcharts.Series.prototype.setData = function(data, ...args) {
+        const conv = Array.isArray(data)
+            ? data.map(p => Array.isArray(p) ? [p[0], p[1] * THZ_TO_MEV] : p)
+            : data;
+        const r = origSetData.call(this, conv, ...args);
+        try { this.chart?.yAxis?.[0]?.update({ title: { text: 'Frequency (meV)' } }, false); }
+        catch(e) {}
+        return r;
+    };
+})();
 
 // ── Physics helpers ─────────────────────────────────────────────────────────
 
@@ -516,6 +533,11 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.onload = (evt) => {
             try {
                 ydata = window.jsyaml.load(evt.target.result);
+                // Convert all frequencies from THz (phonopy default) to meV
+                if (ydata.phonon) {
+                    for (const qpt of ydata.phonon)
+                        if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
+                }
                 const nM = ydata.phonon?.[0]?.band?.length ?? '?';
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
