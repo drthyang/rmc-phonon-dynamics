@@ -247,12 +247,15 @@ input[type=range]::-moz-range-track { height: 3px; background: var(--c200); bord
     overflow: hidden; background: var(--c0); min-height: 0;
 }
 
-/* Control strip */
+/* Control strip — two rows */
 #sqe-header {
-    display: flex; align-items: center; gap: 0;
-    padding: 0 10px; height: 36px; flex-shrink: 0;
+    display: flex; flex-direction: column; justify-content: center; gap: 3px;
+    padding: 5px 10px; flex-shrink: 0;
     background: var(--c50);
     border-bottom: 1px solid var(--c200);
+}
+.sqe-row {
+    display: flex; align-items: center; gap: 0; height: 24px;
 }
 
 /* Toggle pill */
@@ -556,65 +559,62 @@ button#sqe-compute:active { transform: scale(0.97); box-shadow: none; }
     <div id="sqe-panel">
       <div id="sqe-header">
 
-        <button id="sqe-toggle">S(Q,E)</button>
-
-        <div class="ctrl-sep"></div>
-
-        <!-- Group 1: resolution -->
-        <div class="ctrl-group">
-          <div class="sqe-ctrl">
-            <label for="sqe-temp">T</label>
-            <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
-            <span style="font-size:10px;color:var(--c400)">K</span>
+        <!-- Row 1: toggle + T/σ + energy range + Compute -->
+        <div class="sqe-row">
+          <button id="sqe-toggle">S(Q,E)</button>
+          <div class="ctrl-sep"></div>
+          <div class="ctrl-group">
+            <div class="sqe-ctrl">
+              <label for="sqe-temp">T</label>
+              <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
+              <span style="font-size:10px;color:var(--c400)">K</span>
+            </div>
+            <div class="sqe-ctrl">
+              <label for="sqe-sigma">σ</label>
+              <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
+              <span style="font-size:10px;color:var(--c400)">meV</span>
+            </div>
           </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-sigma">σ</label>
-            <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
-            <span style="font-size:10px;color:var(--c400)">meV</span>
+          <div class="ctrl-sep"></div>
+          <div class="ctrl-group">
+            <div class="sqe-ctrl">
+              <label for="sqe-emin">E<sub>min</sub></label>
+              <input id="sqe-emin" type="number" value="-5" step="1">
+            </div>
+            <div class="sqe-ctrl">
+              <label for="sqe-emax">E<sub>max</sub></label>
+              <input id="sqe-emax" type="number" value="30" step="1">
+            </div>
+            <div class="sqe-ctrl">
+              <label for="sqe-ei">E<sub>i</sub></label>
+              <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
+              <span style="font-size:10px;color:var(--c400)">meV</span>
+            </div>
           </div>
+          <div class="ctrl-sep"></div>
+          <button id="sqe-compute">Compute</button>
         </div>
 
-        <div class="ctrl-sep"></div>
-
-        <!-- Group 2: energy range + incident -->
-        <div class="ctrl-group">
-          <div class="sqe-ctrl">
-            <label for="sqe-emin">E<sub>min</sub></label>
-            <input id="sqe-emin" type="number" value="-5" step="1">
+        <!-- Row 2: display options + status -->
+        <div class="sqe-row">
+          <div class="ctrl-group" style="padding-left:0">
+            <div class="sqe-ctrl">
+              <label for="sqe-cmap">cmap</label>
+              <select id="sqe-cmap">
+                <option value="inferno" selected>inferno</option>
+                <option value="viridis">viridis</option>
+                <option value="plasma">plasma</option>
+                <option value="hot">hot</option>
+                <option value="coolwarm">coolwarm</option>
+              </select>
+            </div>
+            <div class="sqe-ctrl">
+              <label for="sqe-log">log</label>
+              <input id="sqe-log" type="checkbox">
+            </div>
           </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-emax">E<sub>max</sub></label>
-            <input id="sqe-emax" type="number" value="30" step="1">
-          </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-ei">E<sub>i</sub></label>
-            <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
-            <span style="font-size:10px;color:var(--c400)">meV</span>
-          </div>
+          <span id="sqe-status">Load a band.yaml to begin.</span>
         </div>
-
-        <div class="ctrl-sep"></div>
-
-        <!-- Group 3: display -->
-        <div class="ctrl-group">
-          <div class="sqe-ctrl">
-            <label for="sqe-cmap">cmap</label>
-            <select id="sqe-cmap">
-              <option value="inferno" selected>inferno</option>
-              <option value="viridis">viridis</option>
-              <option value="plasma">plasma</option>
-              <option value="hot">hot</option>
-              <option value="coolwarm">coolwarm</option>
-            </select>
-          </div>
-          <div class="sqe-ctrl">
-            <label for="sqe-log">log</label>
-            <input id="sqe-log" type="checkbox">
-          </div>
-        </div>
-
-        <button id="sqe-compute">Compute</button>
-        <span id="sqe-status">Load a band.yaml to begin.</span>
 
       </div><!-- /sqe-header -->
 
