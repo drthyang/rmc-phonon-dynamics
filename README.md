@@ -12,8 +12,8 @@ A browser-based phonon visualization utility is also available:
 
 This utility is a combined effort of custom scientific data processing and adapted open-source visualization tools:
 
-* **Custom Development:** The data parsing pipeline (converting `rmcprofile` to `phonopy` YAML format), inelastic neutron scattering (INS) simulations, and phonon Density of States (DOS) calculations were developed specifically for this project by T.-H. Yang.
-* **Visualization Engine:** The core 3D phonon visualization, rendering engine, and interactive UI components are directly adapted from the excellent **phononwebsite** project.
+* **Custom Development:** The data parsing pipeline (converting `rmcprofile` to `phonopy` YAML format), inelastic neutron scattering (INS) simulations, and phonon Density of States (DOS) calculations were developed specifically for this project by TSUNG-HAN.
+* **Visualization Engine:** The core 3D phonon visualization, rendering engine, and interactive UI components are directly adapted from the excellent **phononwebsite** project [4].
 
 
 ### Key Features
