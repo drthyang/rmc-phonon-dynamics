@@ -33,7 +33,16 @@ const THZ_TO_MEV = 4.135667696; // h·10¹²/e  (h=6.62607e-34 J·s, e=1.60218e-
             ? data.map(p => Array.isArray(p) ? [p[0], p[1] * THZ_TO_MEV] : p)
             : data;
         const r = origSetData.call(this, conv, ...args);
-        try { this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' } }, false); }
+        try {
+            this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' }, min: 0, max: 100 }, false);
+            this.chart?.update({
+                tooltip: {
+                    formatter: function() {
+                        return `Energy: <b>${this.y.toFixed(2)} meV</b>`;
+                    }
+                }
+            }, false);
+        }
         catch(e) {}
         return r;
     };
