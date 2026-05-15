@@ -589,16 +589,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
 
-                // Restore settings after phononwebsite finishes its own load handler
-                setTimeout(() => {
+                // Restore settings after phononwebsite finishes its own load handler.
+                // Two passes at different delays handle slow async processing.
+                function restoreSnap(andCompute) {
                     Object.entries(snap).forEach(([id, val]) => {
                         const el = document.getElementById(id);
                         if (el) el.value = val;
                     });
-                    document.getElementById('update')?.click();      // re-apply supercell
-                    document.getElementById('modeselect')?.click();   // re-apply mode
-                    if (panelBody.style.display !== 'none') triggerCompute();
-                }, 150);
+                    document.getElementById('update')?.click();
+                    document.getElementById('modeselect')?.click();
+                    if (andCompute && panelBody.style.display !== 'none') triggerCompute();
+                }
+                setTimeout(() => restoreSnap(false), 300);
+                setTimeout(() => restoreSnap(true),  700);
             } catch(err) {
                 statusEl.textContent = '✗ ' + err.message;
                 console.error(err);
