@@ -126,32 +126,37 @@ function computePowderSqE(ydata, T, sigma, Emin, Emax, nE, nQbins, Ei) {
         ? Math.max(1.5, 2 * ki_plot * 1.05)
         : Math.max(1.5, Math.sqrt(Math.max(Emax, 1) / HBAR2_2MN) * 1.2);
     const dQ   = Q_max_plot / nQbins;
-    const sigQ = 1.8 * dQ;   // Gaussian Q-smearing width
 
-    // Precompute G-vectors within reach of the plot range
+    // sigQ must be wide enough to fill gaps between G-shells (≥ half the shell spacing)
     const b_min = Math.min(...bmag);
-    const n_max = Math.min(6, Math.ceil(Q_max_plot / b_min) + 1);
+    const sigQ  = Math.max(1.5 * dQ, 0.4 * b_min);
+
+    // Precompute G-vectors within reach of the plot range.
+    // n_max must cover Q_max_plot — cap raised to 20 to handle large unit cells.
+    const n_max = Math.min(20, Math.ceil(Q_max_plot / b_min) + 1);
     const G_buf = [];
+    const G_reach = Q_max_plot + Math.max(...bmag);
     for (let n1 = -n_max; n1 <= n_max; n1++)
     for (let n2 = -n_max; n2 <= n_max; n2++)
     for (let n3 = -n_max; n3 <= n_max; n3++) {
         const Gx = n1*bv[0][0] + n2*bv[1][0] + n3*bv[2][0];
         const Gy = n1*bv[0][1] + n2*bv[1][1] + n3*bv[2][1];
         const Gz = n1*bv[0][2] + n2*bv[1][2] + n3*bv[2][2];
-        // Keep only if it can bring some q into [0, Q_max_plot]
-        const Gm = Math.sqrt(Gx*Gx + Gy*Gy + Gz*Gz);
-        if (Gm < Q_max_plot + Math.max(...bmag)) G_buf.push([Gx, Gy, Gz]);
+        if (Math.sqrt(Gx*Gx + Gy*Gy + Gz*Gz) < G_reach) G_buf.push([Gx, Gy, Gz]);
     }
 
     const dE    = (Emax - Emin) / (nE - 1);
     const Eaxis = Float64Array.from({length: nE}, (_, i) => Emin + i * dE);
     const S     = new Float64Array(nQbins * nE);
     const norm  = new Float64Array(nQbins);
-    const tmpS  = new Float64Array(nE);   // per-q scratch buffer
+    const tmpS  = new Float64Array(nE);
     const Qspan = Math.ceil(3.5 * sigQ / dQ);
 
+    // Per-q-point weight accumulators (avoids nE inner loop inside G-vector loop)
+    const wq_acc = new Float64Array(nQbins);  // Σ Q²·wG per Q-bin
+    const wn_acc = new Float64Array(nQbins);  // Σ wG per Q-bin
+
     for (let qi = 0; qi < phonon.length; qi++) {
-        // Compute S(q, E) for this path q-point into tmpS
         tmpS.fill(0);
         accumulateModes(phonon[qi].band, atoms, b2m, T, sigma, Emin, dE, nE, 0, tmpS);
 
@@ -161,28 +166,37 @@ function computePowderSqE(ydata, T, sigma, Emin, Emax, nE, nQbins, Ei) {
         const qy = 2*Math.PI*(qf[0]*rl[0][1] + qf[1]*rl[1][1] + qf[2]*rl[2][1]);
         const qz = 2*Math.PI*(qf[0]*rl[0][2] + qf[1]*rl[1][2] + qf[2]*rl[2][2]);
 
+        // Phase 1: accumulate G-vector weights into Q-bins (no nE loop here)
+        wq_acc.fill(0);
+        wn_acc.fill(0);
         for (const [Gx, Gy, Gz] of G_buf) {
             const Qvx = qx + Gx, Qvy = qy + Gy, Qvz = qz + Gz;
             const Q   = Math.sqrt(Qvx*Qvx + Qvy*Qvy + Qvz*Qvz);
             if (Q <= 0 || Q > Q_max_plot) continue;
 
-            // |Q|² prefactor (powder cross-section ∝ Q²)
             const Q2   = Q * Q;
             const Qi_f = Q / dQ;
             const Qi_lo = Math.max(0,          Math.floor(Qi_f - Qspan));
             const Qi_hi = Math.min(nQbins - 1, Math.ceil( Qi_f + Qspan));
-
             for (let Qi = Qi_lo; Qi <= Qi_hi; Qi++) {
                 const dQi = (Qi + 0.5) * dQ - Q;
                 const wG  = Math.exp(-0.5 * dQi*dQi / (sigQ*sigQ));
-                norm[Qi] += wG;                 // Gaussian-only — preserves Q² after division
-                const base = Qi * nE;
-                for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] += Q2 * wG * tmpS[Ei];
+                wq_acc[Qi] += Q2 * wG;
+                wn_acc[Qi] += wG;
             }
+        }
+
+        // Phase 2: multiply accumulated weights by tmpS once per Q-bin (fast)
+        for (let Qi = 0; Qi < nQbins; Qi++) {
+            if (wq_acc[Qi] === 0) continue;
+            norm[Qi] += wn_acc[Qi];
+            const base = Qi * nE;
+            const w = wq_acc[Qi];
+            for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] += w * tmpS[Ei];
         }
     }
 
-    // Normalize each Q-bin by accumulated weight
+    // Normalize each Q-bin by Gaussian-only weight (preserves Q² in signal)
     for (let Qi = 0; Qi < nQbins; Qi++) {
         if (norm[Qi] > 0) {
             const base = Qi * nE;
