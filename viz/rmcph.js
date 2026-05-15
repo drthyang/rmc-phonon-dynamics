@@ -25,24 +25,33 @@ const THZ_TO_MEV = 4.135667696; // h·10¹²/e  (h=6.62607e-34 J·s, e=1.60218e-
 // Hook Highcharts (loaded by phononwebsite) to display band frequencies in meV
 (function hookHighcharts() {
     if (typeof Highcharts === 'undefined') { setTimeout(hookHighcharts, 50); return; }
+
+    // Scale y-data THz → meV on every setData call
     const origSetData = Highcharts.Series.prototype.setData;
     Highcharts.Series.prototype.setData = function(data, ...args) {
         const conv = Array.isArray(data)
             ? data.map(p => Array.isArray(p) ? [p[0], p[1] * THZ_TO_MEV] : p)
             : data;
         const r = origSetData.call(this, conv, ...args);
-        try {
-            this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' } }, false);
-            this.chart?.update({
-                tooltip: {
-                    formatter: function() {
-                        return `Energy: <b>${this.y.toFixed(2)} meV</b>`;
-                    }
-                }
-            }, false);
-        }
+        try { this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' } }, false); }
         catch(e) {}
         return r;
+    };
+
+    // Override tooltip at render time — runs on every hover, bypasses phononwebsite's formatter
+    const origRefresh = Highcharts.Tooltip.prototype.refresh;
+    Highcharts.Tooltip.prototype.refresh = function(point, mouseEvent) {
+        const opts = this.chart?.options?.tooltip;
+        if (opts) {
+            const saved = opts.formatter;
+            opts.formatter = function() {
+                return `Energy: <b>${this.y.toFixed(2)} meV</b>`;
+            };
+            origRefresh.call(this, point, mouseEvent);
+            opts.formatter = saved;
+        } else {
+            origRefresh.call(this, point, mouseEvent);
+        }
     };
 })();
 
