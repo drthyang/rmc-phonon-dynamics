@@ -34,7 +34,9 @@ const THZ_TO_MEV = 4.135667696; // h·10¹²/e  (h=6.62607e-34 J·s, e=1.60218e-
             : data;
         const r = origSetData.call(this, conv, ...args);
         try {
-            this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' }, min: 0, max: 100 }, false);
+            const bEmin = parseFloat(document.getElementById('band-emin')?.value) ?? 0;
+            const bEmax = parseFloat(document.getElementById('band-emax')?.value) ?? 100;
+            this.chart?.yAxis?.[0]?.update({ title: { text: 'Energy (meV)' }, min: bEmin, max: bEmax }, false);
             this.chart?.update({
                 tooltip: {
                     formatter: function() {
@@ -568,6 +570,16 @@ function drawColorbar(cbCanvas, colormap) {
 // ── Main init ────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Band structure y-axis range inputs
+    ['band-emin', 'band-emax'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', () => {
+            const min = parseFloat(document.getElementById('band-emin').value);
+            const max = parseFloat(document.getElementById('band-emax').value);
+            if (isNaN(min) || isNaN(max) || min >= max) return;
+            Highcharts?.charts?.forEach(c => c?.yAxis?.[0]?.setExtremes(min, max));
+        });
+    });
+
     const fileInput  = document.getElementById('file-input');
     const computeBtn = document.getElementById('sqe-compute');
     const toggleBtn  = document.getElementById('sqe-toggle');
