@@ -631,7 +631,7 @@ details.sidebar-section.primary > summary {
           <input id="sqe-temp" type="number" value="5" min="0.1" step="1">
           <span class="sqe-unit">K</span>
           <span class="sqe-lbl" style="margin-left:4px">σ</span>
-          <input id="sqe-sigma" type="number" value="0.5" min="0.01" step="0.1">
+          <input id="sqe-sigma" type="number" value="0.2" min="0.01" step="0.1">
           <span class="sqe-unit">meV</span>
         </div>
 
@@ -640,12 +640,12 @@ details.sidebar-section.primary > summary {
         <!-- Energy range + incident energy -->
         <div class="sqe-group">
           <span class="sqe-lbl">E</span>
-          <input id="sqe-emin" type="number" value="-5" step="1">
+          <input id="sqe-emin" type="number" value="-0.5" step="1">
           <span class="sqe-unit">–</span>
-          <input id="sqe-emax" type="number" value="30" step="1">
+          <input id="sqe-emax" type="number" value="15" step="1">
           <span class="sqe-unit">meV</span>
           <span class="sqe-lbl" style="margin-left:4px">E<sub>i</sub></span>
-          <input id="sqe-ei" type="number" value="50" min="0.1" step="5" title="Incident neutron energy (meV)">
+          <input id="sqe-ei" type="number" value="15" min="0.1" step="5" title="Incident neutron energy (meV)">
           <span class="sqe-unit">meV</span>
         </div>
 
@@ -661,7 +661,7 @@ details.sidebar-section.primary > summary {
             <option value="coolwarm">coolwarm</option>
           </select>
           <label class="sqe-check">
-            <input id="sqe-log" type="checkbox">
+            <input id="sqe-log" type="checkbox" checked>
             <span>log</span>
           </label>
         </div>
