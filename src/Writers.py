@@ -8,6 +8,19 @@ from pymatgen.io.cif import CifWriter
 from constants import ATOMIC_MASS
 
 
+def _safe_path(path):
+    """Return path unchanged if it doesn't exist, otherwise append _1, _2, … until free."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    idx = 1
+    while True:
+        candidate = f'{base}_{idx}{ext}'
+        if not os.path.exists(candidate):
+            return candidate
+        idx += 1
+
+
 def _degenerate_groups(freqs, tol):
     """Return list of index-groups whose frequencies are within tol of each other."""
     n = len(freqs)
@@ -313,7 +326,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
         distances.append(distances[-1] + float(np.linalg.norm(dq)))
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = out_dir + 'band_cpu.yaml'
+    out_path = _safe_path(out_dir + 'band_cpu.yaml')
 
     lines = []
 
