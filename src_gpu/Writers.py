@@ -331,7 +331,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
         distances.append(distances[-1] + float(np.linalg.norm(dq)))
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = out_dir + 'band.yaml'
+    out_path = out_dir + 'band_gpu.yaml'
 
     lines = []
 
@@ -393,7 +393,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     with open(out_path, 'w') as f:
         f.write('\n'.join(lines) + '\n')
 
-    print(f'band.yaml written to {out_path}')
+    print(f'band_gpu.yaml written to {out_path}')
 
 
 def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
