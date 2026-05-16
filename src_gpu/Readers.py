@@ -118,10 +118,7 @@ def read_frac_atom_ph(fname, atom_dic, dim, atype=0, mode="Frac"):
     xyz = arr[mask, 1:4].astype(np.float64) * np.asarray(dim, dtype=np.float64)
     cell_idx = arr[mask, -3:].astype(np.int64)
 
-    # Your original wrap: x-dim[0] if x > 1 else x
-    # This is odd because you compare to 1 after scaling by dim.
-    # Keeping behavior identical:
-    xyz = np.where(xyz > 1.0, xyz - dim[0], xyz)
+    xyz = np.mod(xyz, np.asarray(dim, dtype=np.float64))  # wrap each component to [0, dim[i]) independently
 
     return atom_type.tolist(), xyz, cell_idx
 
