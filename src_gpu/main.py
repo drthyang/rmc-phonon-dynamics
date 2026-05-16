@@ -13,7 +13,6 @@ T = 5  # temperature [K] — must match the RMC ensemble temperature
 
 stempath    = '../data/'
 fpath_eq      = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
-fpath_eq_frac = stempath + f'{T}K_ini/Frac_coord_GTS_{T}K.txt'
 fpath         = stempath + f'ensemble_20A_{T}K/configs/'
 
 plot_PDOS       = True
@@ -42,8 +41,7 @@ if __name__ == '__main__':
     rmcfiles = sorted(glob.glob(fpath + 'Frac*.txt'))
     print('🔎 Found ** {} ** configurations ...'.format(len(rmcfiles)))
 
-    rmcfiles_ini = glob.glob(fpath_eq_frac)
-    hsym_test = Readers.avg_frac_atom_ph(rmcfiles_ini, atom_dic, dim)
+    hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
 
     # 3. Define k-path and step count
     k_path = ['GM', 'X', 'M', 'GM', 'Z', 'R', 'A', 'Z']
@@ -97,8 +95,8 @@ if __name__ == '__main__':
     if plot_PartialDOS:
         for partial_type in atom_dic.keys():
             print('Calculating partial phonon DOS for {} ...'.format(partial_type))
-            hsym_partial = Readers.read_frac_atom_ph(
-                fpath_eq_frac, atom_dic, dim, atype=partial_type)
+            hsym_partial = Readers.avg_frac_atom_ph(
+                rmcfiles, atom_dic, dim, atype=partial_type)
 
             qpnts = Calculators.gen_grid(5)
             wk = []

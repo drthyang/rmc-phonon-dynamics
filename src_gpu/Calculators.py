@@ -233,8 +233,8 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, v_super,
                 if int(header[0]) <= len(fnames):
                     start_idx = int(header[0])
                     Sk_loaded = np.array([[complex(x) for x in row] for row in reader])
-                    Sk_sum_real = np.real(Sk_loaded).astype(np.float32)
-                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float32)
+                    Sk_sum_real = np.real(Sk_loaded).astype(np.float64)
+                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float64)
         except Exception:
             print("Load failed, starting fresh.")
 
@@ -315,8 +315,8 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, v_super,
     kvec_gpu = jnp.array(kpnt, dtype=jnp.float32)
 
     # --- 2. Load Previous Progress ---
-    Sk_sum_real = np.zeros((3, 3), dtype=np.float32)
-    Sk_sum_imag = np.zeros((3, 3), dtype=np.float32)
+    Sk_sum_real = np.zeros((3, 3), dtype=np.float64)
+    Sk_sum_imag = np.zeros((3, 3), dtype=np.float64)
 
     if loadfile and os.path.exists(saved_Sk_path):
         print(f"Loading partial progress from {saved_Sk_path}...")
@@ -327,8 +327,8 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, v_super,
                 if int(header[0]) <= len(fnames):
                     start_idx = int(header[0])
                     Sk_loaded = np.array([[complex(x) for x in row] for row in reader])
-                    Sk_sum_real = np.real(Sk_loaded).astype(np.float32)
-                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float32)
+                    Sk_sum_real = np.real(Sk_loaded).astype(np.float64)
+                    Sk_sum_imag = np.imag(Sk_loaded).astype(np.float64)
         except Exception:
             print("Load failed, starting fresh.")
 
@@ -392,7 +392,9 @@ def eigenvalues_to_meV(eigenvalues, T):
     returned as negative energies. Zero eigenvalues map to 0.
     '''
     ev = np.asarray(eigenvalues, dtype=float)
-    safe = np.where(ev != 0, np.abs(ev), np.nan)
+    threshold = 1e-4
+    valid = np.abs(ev) >= threshold
+    safe = np.where(valid, np.abs(ev), np.nan)
     energies = ENERGY_CONV * np.sqrt(T / safe)
     energies = np.where(np.isnan(energies), 0.0, energies)
     return np.where(ev >= 0, energies, -energies)

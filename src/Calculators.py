@@ -105,7 +105,11 @@ def eigenvalues_to_meV(eigenvalues, T):
     energies : ndarray [meV], same shape as eigenvalues
     '''
     ev = np.asarray(eigenvalues, dtype=float)
-    safe = np.where(ev != 0, np.abs(ev), np.nan)
+    # Threshold: eigenvalues smaller than 1e-4 amu·Å² are acoustic-mode noise
+    # (true acoustic eigenvalue at Γ is ~0; small positive values give huge energies)
+    threshold = 1e-4
+    valid = np.abs(ev) >= threshold
+    safe = np.where(valid, np.abs(ev), np.nan)
     energies = ENERGY_CONV * np.sqrt(T / safe)
     energies = np.where(np.isnan(energies), 0.0, energies)
     return np.where(ev >= 0, energies, -energies)

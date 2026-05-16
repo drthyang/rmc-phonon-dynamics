@@ -13,7 +13,6 @@ T = 5  # temperature [K] — must match the RMC ensemble temperature
 
 stempath = '../data/'
 fpath_eq      = stempath + '5K_ini/GTS_5K.rmc6f'
-fpath_eq_frac = stempath + '5K_ini/Frac_coord_GTS_5K.txt'
 fpath         = stempath + 'ensemble_20A_5K/configs/'
 
 plot_PDOS       = True
@@ -92,8 +91,8 @@ if __name__ == '__main__':
         elements = list(atom_dic.keys())
         for partial_type in elements:
             print('Calculating partial phonon DOS for {} ...'.format(partial_type))
-            hsym_partial = Readers.read_frac_atom_ph(
-                fpath_eq_frac, atom_dic, dim, atype=partial_type)
+            hsym_partial = Readers.avg_frac_atom_ph(
+                rmcfiles, atom_dic, dim, atype=partial_type)
 
             qpnts = Calculators.gen_grid(5)
             wk = []
