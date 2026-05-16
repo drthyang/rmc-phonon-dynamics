@@ -9,7 +9,7 @@ import Readers
 import Calculators
 import Writers
 
-T = 5
+T = 5.0
 
 stempath = '../data/'
 fpath_eq = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
