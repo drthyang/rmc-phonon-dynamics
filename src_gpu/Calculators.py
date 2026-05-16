@@ -5,7 +5,7 @@ import glob
 from tqdm.auto import trange
 import Readers  # Import your Readers module
 from tqdm import tqdm
-from constants import ATOMIC_MASS, NEUTRON_SCATT_SIGMA
+from constants import ATOMIC_MASS, NEUTRON_SCATT_SIGMA, ENERGY_CONV
 
 ## GPU version
 import jax.numpy as jnp
@@ -190,7 +190,8 @@ def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type
 
 # --- 2. The Driver Function ---
 
-def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, batch_size=50):
+def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, v_super,
+           loadfile=True, save=True, batch_size=50):
     fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
     saved_Sk_path = fpath + f'Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv'
     
@@ -246,7 +247,7 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
 
         for fname in batch_files:
             _, config, cell_idx = Readers.read_frac_atom_ph(fname, atom_dic, dim)
-            disp = config - hsym_config[1]
+            disp = (config - hsym_config[1]) / dim @ v_super  # Cartesian Å
             disp_list.append(disp)
             cell_list.append(cell_idx)
 
@@ -277,7 +278,8 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, loadfile=True, save=True, ba
 
     return Sk_sum / len(fnames)
 
-def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True, save=True, batch_size=50):
+def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, v_super,
+                   loadfile=True, save=True, batch_size=50):
     fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
     # Filename includes atype now
     saved_Sk_path = fpath + f'{atype}_Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv'
@@ -339,7 +341,7 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, loadfile=True
 
         for fname in batch_files:
             test = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
-            disp = test[1] - hsym_ref_subset
+            disp = (test[1] - hsym_ref_subset) / dim @ v_super  # Cartesian Å
             disp_list.append(disp)
             cell_list.append(test[2])
 
@@ -383,14 +385,22 @@ def select_atom_type(tag, atype, config, cell_idx):
             sel_idx.append(ii)
     return config[sel_idx], cell_idx[sel_idx]
 
+def eigenvalues_to_meV(eigenvalues, T):
+    '''Convert S(k) eigenvalues [amu·Å²] to phonon energies [meV].
+
+    Identical to the CPU version. Negative eigenvalues (soft modes) are
+    returned as negative energies. Zero eigenvalues map to 0.
+    '''
+    ev = np.asarray(eigenvalues, dtype=float)
+    safe = np.where(ev != 0, np.abs(ev), np.nan)
+    energies = ENERGY_CONV * np.sqrt(T / safe)
+    energies = np.where(np.isnan(energies), 0.0, energies)
+    return np.where(ev >= 0, energies, -energies)
+
+
 def gen_grid(n_points=5):
-    q_min = -0.5
-    q_max = 0.5
-    qx = np.linspace(q_min, q_max, n_points)
-    qy = np.linspace(q_min, q_max, n_points)
-    qz = np.linspace(q_min, q_max, n_points)
-    q_points = np.array(np.meshgrid(qx, qy, qz)).T.reshape(-1, 3)
-    return q_points
+    q = np.linspace(-0.5, 0.5, n_points, endpoint=False)
+    return np.array(np.meshgrid(q, q, q)).T.reshape(-1, 3)
 
 def get_ph_weights(atom_dic, IRs):
     atom_types = list(atom_dic.keys())
