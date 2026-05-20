@@ -74,6 +74,68 @@ The codebase is split between CPU and GPU implementations:
 - **`data/`**: Input data files and configuration templates.
 - **`results/`**: Directory where output plots and calculation results are saved.
 
+## GPU Computation Pipeline (`src_gpu/`)
+
+### Stage 1 — Setup
+| Step | Function | Description |
+|---|---|---|
+| Read structure | `Readers.read_cell_vec` | Parse `.rmc6f` for lattice vectors and supercell dimensions |
+| Read atom map | `Readers.get_atom_idx` | Build `atom_dic` mapping element symbols → integer atom IDs |
+| Average structure | `Readers.avg_frac_atom_ph` | Stack all `Frac*.txt` configs and compute NumPy mean → `hsym_config` |
+
+### Stage 2 — S(k) accumulation (per k-point)
+
+`Calculators.Sk_avg` drives a batched loop over all configuration files:
+
+```
+Frac*.txt files
+     │
+     ▼  read in batches of 50 frames (CPU)
+     │  displacement = (config − hsym) / dim @ v_super  [Cartesian Å]
+     │
+     ▼  transfer to GPU as float32
+process_batch_kernel  (JAX jit + vmap over frames)
+     ├─ Phase:        cos(k·n),  sin(k·n)
+     ├─ Weighting:    sqrt(m) × displacement
+     ├─ Segment sum:  group contributions by atom type
+     ├─ Normalise:    1 / sqrt(N_atoms_per_type)
+     └─ Outer product:  Sk_real = AᵀA + BᵀB
+                        Sk_imag = BᵀA − AᵀB
+     │
+     ▼  copy back to CPU, accumulate in float64
+Sk = (Sk_real + i·Sk_imag) / N_frames        (3T × 3T Hermitian matrix, T = no. of atom types)
+```
+
+> **Why the real/imaginary split?** Apple Metal does not support complex `float32` in GPU kernels. The Hermitian matrix is reconstructed from its real and imaginary parts on the CPU.
+
+### Stage 3 — Diagonalisation and energy conversion (CPU)
+
+| Step | Function | Description |
+|---|---|---|
+| Symmetrise | — | `Sk = (Sk + Sk†) / 2` to correct float32 asymmetry |
+| Diagonalise | `np.linalg.eigh` | Eigenvalues λ [amu·Å²], eigenvectors |
+| Convert units | `Calculators.eigenvalues_to_meV` | `E = ENERGY_CONV × sqrt(T / λ)` from the classical equipartition theorem |
+
+Soft modes (λ < 0) are returned as negative energies.
+
+### Stage 4 — Post-processing
+
+| Step | Function | Description |
+|---|---|---|
+| Band connection | `Writers.connect_bands` | Reorder bands for continuity using Hungarian assignment on eigenvector overlaps; SVD-rotates degenerate subspaces |
+| Output | `Writers.gen_phonopy_band_yaml` | Write a phonopy-compatible `band_gpu.yaml` |
+
+### Key design choices
+
+| Choice | Reason |
+|---|---|
+| `float32` on GPU, `float64` accumulation on CPU | Metal does not support `float64`; CPU accumulation prevents rounding drift over thousands of frames |
+| Real/imaginary kernel split | Metal cannot handle `complex<float32>` natively |
+| `static_argnums=(5,)` on `num_types` | JAX requires static output shapes for `segment_sum` at compile time |
+| Global `_GPU_MASS_TABLE` cache | Mass lookup table is built once and reused across all k-points |
+
+---
+
 ## Usage
 
 The workflow involves generating ensembles, performing RMC modeling, and then running the phonon analysis.

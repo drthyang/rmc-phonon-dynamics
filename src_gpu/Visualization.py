@@ -50,9 +50,11 @@ def plot_phonon_bands(ph_band, k_path, kstep, plot_PDOS=False):
     for ii in np.arange(len(tmp)):
         ax.plot(tmp[ii], color='r', lw=1.0)
 
-    # x-axis label
-    tick_positions = np.arange(0, len(k_path)*kstep, kstep)
-    tick_labels = [k_path[ii] for ii in range(len(tick_positions))]
+    # x-axis ticks: segment boundaries at 0, kstep+1, 2*(kstep+1), …, last index
+    # ph_band has (kstep+1) entries per segment (both endpoints included)
+    n_segs = len(k_path) - 1
+    tick_positions = [ii * (kstep + 1) for ii in range(n_segs)] + [n_segs * (kstep + 1) - 1]
+    tick_labels = list(k_path)
     plt.xticks(tick_positions, tick_labels)
 
     # vertical lines

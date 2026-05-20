@@ -139,7 +139,7 @@ def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=np.float
         data_np = np.asarray(data)
         cell_np = np.asarray(cell_idx)
 
-        if fidx > 1 and cell_tmp is not None:
+        if fidx > 0 and cell_tmp is not None:
             if cell_tmp.shape != cell_np.shape or not (cell_tmp == cell_np).all():
                 raise ValueError("The cell indices do not match ... Please check ...")
 
