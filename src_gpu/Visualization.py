@@ -48,7 +48,7 @@ def plot_phonon_bands(ph_band, k_path, kstep, plot_PDOS=False):
     
     tmp = np.transpose(ph_band)
     for ii in np.arange(len(tmp)):
-        ax.plot(np.sqrt(tmp[ii]), color='r', lw=1.0)
+        ax.plot(tmp[ii], color='r', lw=1.0)
 
     # x-axis label
     tick_positions = np.arange(0, len(k_path)*kstep, kstep)
@@ -66,7 +66,7 @@ def plot_phonon_bands(ph_band, k_path, kstep, plot_PDOS=False):
     ax.spines['bottom'].set_linewidth(0.5)
     ax.spines['top'].set_linewidth(0.5)
 
-    ax.set_ylabel(r'Energy (arb. u.)', fontsize=10)
+    ax.set_ylabel(r'Energy (meV)', fontsize=10)
     ax.set_ylim([0, 20])
     plt.tight_layout()
     plt.show()
