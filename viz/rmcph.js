@@ -1,22 +1,8 @@
-// rmcph.js  —  S(Q,E) computation and rendering for rmcph.html
+// rmcph.js  —  rendering and DOM wiring for rmcph.html
+// S(Q,E) and DOS compute live off the main thread in sqeworker.js.
 'use strict';
 
-// ── Neutron coherent scattering lengths b (fm) ─────────────────────────────
-const B_COH = {
-    H:-3.739,He:3.26,Li:-1.90,Be:7.79,B:5.30,C:6.646,N:9.36,O:5.803,
-    F:5.654,Na:3.63,Mg:5.375,Al:3.449,Si:4.1491,P:5.13,S:2.847,Cl:9.577,
-    K:3.67,Ca:4.70,Sc:12.29,Ti:-3.370,V:-0.3824,Cr:3.635,Mn:-3.73,
-    Fe:9.45,Co:2.49,Ni:10.3,Cu:7.718,Zn:5.680,Ga:7.288,Ge:8.185,
-    As:6.58,Se:7.970,Br:6.795,Rb:7.09,Sr:7.02,Y:7.75,Zr:7.16,Nb:7.054,
-    Mo:6.715,Tc:6.80,Ru:7.03,Rh:5.88,Pd:5.91,Ag:5.922,Cd:4.87,In:4.065,
-    Sn:6.225,Sb:5.57,Te:5.80,I:5.28,Cs:5.42,Ba:5.07,La:8.24,Ce:4.84,
-    Pr:4.58,Nd:7.69,Sm:0.80,Eu:7.22,Gd:6.5,Tb:7.38,Dy:16.9,Ho:8.01,
-    Er:7.79,Tm:7.07,Yb:12.43,Lu:7.21,Hf:7.77,Ta:6.91,W:4.86,Re:9.2,
-    Os:10.7,Ir:10.6,Pt:9.60,Au:7.63,Hg:12.692,Tl:8.776,Pb:9.405,Bi:8.532
-};
-
-const KB        = 0.08617333;   // meV / K
-// ℏ²/(2m_n) — recoil parabola E_recoil(Q) = HBAR2_2MN * Q²
+// ℏ²/(2m_n) — recoil parabola E_recoil(Q) = HBAR2_2MN * Q² (used by renderHeatmap)
 // Q in Å⁻¹ (2π convention), E in meV.  ℏ=1.0546e-34 J·s, m_n=1.6749e-27 kg
 const HBAR2_2MN = 2.0723;       // meV · Å²
 // phonopy band.yaml stores frequencies in THz; all our physics uses meV
@@ -65,203 +51,6 @@ const THZ_TO_MEV = 4.135667696; // h·10¹²/e  (h=6.62607e-34 J·s, e=1.60218e-
         }
     };
 })();
-
-// ── Physics helpers ─────────────────────────────────────────────────────────
-
-function bose(omega, T) {
-    if (T <= 0 || omega <= 0) return 0;
-    const x = omega / (KB * T);
-    return x > 100 ? 0 : 1.0 / (Math.exp(x) - 1.0);
-}
-
-function gauss(x, mu, sigma) {
-    const d = x - mu;
-    return Math.exp(-0.5 * d * d / (sigma * sigma)) / (sigma * Math.sqrt(2 * Math.PI));
-}
-
-// ── Shared accumulator ───────────────────────────────────────────────────────
-// Adds S(q, E) contributions from all modes at one q-point into grid[xIdx*nE+Ei].
-// Passing xIdx=0 and a plain Float64Array(nE) as grid gives a 1-D scratch buffer.
-function accumulateModes(bands, atoms, b2m, T, sigma, Emin, dE, nE, xIdx, grid) {
-    const cutoff = 4 * sigma;
-    for (let mi = 0; mi < bands.length; mi++) {
-        const mode  = bands[mi];
-        const omega = mode.frequency;
-        const ev    = mode.eigenvector;
-        if (!ev || Math.abs(omega) < 1e-6) continue;
-
-        let F2 = 0;
-        for (let ai = 0; ai < atoms.length; ai++) {
-            let m2 = 0;
-            for (let ci = 0; ci < 3; ci++) {
-                const re = ev[ai][ci][0], im = ev[ai][ci][1];
-                m2 += re*re + im*im;
-            }
-            F2 += b2m[ai] * m2;
-        }
-
-        const absOmega  = Math.abs(omega);
-        const n         = bose(absOmega, T);
-        const occ       = omega > 0 ? n + 1 : n;
-        const prefactor = F2 * occ / absOmega;
-
-        const iCenter = (omega - Emin) / dE;
-        const iLo = Math.max(0,    Math.floor(iCenter - cutoff / dE));
-        const iHi = Math.min(nE-1, Math.ceil( iCenter + cutoff / dE));
-        const base = xIdx * nE;
-        for (let Ei = iLo; Ei <= iHi; Ei++) {
-            grid[base + Ei] += prefactor * gauss(Emin + Ei * dE, omega, sigma);
-        }
-    }
-}
-
-// ── Powder S(|Q|,E) ──────────────────────────────────────────────────────────
-//
-// Correct physics:
-//   - Phonons at reduced wavevector q scatter at Q = q + G (G = reciprocal
-//     lattice vector), so many Brillouin zones contribute to a given |Q|.
-//   - Powder cross-section ∝ Q² · Σ_λ F²(q,λ) · (n+1)/ω · G(E−ω, σ)
-//     where F² = Σ_α (b²/m) |e_{α,λ}|²  (no Debye-Waller for simplicity).
-//   - Kinematic upper limit: only E ≤ ℏ²Q²/(2m_n) is accessible.
-//
-// Implementation:
-//   For each q-point on the path, compute S(q,E); then for every G-shell
-//   up to Q_max, distribute to the Q = |q+G| bin with Gaussian Q-smearing.
-//
-function computePowderSqE(ydata, T, sigma, Emin, Emax, nE, nQbins, Ei) {
-    const phonon = ydata.phonon;
-    const atoms  = ydata.points;
-    const rl     = ydata.reciprocal_lattice;   // rows = a*,b*,c* WITHOUT 2π
-    if (!rl) return null;
-
-    const b2m = atoms.map(a => { const b = B_COH[a.symbol]||0; return a.mass>0 ? b*b/a.mass : 0; });
-
-    // Reciprocal lattice vectors WITH 2π (Å⁻¹)
-    const bv   = rl.map(v => [2*Math.PI*v[0], 2*Math.PI*v[1], 2*Math.PI*v[2]]);
-    const bmag = bv.map(v => Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]));
-
-    // Q display range: if Ei provided, max accessible Q = 2*ki (at E=0); else kinematic estimate from Emax
-    const ki_plot  = Ei > 0 ? Math.sqrt(Ei / HBAR2_2MN) : 0;
-    const Q_max_plot = Ei > 0
-        ? Math.max(1.5, 2 * ki_plot * 1.05)
-        : Math.max(1.5, Math.sqrt(Math.max(Emax, 1) / HBAR2_2MN) * 1.2);
-    const dQ   = Q_max_plot / nQbins;
-
-    // sigQ must be wide enough to fill gaps between G-shells (≥ half the shell spacing)
-    const b_min = Math.min(...bmag);
-    const sigQ  = Math.max(1.5 * dQ, 0.4 * b_min);
-
-    // Precompute G-vectors within reach of the plot range.
-    // n_max must cover Q_max_plot — cap raised to 20 to handle large unit cells.
-    const n_max = Math.min(20, Math.ceil(Q_max_plot / b_min) + 1);
-    const G_buf = [];
-    const G_reach = Q_max_plot + Math.max(...bmag);
-    for (let n1 = -n_max; n1 <= n_max; n1++)
-    for (let n2 = -n_max; n2 <= n_max; n2++)
-    for (let n3 = -n_max; n3 <= n_max; n3++) {
-        const Gx = n1*bv[0][0] + n2*bv[1][0] + n3*bv[2][0];
-        const Gy = n1*bv[0][1] + n2*bv[1][1] + n3*bv[2][1];
-        const Gz = n1*bv[0][2] + n2*bv[1][2] + n3*bv[2][2];
-        if (Math.sqrt(Gx*Gx + Gy*Gy + Gz*Gz) < G_reach) G_buf.push([Gx, Gy, Gz]);
-    }
-
-    const dE    = (Emax - Emin) / (nE - 1);
-    const Eaxis = Float64Array.from({length: nE}, (_, i) => Emin + i * dE);
-    const S     = new Float64Array(nQbins * nE);
-    const norm  = new Float64Array(nQbins);
-    const tmpS  = new Float64Array(nE);
-    const Qspan = Math.ceil(3.5 * sigQ / dQ);
-
-    // Per-q-point weight accumulators (avoids nE inner loop inside G-vector loop)
-    const wq_acc = new Float64Array(nQbins);  // Σ Q²·wG per Q-bin
-    const wn_acc = new Float64Array(nQbins);  // Σ wG per Q-bin
-
-    for (let qi = 0; qi < phonon.length; qi++) {
-        tmpS.fill(0);
-        accumulateModes(phonon[qi].band, atoms, b2m, T, sigma, Emin, dE, nE, 0, tmpS);
-
-        // Cartesian q (Å⁻¹, with 2π)
-        const qf = phonon[qi]['q-position'];
-        const qx = 2*Math.PI*(qf[0]*rl[0][0] + qf[1]*rl[1][0] + qf[2]*rl[2][0]);
-        const qy = 2*Math.PI*(qf[0]*rl[0][1] + qf[1]*rl[1][1] + qf[2]*rl[2][1]);
-        const qz = 2*Math.PI*(qf[0]*rl[0][2] + qf[1]*rl[1][2] + qf[2]*rl[2][2]);
-
-        // Phase 1: accumulate G-vector weights into Q-bins (no nE loop here)
-        wq_acc.fill(0);
-        wn_acc.fill(0);
-        for (const [Gx, Gy, Gz] of G_buf) {
-            const Qvx = qx + Gx, Qvy = qy + Gy, Qvz = qz + Gz;
-            const Q   = Math.sqrt(Qvx*Qvx + Qvy*Qvy + Qvz*Qvz);
-            if (Q <= 0 || Q > Q_max_plot) continue;
-
-            const Q2   = Q * Q;
-            const Qi_f = Q / dQ;
-            const Qi_lo = Math.max(0,          Math.floor(Qi_f - Qspan));
-            const Qi_hi = Math.min(nQbins - 1, Math.ceil( Qi_f + Qspan));
-            for (let Qi = Qi_lo; Qi <= Qi_hi; Qi++) {
-                const dQi = (Qi + 0.5) * dQ - Q;
-                const wG  = Math.exp(-0.5 * dQi*dQi / (sigQ*sigQ));
-                wq_acc[Qi] += Q2 * wG;
-                wn_acc[Qi] += wG;
-            }
-        }
-
-        // Phase 2: multiply accumulated weights by tmpS once per Q-bin (fast)
-        for (let Qi = 0; Qi < nQbins; Qi++) {
-            if (wq_acc[Qi] === 0) continue;
-            norm[Qi] += wn_acc[Qi];
-            const base = Qi * nE;
-            const w = wq_acc[Qi];
-            for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] += w * tmpS[Ei];
-        }
-    }
-
-    // Normalize each Q-bin by Gaussian-only weight (preserves Q² in signal)
-    for (let Qi = 0; Qi < nQbins; Qi++) {
-        if (norm[Qi] > 0) {
-            const base = Qi * nE;
-            for (let Ei = 0; Ei < nE; Ei++) S[base + Ei] /= norm[Qi];
-        }
-    }
-
-    let Smax = 0;
-    for (let i = 0; i < S.length; i++) if (S[i] > Smax) Smax = S[i];
-
-    return { S, nX: nQbins, nE, Eaxis, Smax,
-             xMin: 0, xMax: Q_max_plot,
-             xLabel: '|Q| (Å⁻¹)',
-             labels: [],
-             recoilA: HBAR2_2MN,
-             Ei: Ei > 0 ? Ei : 0 };
-}
-
-// ── Phonon DOS ────────────────────────────────────────────────────────────────
-function computePhononDOS(ydata, sigma, Emin, Emax, nE) {
-    const phonon = ydata.phonon;
-    const dE     = (Emax - Emin) / (nE - 1);
-    const dos    = new Float64Array(nE);
-    const cutoff = 4 * sigma;
-    let count = 0;
-
-    for (let qi = 0; qi < phonon.length; qi++) {
-        for (const mode of phonon[qi].band) {
-            const omega = mode.frequency;
-            if (Math.abs(omega) < 1e-6) continue;
-            const iCenter = (omega - Emin) / dE;
-            const iLo = Math.max(0,    Math.floor(iCenter - cutoff / dE));
-            const iHi = Math.min(nE-1, Math.ceil( iCenter + cutoff / dE));
-            for (let Ei = iLo; Ei <= iHi; Ei++)
-                dos[Ei] += gauss(Emin + Ei * dE, omega, sigma);
-            count++;
-        }
-    }
-    if (count > 0) for (let i = 0; i < nE; i++) dos[i] /= count;
-
-    let dosMax = 0;
-    for (let i = 0; i < nE; i++) if (dos[i] > dosMax) dosMax = dos[i];
-
-    return { dos, nE, Emin, Emax, dosMax };
-}
 
 // ── Colormaps ────────────────────────────────────────────────────────────────
 
@@ -594,6 +383,39 @@ document.addEventListener('DOMContentLoaded', () => {
     let powResult = null;
     let dosResult = null;
 
+    // ── Compute worker ────────────────────────────────────────────────────
+    // S(Q,E) / DOS compute runs off the main thread so parameter sweeps don't
+    // freeze the UI.  `pendingId` ignores stale replies if the user rapidly
+    // changes parameters; only the latest result is rendered.
+    let worker     = null;
+    let nextId     = 0;
+    let pendingId  = -1;
+    try {
+        worker = new Worker('sqeworker.js');
+        worker.onmessage = (ev) => {
+            const m = ev.data;
+            if (m.id !== pendingId) return;            // stale; drop
+            if (m.error) {
+                statusEl.textContent = '✗ ' + m.error;
+                console.error('sqeworker:', m.error);
+                return;
+            }
+            powResult = m.powResult;
+            dosResult = m.dosResult;
+            resizeCanvases();
+            redraw();
+            const Qmx = powResult ? powResult.xMax.toFixed(2) : '?';
+            statusEl.textContent = `Done · Q_max ${Qmx} Å⁻¹`;
+        };
+        worker.onerror = (e) => {
+            statusEl.textContent = '✗ worker: ' + (e.message || 'error');
+            console.error('sqeworker error:', e);
+        };
+    } catch (err) {
+        statusEl.textContent = '✗ worker unavailable: ' + err.message;
+        console.error(err);
+    }
+
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -615,6 +437,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     for (const qpt of ydata.phonon)
                         if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
                 }
+                // Cache ydata in the worker so parameter recomputes skip the clone cost.
+                worker?.postMessage({ type: 'load', ydata });
                 const nM = ydata.phonon?.[0]?.band?.length ?? '?';
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
@@ -648,8 +472,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     computeBtn.addEventListener('click', triggerCompute);
 
-    ['sqe-temp','sqe-sigma','sqe-emin','sqe-emax','sqe-ei','sqe-cmap','sqe-log'].forEach(id => {
+    // Compute-affecting inputs: recompute on change
+    ['sqe-temp','sqe-sigma','sqe-emin','sqe-emax','sqe-ei'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', () => { if (ydata) triggerCompute(); });
+    });
+    // Render-only inputs: redraw without recomputing
+    ['sqe-cmap','sqe-log'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', () => { if (powResult) redraw(); });
     });
 
     toggleBtn.addEventListener('click', () => {
@@ -696,29 +525,22 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function triggerCompute() {
-        if (!ydata) return;
+        if (!ydata || !worker) return;
+        const T     = parseFloat(document.getElementById('sqe-temp').value)  || 5;
+        const sigma = parseFloat(document.getElementById('sqe-sigma').value) || 0.5;
+        const Emin  = parseFloat(document.getElementById('sqe-emin').value);
+        const Emax  = parseFloat(document.getElementById('sqe-emax').value);
+        if (isNaN(Emin) || isNaN(Emax) || Emin >= Emax) {
+            statusEl.textContent = '✗ Invalid energy range'; return;
+        }
+        const Ei_in = parseFloat(document.getElementById('sqe-ei').value) || 0;
         statusEl.textContent = 'Computing…';
-        setTimeout(() => {
-            try {
-                const T     = parseFloat(document.getElementById('sqe-temp').value)  || 5;
-                const sigma = parseFloat(document.getElementById('sqe-sigma').value) || 0.5;
-                const Emin  = parseFloat(document.getElementById('sqe-emin').value);
-                const Emax  = parseFloat(document.getElementById('sqe-emax').value);
-                if (isNaN(Emin) || isNaN(Emax) || Emin >= Emax) {
-                    statusEl.textContent = '✗ Invalid energy range'; return;
-                }
-                const Ei_in = parseFloat(document.getElementById('sqe-ei').value) || 0;
-                powResult = computePowderSqE(ydata, T, sigma, Emin, Emax, 300, 100, Ei_in);
-                dosResult = computePhononDOS(ydata, sigma, Emin, Emax, 300);
-                resizeCanvases();
-                redraw();
-                const Qmx = powResult ? powResult.xMax.toFixed(2) : '?';
-                statusEl.textContent = `Done · Q_max ${Qmx} Å⁻¹`;
-            } catch(err) {
-                statusEl.textContent = '✗ ' + err.message;
-                console.error(err);
-            }
-        }, 15);
+        pendingId = ++nextId;
+        worker.postMessage({
+            type: 'compute',
+            id:   pendingId,
+            params: { T, sigma, Emin, Emax, nE: 300, nQbins: 100, Ei: Ei_in }
+        });
     }
 
     function redraw() {
