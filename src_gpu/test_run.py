@@ -13,7 +13,7 @@ T = 5  # integer — folder names use e.g. '5K', not '5.0K'
 
 stempath = '../data/'
 fpath_eq = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
-fpath    = stempath + f'ensemble_20A_{T}K/'  # Frac files live here directly, no configs/ subfolder
+fpath    = stempath + f'ensemble_20A_{T}K/configs/'  # 500 Frac_coord_*.txt files live here
 
 atom_dic        = Readers.get_atom_idx(fpath_eq)
 v1, v2, v3, dim = Readers.read_cell_vec(fpath_eq)
