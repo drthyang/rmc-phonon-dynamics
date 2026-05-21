@@ -66,12 +66,10 @@ def calc_collect_var(kvec, atype, configuration, cell_idx, hsymconfig, atom_dic,
         n_atoms = len(tmp_cell)
         sqrt_mass = np.sqrt(mass_per_type[ii])
 
-        # U_k,t = (1/√N_t) Σ_n √m_t · u_n · exp(i k·R_n)
-        # Note: no 2π — the original code convention uses exp(i k·R) directly.
-        # Whether 2π belongs here depends on the unit convention for k and R
-        # in the RMCProfile Frac*.txt output. Needs experimental validation
-        # before changing. See archive/todo note on phase convention.
-        phases = np.exp(1j * (tmp_cell @ kvec))  # (N_t,)
+        # U_k,t = (1/√N_t) Σ_n √m_t · u_n · exp(2πi k_frac · n_cell)
+        # 2π converts the fractional reciprocal coord k_frac ∈ [-0.5, 0.5]
+        # (units of b_i) into radians per integer cell index.
+        phases = np.exp(2j * np.pi * (tmp_cell @ kvec))  # (N_t,)
         weighted = sqrt_mass * tmp_disp * phases[:, np.newaxis]  # (N_t, 3)
         U_k_t.append(weighted.sum(axis=0) / np.sqrt(n_atoms))   # (3,)
 
