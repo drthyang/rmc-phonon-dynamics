@@ -62,11 +62,9 @@ def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type
     """
 
     def single_frame_calc(disp, cell):
-        # Bloch phase: exp(2πi k_frac · n_cell). 2π converts the fractional
-        # reciprocal-coord k_frac ∈ [-0.5, 0.5] into radians per cell index.
-        dot_products = 2 * jnp.pi * jnp.dot(cell, kvec)  # (N,)
-        cos_p = jnp.cos(dot_products)                    # (N,)
-        sin_p = jnp.sin(dot_products)                    # (N,)
+        dot_products = jnp.dot(cell, kvec)           # (N,)
+        cos_p = jnp.cos(dot_products)                # (N,)
+        sin_p = jnp.sin(dot_products)                # (N,)
         sqrt_m = jnp.sqrt(masses)                    # (N,)
 
         wd_real = disp * (sqrt_m * cos_p)[:, None]   # (N, 3)
