@@ -3,8 +3,10 @@
 'use strict';
 
 import { api } from './api.js';
+import { mountFolderView } from './views/folder.js';
 
 const statusEl = document.getElementById('backend-status');
+const viewRoot = document.getElementById('view-root');
 
 async function init() {
     try {
@@ -15,7 +17,9 @@ async function init() {
         statusEl.textContent = '✗ backend unreachable';
         statusEl.classList.add('err');
         console.error('ping failed:', err);
+        return;
     }
+    mountFolderView(viewRoot);
 }
 
 init();

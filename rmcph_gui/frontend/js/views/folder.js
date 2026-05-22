@@ -1,0 +1,137 @@
+// Phase 1 — data folder selection & parsing.
+// A server-side directory browser + dataset inspector. On "Open", the backend
+// finds the .rmc6f + Frac files, parses atoms/cell via src_gpu/Readers, and we
+// render the detected metadata. The result is stored in app state for later
+// phases (structure, k-path, jobs).
+'use strict';
+
+import { api } from '../api.js';
+import { state } from '../state.js';
+
+let curPath = null;
+
+export function mountFolderView(root) {
+    root.innerHTML = `
+      <section class="panel">
+        <h2>1 · Select data folder</h2>
+        <p class="hint">Browse to the folder with your <code>Frac*.txt</code>
+          configurations (or its parent). The matching <code>.rmc6f</code> is
+          auto-detected nearby.</p>
+
+        <div class="browser">
+          <div class="browser-bar">
+            <button id="fb-up" title="Up one level">↑</button>
+            <code id="fb-path">…</code>
+            <button id="fb-open" class="primary">Open this folder</button>
+          </div>
+          <ul id="fb-list" class="browser-list"></ul>
+        </div>
+
+        <div id="fb-result" class="result"></div>
+      </section>
+    `;
+
+    root.querySelector('#fb-up').addEventListener('click', () => {
+        const list = root.querySelector('#fb-list');
+        const parent = list.dataset.parent;
+        if (parent && parent !== 'null') navigate(parent, root);
+    });
+    root.querySelector('#fb-open').addEventListener('click', () => openFolder(curPath, null, root));
+
+    navigate(null, root);
+}
+
+async function navigate(path, root) {
+    const listEl = root.querySelector('#fb-list');
+    const pathEl = root.querySelector('#fb-path');
+    listEl.innerHTML = '<li class="muted">loading…</li>';
+    try {
+        const d = await api.browseDir(path);
+        curPath = d.path;
+        pathEl.textContent = d.path;
+        listEl.dataset.parent = d.parent ?? 'null';
+        listEl.innerHTML = '';
+        if (!d.subdirs.length) {
+            listEl.innerHTML = '<li class="muted">(no subfolders)</li>';
+        }
+        for (const name of d.subdirs) {
+            const li = document.createElement('li');
+            li.textContent = '📁 ' + name;
+            li.addEventListener('click', () => navigate(joinPath(d.path, name), root));
+            listEl.appendChild(li);
+        }
+        // Hint chips when the current folder already looks like a dataset
+        const tags = [];
+        if (d.has_frac)  tags.push('<span class="chip ok">Frac*.txt here</span>');
+        if (d.has_rmc6f) tags.push('<span class="chip ok">.rmc6f here</span>');
+        if (tags.length) {
+            const li = document.createElement('li');
+            li.className = 'tags';
+            li.innerHTML = tags.join(' ');
+            listEl.prepend(li);
+        }
+    } catch (err) {
+        listEl.innerHTML = `<li class="err">${err.message}</li>`;
+    }
+}
+
+async function openFolder(path, eqFile, root) {
+    const resEl = root.querySelector('#fb-result');
+    resEl.innerHTML = '<p class="muted">inspecting…</p>';
+    try {
+        const r = await api.openFolder(path, eqFile);
+        state.set('dataset', r);
+        renderResult(r, root);
+    } catch (err) {
+        resEl.innerHTML = `<p class="err">✗ ${err.message}</p>`;
+    }
+}
+
+function renderResult(r, root) {
+    const resEl = root.querySelector('#fb-result');
+    const warn = (r.warnings || []).map(w => `<li>⚠️ ${w}</li>`).join('');
+
+    const atomsRows = (r.atoms || [])
+        .map(a => `<tr><td>${a.symbol}</td><td>${a.count}</td></tr>`).join('');
+
+    let eqPicker = '';
+    if ((r.rmc6f_candidates || []).length > 1) {
+        const opts = r.rmc6f_candidates
+            .map(p => `<option value="${p}" ${p === r.eq_file ? 'selected' : ''}>${p}</option>`)
+            .join('');
+        eqPicker = `<label class="eq-pick">.rmc6f:
+          <select id="fb-eq">${opts}</select></label>`;
+    }
+
+    resEl.innerHTML = `
+      <h3>Detected dataset</h3>
+      ${warn ? `<ul class="warnings">${warn}</ul>` : ''}
+      <table class="kv">
+        <tr><td>Configs dir</td><td><code>${r.configs_dir ?? '—'}</code></td></tr>
+        <tr><td>Configurations</td><td>${r.n_configs}</td></tr>
+        <tr><td>Equilibrium</td><td><code>${r.eq_file ?? '—'}</code> ${eqPicker}</td></tr>
+        <tr><td>Atoms / cell</td><td>${r.natom ?? '—'}</td></tr>
+        <tr><td>Supercell dim</td><td>${r.dim ? r.dim.join(' × ') : '—'}</td></tr>
+      </table>
+      ${atomsRows ? `<table class="atoms"><thead><tr><th>Element</th><th>Count</th></tr></thead><tbody>${atomsRows}</tbody></table>` : ''}
+      <div class="next">
+        <button id="fb-continue" class="primary" ${r.eq_file && r.n_configs ? '' : 'disabled'}>
+          Continue → structure (Phase 2)
+        </button>
+      </div>
+    `;
+
+    const eqSel = resEl.querySelector('#fb-eq');
+    if (eqSel) eqSel.addEventListener('change', () => openFolder(r.path, eqSel.value, root));
+
+    const cont = resEl.querySelector('#fb-continue');
+    if (cont) cont.addEventListener('click', () => {
+        cont.textContent = 'Phase 2 not built yet';
+        cont.disabled = true;
+    });
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+function joinPath(base, name) {
+    return base.endsWith('/') ? base + name : base + '/' + name;
+}

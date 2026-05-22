@@ -16,5 +16,11 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 # Where computed band.yaml / results are written (Phase 4+).
 RESULTS_DIR = REPO_ROOT / "results"
 
+# Server-side directory browser (Phase 1):
+#   - browsing starts here
+#   - navigation is clamped to BROWSE_ROOT to avoid wandering the whole disk
+DATA_BROWSE_START = DATA_ROOT if DATA_ROOT.is_dir() else REPO_ROOT
+BROWSE_ROOT       = Path.home()
+
 APP_NAME    = "rmcph_gui"
 APP_VERSION = "0.1.0"
