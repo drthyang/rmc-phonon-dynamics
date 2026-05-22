@@ -31,4 +31,6 @@ export const api = {
         }),
 
     getStructure: () => getJSON('/api/structure'),
+
+    getReciprocal: () => getJSON('/api/reciprocal'),
 };
