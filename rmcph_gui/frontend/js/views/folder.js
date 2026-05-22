@@ -10,8 +10,14 @@ import { state } from '../state.js';
 import { openFilePicker } from './filepicker.js';
 
 let curPath = null;
+let onContinueCb = null;
 
-export function mountFolderView(root) {
+export function mountFolderView(root, opts = {}) {
+    onContinueCb = opts.onContinue || null;
+    return _mount(root);
+}
+
+function _mount(root) {
     root.innerHTML = `
       <section class="panel">
         <h2>1 · Select data folder</h2>
@@ -181,8 +187,7 @@ function renderResult(r, root) {
 
     const cont = resEl.querySelector('#fb-continue');
     if (cont) cont.addEventListener('click', () => {
-        cont.textContent = 'Phase 2 not built yet';
-        cont.disabled = true;
+        if (onContinueCb) onContinueCb(state.get('dataset'));
     });
 }
 

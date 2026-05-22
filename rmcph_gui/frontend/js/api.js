@@ -29,4 +29,6 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path, structure_file: structureFile ?? null }),
         }),
+
+    getStructure: () => getJSON('/api/structure'),
 };
