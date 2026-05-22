@@ -14,4 +14,14 @@ async function getJSON(url, opts) {
 
 export const api = {
     ping: () => getJSON('/api/ping'),
+
+    browseDir: (path) =>
+        getJSON('/api/data/browse' + (path ? `?path=${encodeURIComponent(path)}` : '')),
+
+    openFolder: (path, eqFile) =>
+        getJSON('/api/data/open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, eq_file: eqFile ?? null }),
+        }),
 };
