@@ -295,17 +295,23 @@ self.onmessage = (ev) => {
             return;
         }
         try {
+            const t0 = performance.now();
             const p = msg.params;
             const powResult = computePowderSqE(
                 cachedYdata, p.T, p.sigma, p.Emin, p.Emax, p.nE, p.nQbins, p.Ei
             );
+            const t1 = performance.now();
             const dosResult = computePhononDOS(
                 cachedYdata, p.sigma, p.Emin, p.Emax, p.nE
             );
+            const t2 = performance.now();
             const transfer = [];
             if (powResult) transfer.push(powResult.S.buffer, powResult.Eaxis.buffer);
             if (dosResult) transfer.push(dosResult.dos.buffer);
-            self.postMessage({ id: msg.id, powResult, dosResult }, transfer);
+            self.postMessage({
+                id: msg.id, powResult, dosResult,
+                timings: { pow: t1 - t0, dos: t2 - t1, total: t2 - t0 }
+            }, transfer);
         } catch (err) {
             self.postMessage({ id: msg.id, error: err.message || String(err) });
         }
