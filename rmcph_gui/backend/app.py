@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import APP_NAME, APP_VERSION, FRONTEND_DIR
-from .api import ping, data, structure
+from .api import ping, data, structure, reciprocal
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
@@ -21,6 +21,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION)
 app.include_router(ping.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
 app.include_router(structure.router, prefix="/api")
+app.include_router(reciprocal.router, prefix="/api")
 
 # Serve the frontend at the root. html=True makes "/" return index.html.
 # Registered last so /api/* is matched before the static handler.
