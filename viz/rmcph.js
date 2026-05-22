@@ -431,6 +431,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const Qmx = powResult ? powResult.xMax.toFixed(2) : '?';
             statusEl.textContent = `Done · Q_max ${Qmx} Å⁻¹`;
+
+            // Deferred phononwebsite load: now that S(Q,E) is painted, kick off
+            // the 3D viewer in the background. Main thread will still block
+            // while phononwebsite parses + builds the supercell mesh, but the
+            // user already has S(Q,E) to look at.
+            if (pendingFile && !phononLoaded) {
+                setTimeout(loadDeferredPhonon, 0);
+            }
         };
         worker.onerror = (e) => {
             statusEl.textContent = '✗ worker: ' + (e.message || 'error');
@@ -441,20 +449,88 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error(err);
     }
 
+    // ── Deferred phononwebsite loading ────────────────────────────────────
+    // Phononwebsite's own file-input handler synchronously builds the 3D
+    // structure viewer when a file is loaded — for a large supercell that's
+    // tens of seconds of blocked main thread. We intercept the first change
+    // event (capture phase + stopImmediatePropagation), do our YAML parse +
+    // S(Q,E) compute, and only let phononwebsite see the event AFTER the
+    // S(Q,E) heatmap has rendered.
+    let pendingFile      = null;   // first-load file, queued for phononwebsite
+    let phononLoaded     = false;  // becomes true after phononwebsite has seen the file
+    let syntheticDispatch = false; // suppress our handler for the re-dispatched event
+    let postLoadSnap     = null;   // DOM snapshot to restore after phononwebsite resets it
+
+    function restoreSnap(snap) {
+        Object.entries(snap).forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+        });
+        document.getElementById('update')?.click();
+        // Re-fit camera after supercell update so the full structure is visible.
+        // Multiply cameraDistance by 1.35 so the 2×2×1 structure is fully visible.
+        setTimeout(() => {
+            document.getElementById('cameraz')?.click();
+            setTimeout(() => { if (typeof v !== 'undefined') { v.cameraDistance *= 1.35; v.setCameraDirection('z'); } }, 80);
+        }, 150);
+        document.getElementById('modeselect')?.click();
+    }
+
+    function loadDeferredPhonon() {
+        if (phononLoaded || !pendingFile) return;
+        phononLoaded = true;
+        const file = pendingFile;
+        pendingFile = null;
+        statusEl.textContent += ' · loading 3D…';
+
+        // Re-fire the change event so phononwebsite's bubble-phase listener
+        // picks up the file. Our capture-phase handler will see
+        // syntheticDispatch=true and bail out, leaving the event to bubble.
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        fileInput.files = dt.files;
+        syntheticDispatch = true;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // After phononwebsite settles, restore the DOM values it wiped.
+        if (postLoadSnap) {
+            const snap = postLoadSnap;
+            setTimeout(() => restoreSnap(snap), 300);
+            setTimeout(() => restoreSnap(snap), 700);
+        }
+    }
+
+    // Capture-phase listener fires BEFORE phononwebsite's bubble-phase one,
+    // so we can stopImmediatePropagation to block phononwebsite on the
+    // initial load.
     fileInput.addEventListener('change', (e) => {
+        if (syntheticDispatch) {
+            // Re-dispatched event from loadDeferredPhonon — let phononwebsite
+            // handle it, skip our YAML parse (we already did it).
+            syntheticDispatch = false;
+            return;
+        }
         const file = e.target.files[0];
         if (!file) return;
 
         __perf.tFile = performance.now();
         __perf.plog('--- file selected ---', 0);
 
-        // Snapshot all user-controlled settings before phononwebsite resets them
+        // Snapshot all user-controlled settings; phononwebsite resets them
+        // when it eventually runs (either deferred or on subsequent loads).
         const snap = {};
         ['nx','ny','nz','kindex','nindex',
          'sqe-emin','sqe-emax','sqe-temp','sqe-sigma','sqe-ei'].forEach(id => {
             const el = document.getElementById(id);
             if (el) snap[id] = el.value;
         });
+        postLoadSnap = snap;
+
+        if (!phononLoaded) {
+            // First load — defer phononwebsite by blocking its bubble listener.
+            pendingFile = file;
+            e.stopImmediatePropagation();
+        }
 
         const reader = new FileReader();
         reader.onload = (evt) => {
@@ -481,32 +557,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
 
-                // Restore settings after phononwebsite finishes its own load handler.
-                // Two passes at different delays handle slow async processing.
-                function restoreSnap(andCompute) {
-                    Object.entries(snap).forEach(([id, val]) => {
-                        const el = document.getElementById(id);
-                        if (el) el.value = val;
-                    });
-                    document.getElementById('update')?.click();
-                    // Re-fit camera after supercell update so the full structure is visible.
-                    // Multiply cameraDistance by 1.35 so the 2×2×1 structure is fully visible.
+                if (phononLoaded) {
+                    // Subsequent loads: phononwebsite runs too; restore DOM after it resets.
                     setTimeout(() => {
-                        document.getElementById('cameraz')?.click();
-                        setTimeout(() => { if (typeof v !== 'undefined') { v.cameraDistance *= 1.35; v.setCameraDirection('z'); } }, 80);
-                    }, 150);
-                    document.getElementById('modeselect')?.click();
-                    if (andCompute && panelBody.style.display !== 'none') triggerCompute();
+                        restoreSnap(snap);
+                        if (panelBody.style.display !== 'none') triggerCompute();
+                    }, 300);
+                    setTimeout(() => {
+                        restoreSnap(snap);
+                        if (panelBody.style.display !== 'none') triggerCompute();
+                    }, 700);
+                } else {
+                    // First load: phononwebsite deferred. DOM is unmodified,
+                    // so we can trigger compute immediately.
+                    if (panelBody.style.display !== 'none') triggerCompute();
                 }
-                setTimeout(() => restoreSnap(false), 300);
-                setTimeout(() => restoreSnap(true),  700);
             } catch(err) {
                 statusEl.textContent = '✗ ' + err.message;
                 console.error(err);
             }
         };
         reader.readAsText(file);
-    });
+    }, true);  // CAPTURE phase
 
     computeBtn.addEventListener('click', triggerCompute);
 
