@@ -8,4 +8,4 @@ from pydantic import BaseModel
 
 class OpenFolderRequest(BaseModel):
     path: str
-    eq_file: Optional[str] = None   # override the auto-detected .rmc6f
+    structure_file: Optional[str] = None   # override the auto-detected .rmc6f

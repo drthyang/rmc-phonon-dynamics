@@ -15,13 +15,18 @@ async function getJSON(url, opts) {
 export const api = {
     ping: () => getJSON('/api/ping'),
 
-    browseDir: (path) =>
-        getJSON('/api/data/browse' + (path ? `?path=${encodeURIComponent(path)}` : '')),
+    browseDir: (path, fileExts) => {
+        const qs = new URLSearchParams();
+        if (path) qs.set('path', path);
+        if (fileExts && fileExts.length) qs.set('files', fileExts.join(','));
+        const q = qs.toString();
+        return getJSON('/api/data/browse' + (q ? `?${q}` : ''));
+    },
 
-    openFolder: (path, eqFile) =>
+    openFolder: (path, structureFile) =>
         getJSON('/api/data/open', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path, eq_file: eqFile ?? null }),
+            body: JSON.stringify({ path, structure_file: structureFile ?? null }),
         }),
 };

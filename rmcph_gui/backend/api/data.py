@@ -23,10 +23,16 @@ def _clamp(path: Path) -> Path:
 
 
 @router.get("/data/browse")
-def browse(path: str | None = Query(default=None)):
+def browse(
+    path: str | None = Query(default=None),
+    files: str | None = Query(default=None),   # comma-separated exts, e.g. "rmc6f,cif"
+):
     target = _clamp(Path(path)) if path else DATA_BROWSE_START.resolve()
+    globs = None
+    if files:
+        globs = [f"*.{ext.strip().lstrip('.')}" for ext in files.split(",") if ext.strip()]
     try:
-        return data_access.list_directory(target)
+        return data_access.list_directory(target, file_globs=globs)
     except (NotADirectoryError, FileNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -34,7 +40,7 @@ def browse(path: str | None = Query(default=None)):
 @router.post("/data/open")
 def open_folder(req: OpenFolderRequest):
     try:
-        result = data_access.inspect_folder(req.path, eq_file=req.eq_file)
+        result = data_access.inspect_folder(req.path, structure_file=req.structure_file)
     except (NotADirectoryError, FileNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:  # parsing errors → 422 with the message

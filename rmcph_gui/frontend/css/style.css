@@ -107,3 +107,50 @@ table.atoms tr:last-child td { border-bottom: none; }
 .next { margin-top: 16px; }
 .muted { color: var(--c500); }
 .err { color: var(--err); }
+.sub { font-size: 11px; color: var(--c500); margin-top: 2px; }
+
+/* ── Displacement-reference control ──────────────────────────────────── */
+.ref { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ref .radio { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.ref-file { display: flex; align-items: center; gap: 8px; margin-left: 22px; }
+.ref-file code { max-width: 460px; overflow: auto; white-space: nowrap; }
+
+/* ── File picker modal ───────────────────────────────────────────────── */
+.fp-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.fp-modal {
+  width: min(640px, 92vw); max-height: 80vh;
+  background: #fff; border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.fp-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--c300); font-weight: 600;
+}
+.fp-x { border: none; background: none; font-size: 15px; height: auto; }
+.fp-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--c100); border-bottom: 1px solid var(--c300);
+}
+.fp-bar .fp-up { width: 30px; padding: 0; }
+.fp-bar .fp-path {
+  flex: 1; overflow: auto; white-space: nowrap; background: #fff;
+  padding: 6px 8px; border-radius: 4px; border: 1px solid var(--c300);
+}
+.fp-list {
+  list-style: none; margin: 0; padding: 4px; overflow: auto; flex: 1;
+  font-size: 13px; min-height: 180px;
+}
+.fp-list li { padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+.fp-list li:hover:not(.muted):not(.err) { background: var(--c100); }
+.fp-list li.file.active { background: var(--accent-dim, rgba(37,99,235,0.15));
+  outline: 1px solid var(--accent); }
+.fp-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; border-top: 1px solid var(--c300);
+}
+.fp-sel { font-size: 12px; overflow: auto; white-space: nowrap; max-width: 360px; }
+.fp-actions { display: flex; gap: 8px; flex: 0 0 auto; }
