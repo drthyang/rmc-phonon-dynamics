@@ -4,6 +4,7 @@
 
 import { api } from './api.js';
 import { mountFolderView } from './views/folder.js';
+import { mountStructureView } from './views/structure3d.js';
 
 const statusEl = document.getElementById('backend-status');
 const viewRoot = document.getElementById('view-root');
@@ -19,7 +20,18 @@ async function init() {
         console.error('ping failed:', err);
         return;
     }
-    mountFolderView(viewRoot);
+
+    // Step containers — folder (Phase 1) then structure (Phase 2) stack here.
+    viewRoot.innerHTML = '<div id="step-folder"></div><div id="step-structure"></div>';
+    const stepFolder = document.getElementById('step-folder');
+    const stepStructure = document.getElementById('step-structure');
+
+    mountFolderView(stepFolder, {
+        onContinue: (dataset) => {
+            mountStructureView(stepStructure, dataset);
+            stepStructure.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+    });
 }
 
 init();

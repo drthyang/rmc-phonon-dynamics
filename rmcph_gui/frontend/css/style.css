@@ -154,3 +154,19 @@ table.atoms tr:last-child td { border-bottom: none; }
 }
 .fp-sel { font-size: 12px; overflow: auto; white-space: nowrap; max-width: 360px; }
 .fp-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+
+/* ── 3D structure view ───────────────────────────────────────────────── */
+.canvas3d {
+  width: 100%; height: 380px;
+  border: 1px solid var(--c300); border-radius: 8px; overflow: hidden;
+  background: var(--c100);
+}
+.canvas3d canvas { display: block; }
+.legend { display: flex; gap: 14px; margin-top: 10px; font-size: 12.5px; }
+.legend .leg { display: inline-flex; align-items: center; gap: 5px; }
+.legend .leg i {
+  width: 12px; height: 12px; border-radius: 50%;
+  display: inline-block; border: 1px solid rgba(0,0,0,0.2);
+}
+#st-msg { margin-top: 8px; font-size: 12px; }
+.panel + #step-structure .panel, #step-structure .panel { margin-top: 18px; }
