@@ -90,12 +90,11 @@ def build_unit_cell(structure_file: str, cell_vectors, dim) -> dict:
 
 
 def _compute_bonds(lattice, atoms, tol: float = BOND_TOL) -> list:
-    """Bonds within (rcov_i + rcov_j)·tol, including periodic images.
+    """Bonds within (rcov_i + rcov_j)·tol, between atoms inside the cell only.
 
-    Each home-cell atom is connected to every qualifying neighbour (some in
-    adjacent cells, i.e. fractional coords outside [0,1) — drawn as short
-    stubs at the cell boundary). Interior bonds are emitted from both ends;
-    that double-draw is harmless and keeps edge bonds symmetric.
+    Periodic images are intentionally NOT considered: a bond is drawn only when
+    both atoms lie in the displayed unit cell, so no stubs reach out to
+    neighbouring cells.
 
     Returns [{"a": [fa,fb,fc], "b": [fa,fb,fc]}] in fractional coords.
     """
@@ -112,21 +111,14 @@ def _compute_bonds(lattice, atoms, tol: float = BOND_TOL) -> list:
 
     carts = [cart(a["frac"]) for a in atoms]
     rcov = [COVALENT_RADII.get(a["symbol"], DEFAULT_RCOV) for a in atoms]
-    shifts = [(i, j, k) for i in (-1, 0, 1) for j in (-1, 0, 1) for k in (-1, 0, 1)]
 
     bonds = []
     for i in range(n):
         ci = carts[i]
-        for j in range(n):
+        for j in range(i + 1, n):
             cut = (rcov[i] + rcov[j]) * tol
-            cut2 = cut * cut
-            fj = atoms[j]["frac"]
-            for s in shifts:
-                if i == j and s == (0, 0, 0):
-                    continue
-                nf = [fj[0] + s[0], fj[1] + s[1], fj[2] + s[2]]
-                nc = cart(nf)
-                d2 = (ci[0]-nc[0])**2 + (ci[1]-nc[1])**2 + (ci[2]-nc[2])**2
-                if 0.0 < d2 <= cut2:
-                    bonds.append({"a": list(atoms[i]["frac"]), "b": nf})
+            cj = carts[j]
+            d2 = (ci[0]-cj[0])**2 + (ci[1]-cj[1])**2 + (ci[2]-cj[2])**2
+            if 0.0 < d2 <= cut * cut:
+                bonds.append({"a": list(atoms[i]["frac"]), "b": list(atoms[j]["frac"])})
     return bonds
