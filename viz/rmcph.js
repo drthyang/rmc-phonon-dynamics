@@ -401,6 +401,26 @@ document.addEventListener('DOMContentLoaded', () => {
         worker.onmessage = (ev) => {
             const tRecv = performance.now();
             const m = ev.data;
+
+            // 'loaded' reply: YAML parse + THz finished in the worker.
+            if (m.type === 'loaded') {
+                if (m.error) {
+                    statusEl.textContent = '✗ ' + m.error;
+                    console.error('sqeworker load:', m.error);
+                    return;
+                }
+                const s = m.stats || {};
+                ydata = s;   // stand-in so existing `if (!ydata)` gates still work
+                statusEl.textContent =
+                    `✓ ${s.natom} atoms · ${s.nqpoint} q-pts · ${s.nModes} modes`;
+                if (m.timings && __perf.tLoadSend) {
+                    __perf.plog('worker YAML parse', m.timings.parse);
+                    __perf.plog('worker THz → meV', m.timings.thz);
+                }
+                return;
+            }
+
+            // 'compute' reply
             if (m.id !== pendingId) return;            // stale; drop
             if (m.error) {
                 statusEl.textContent = '✗ ' + m.error;
@@ -537,25 +557,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const tRead = performance.now();
             __perf.plog('FileReader.readAsText', tRead - __perf.tFile);
             try {
+                // Ship the raw text to the worker. YAML parse + THz happen
+                // off the main thread; we get a 'loaded' reply with stats.
                 const t0 = performance.now();
-                ydata = window.jsyaml.load(evt.target.result);
+                worker?.postMessage({ type: 'load', id: ++nextId, text: evt.target.result });
                 const t1 = performance.now();
-                __perf.plog('jsyaml.load (parse YAML)', t1 - t0);
-                // Convert all frequencies from THz (phonopy default) to meV
-                if (ydata.phonon) {
-                    for (const qpt of ydata.phonon)
-                        if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
-                }
-                const t2 = performance.now();
-                __perf.plog('THz → meV multiply', t2 - t1);
-                // Cache ydata in the worker so parameter recomputes skip the clone cost.
-                worker?.postMessage({ type: 'load', ydata });
-                const t3 = performance.now();
-                __perf.plog('postMessage(load) clone', t3 - t2);
-                __perf.tLoadDone = t3;
-                const nM = ydata.phonon?.[0]?.band?.length ?? '?';
-                statusEl.textContent =
-                    `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
+                __perf.plog('postMessage(load) text', t1 - t0);
+                __perf.tLoadDone = t1;
+                __perf.tLoadSend = t1;
+                ydata = { __loading: true };   // gate so triggerCompute() will fire
+                statusEl.textContent = 'Parsing…';
 
                 if (phononLoaded) {
                     // Subsequent loads: phononwebsite runs too; restore DOM after it resets.
@@ -568,8 +579,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (panelBody.style.display !== 'none') triggerCompute();
                     }, 700);
                 } else {
-                    // First load: phononwebsite deferred. DOM is unmodified,
-                    // so we can trigger compute immediately.
+                    // First load: phononwebsite deferred. Trigger compute
+                    // immediately — the worker queues 'compute' behind 'load'
+                    // and processes them in order.
                     if (panelBody.style.display !== 'none') triggerCompute();
                 }
             } catch(err) {
