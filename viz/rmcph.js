@@ -383,6 +383,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let powResult = null;
     let dosResult = null;
 
+    // ── Perf instrumentation (logs each phase to DevTools console) ───────
+    // Filter the console for "[sqe perf]" to see the breakdown.
+    const __perf = { plog: (label, ms) =>
+        console.log(`[sqe perf] ${label.padEnd(32)} ${ms.toFixed(1).padStart(8)} ms`) };
+    window.__sqePerf = __perf;
+
     // ── Compute worker ────────────────────────────────────────────────────
     // S(Q,E) / DOS compute runs off the main thread so parameter sweeps don't
     // freeze the UI.  `pendingId` ignores stale replies if the user rapidly
@@ -393,6 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         worker = new Worker('sqeworker.js');
         worker.onmessage = (ev) => {
+            const tRecv = performance.now();
             const m = ev.data;
             if (m.id !== pendingId) return;            // stale; drop
             if (m.error) {
@@ -400,10 +407,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('sqeworker:', m.error);
                 return;
             }
+            if (__perf.tComputeReq) {
+                const rt = tRecv - __perf.tComputeReq;
+                __perf.plog('worker round-trip', rt);
+                if (m.timings) {
+                    __perf.plog('  ├─ compute (worker total)', m.timings.total);
+                    __perf.plog('  │   ├─ S(Q,E) powder',       m.timings.pow);
+                    __perf.plog('  │   └─ DOS',                  m.timings.dos);
+                    __perf.plog('  └─ overhead (post + IPC)',    rt - m.timings.total);
+                }
+                __perf.tComputeReq = 0;
+            }
             powResult = m.powResult;
             dosResult = m.dosResult;
+            const tR0 = performance.now();
             resizeCanvases();
             redraw();
+            const tR1 = performance.now();
+            __perf.plog('render (heatmap+DOS+cb)', tR1 - tR0);
+            if (__perf.tFile) {
+                __perf.plog('TOTAL file→S(Q,E) shown', tR1 - __perf.tFile);
+                __perf.tFile = 0;
+            }
             const Qmx = powResult ? powResult.xMax.toFixed(2) : '?';
             statusEl.textContent = `Done · Q_max ${Qmx} Å⁻¹`;
         };
@@ -420,6 +445,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files[0];
         if (!file) return;
 
+        __perf.tFile = performance.now();
+        __perf.plog('--- file selected ---', 0);
+
         // Snapshot all user-controlled settings before phononwebsite resets them
         const snap = {};
         ['nx','ny','nz','kindex','nindex',
@@ -430,15 +458,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const reader = new FileReader();
         reader.onload = (evt) => {
+            const tRead = performance.now();
+            __perf.plog('FileReader.readAsText', tRead - __perf.tFile);
             try {
+                const t0 = performance.now();
                 ydata = window.jsyaml.load(evt.target.result);
+                const t1 = performance.now();
+                __perf.plog('jsyaml.load (parse YAML)', t1 - t0);
                 // Convert all frequencies from THz (phonopy default) to meV
                 if (ydata.phonon) {
                     for (const qpt of ydata.phonon)
                         if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
                 }
+                const t2 = performance.now();
+                __perf.plog('THz → meV multiply', t2 - t1);
                 // Cache ydata in the worker so parameter recomputes skip the clone cost.
                 worker?.postMessage({ type: 'load', ydata });
+                const t3 = performance.now();
+                __perf.plog('postMessage(load) clone', t3 - t2);
+                __perf.tLoadDone = t3;
                 const nM = ydata.phonon?.[0]?.band?.length ?? '?';
                 statusEl.textContent =
                     `✓ ${ydata.natom} atoms · ${ydata.nqpoint} q-pts · ${nM} modes`;
@@ -535,6 +573,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const Ei_in = parseFloat(document.getElementById('sqe-ei').value) || 0;
         statusEl.textContent = 'Computing…';
+        const tReq = performance.now();
+        if (__perf.tLoadDone) {
+            __perf.plog('idle gap (load→1st compute)', tReq - __perf.tLoadDone);
+            __perf.tLoadDone = 0;
+        }
+        __perf.tComputeReq = tReq;
         pendingId = ++nextId;
         worker.postMessage({
             type: 'compute',
