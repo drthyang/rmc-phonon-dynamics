@@ -7,6 +7,7 @@
 
 import { api } from '../api.js';
 import { state } from '../state.js';
+import { openFilePicker } from './filepicker.js';
 
 let curPath = null;
 
@@ -75,11 +76,11 @@ async function navigate(path, root) {
     }
 }
 
-async function openFolder(path, eqFile, root) {
+async function openFolder(path, structureFile, root) {
     const resEl = root.querySelector('#fb-result');
     resEl.innerHTML = '<p class="muted">inspecting…</p>';
     try {
-        const r = await api.openFolder(path, eqFile);
+        const r = await api.openFolder(path, structureFile);
         state.set('dataset', r);
         renderResult(r, root);
     } catch (err) {
@@ -94,14 +95,17 @@ function renderResult(r, root) {
     const atomsRows = (r.atoms || [])
         .map(a => `<tr><td>${a.symbol}</td><td>${a.count}</td></tr>`).join('');
 
-    let eqPicker = '';
-    if ((r.rmc6f_candidates || []).length > 1) {
-        const opts = r.rmc6f_candidates
-            .map(p => `<option value="${p}" ${p === r.eq_file ? 'selected' : ''}>${p}</option>`)
+    // Structure-file picker when several .rmc6f were found nearby
+    let structPicker = '';
+    if ((r.structure_candidates || []).length > 1) {
+        const opts = r.structure_candidates
+            .map(p => `<option value="${p}" ${p === r.structure_file ? 'selected' : ''}>${p}</option>`)
             .join('');
-        eqPicker = `<label class="eq-pick">.rmc6f:
-          <select id="fb-eq">${opts}</select></label>`;
+        structPicker = `<label class="eq-pick">choose:
+          <select id="fb-struct">${opts}</select></label>`;
     }
+
+    const ref = r.reference || { mode: 'average', file: null };
 
     resEl.innerHTML = `
       <h3>Detected dataset</h3>
@@ -109,20 +113,71 @@ function renderResult(r, root) {
       <table class="kv">
         <tr><td>Configs dir</td><td><code>${r.configs_dir ?? '—'}</code></td></tr>
         <tr><td>Configurations</td><td>${r.n_configs}</td></tr>
-        <tr><td>Equilibrium</td><td><code>${r.eq_file ?? '—'}</code> ${eqPicker}</td></tr>
+        <tr><td>Structure file</td>
+            <td><code>${r.structure_file ?? '—'}</code> ${structPicker}
+            <div class="sub">provides atom types + lattice (required)</div></td></tr>
         <tr><td>Atoms / cell</td><td>${r.natom ?? '—'}</td></tr>
         <tr><td>Supercell dim</td><td>${r.dim ? r.dim.join(' × ') : '—'}</td></tr>
       </table>
       ${atomsRows ? `<table class="atoms"><thead><tr><th>Element</th><th>Count</th></tr></thead><tbody>${atomsRows}</tbody></table>` : ''}
+
+      <h3>Displacement reference (hsym)</h3>
+      <p class="hint">Reference positions subtracted from each configuration:
+        <code>u = config − hsym</code>.</p>
+      <div class="ref" id="fb-ref">
+        <label class="radio"><input type="radio" name="refmode" value="average"
+          ${ref.mode === 'average' ? 'checked' : ''}> Average of all configurations
+          <span class="muted">(default)</span></label>
+        <label class="radio"><input type="radio" name="refmode" value="file"
+          ${ref.mode === 'file' ? 'checked' : ''}> Equilibrium file:</label>
+        <div class="ref-file">
+          <code id="fb-ref-path">${ref.file ?? '(none selected)'}</code>
+          <button id="fb-ref-browse">Browse…</button>
+        </div>
+      </div>
+
       <div class="next">
-        <button id="fb-continue" class="primary" ${r.eq_file && r.n_configs ? '' : 'disabled'}>
+        <button id="fb-continue" class="primary" ${r.structure_file && r.n_configs ? '' : 'disabled'}>
           Continue → structure (Phase 2)
         </button>
       </div>
     `;
 
-    const eqSel = resEl.querySelector('#fb-eq');
-    if (eqSel) eqSel.addEventListener('change', () => openFolder(r.path, eqSel.value, root));
+    // Structure-file override
+    const structSel = resEl.querySelector('#fb-struct');
+    if (structSel) structSel.addEventListener('change', () => openFolder(r.path, structSel.value, root));
+
+    // ── Displacement-reference control ──────────────────────────────────
+    const refRoot   = resEl.querySelector('#fb-ref');
+    const refPathEl = resEl.querySelector('#fb-ref-path');
+    const browseBtn = resEl.querySelector('#fb-ref-browse');
+
+    function persistRef() {
+        const mode = refRoot.querySelector('input[name="refmode"]:checked').value;
+        const file = (mode === 'file') ? (r.reference.file || null) : null;
+        r.reference = { mode, file };
+        state.set('dataset', { ...r });
+    }
+
+    refRoot.querySelectorAll('input[name="refmode"]').forEach(radio =>
+        radio.addEventListener('change', persistRef));
+
+    browseBtn.addEventListener('click', async () => {
+        const start = r.reference.file || r.structure_file || r.path;
+        const startDir = start && start.includes('/') ? start.slice(0, start.lastIndexOf('/')) : r.path;
+        const picked = await openFilePicker({
+            title: 'Select equilibrium structure',
+            exts: ['rmc6f', 'cif'],
+            startPath: startDir,
+        });
+        if (picked) {
+            r.reference.file = picked;
+            refPathEl.textContent = picked;
+            // selecting a file implies "file" mode
+            refRoot.querySelector('input[value="file"]').checked = true;
+            persistRef();
+        }
+    });
 
     const cont = resEl.querySelector('#fb-continue');
     if (cont) cont.addEventListener('click', () => {

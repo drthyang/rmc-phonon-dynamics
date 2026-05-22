@@ -24,8 +24,12 @@ def _readers():
 
 # ── Directory browser ─────────────────────────────────────────────────────────
 
-def list_directory(path: Path) -> dict:
-    """List immediate subdirectories of `path` (+ data-presence hints)."""
+def list_directory(path: Path, file_globs: list[str] | None = None) -> dict:
+    """List immediate subdirectories of `path` (+ data-presence hints).
+
+    If `file_globs` is given (e.g. ["*.rmc6f", "*.cif"]), also list matching
+    files — used by the file picker for selecting an equilibrium structure.
+    """
     path = Path(path).resolve()
     if not path.is_dir():
         raise NotADirectoryError(str(path))
@@ -41,11 +45,24 @@ def list_directory(path: Path) -> dict:
     except PermissionError:
         pass
 
+    files: list[str] = []
+    if file_globs:
+        names: set[str] = set()
+        for g in file_globs:
+            for f in path.glob(g):
+                try:
+                    if f.is_file():
+                        names.add(f.name)
+                except OSError:
+                    continue
+        files = sorted(names, key=str.lower)
+
     parent = path.parent
     return {
         "path": str(path),
         "parent": str(parent) if parent != path else None,
         "subdirs": subdirs,
+        "files": files,
         "has_frac": _has_frac(path),
         "has_rmc6f": bool(list(path.glob("*.rmc6f"))),
     }
@@ -91,8 +108,13 @@ def _find_rmc6f(path: Path) -> list[Path]:
     return candidates
 
 
-def inspect_folder(path_str: str, eq_file: str | None = None) -> dict:
+def inspect_folder(path_str: str, structure_file: str | None = None) -> dict:
     """Validate a chosen folder and parse atoms/cell from its .rmc6f.
+
+    The .rmc6f is the *structure file*: it supplies atom elements + lattice,
+    which the Frac*.txt files do not contain, so it is always required. It is
+    distinct from the *displacement reference* (hsym), which defaults to the
+    average of all configurations and is chosen separately by the user.
 
     Returns a JSON-serialisable dataset descriptor.
     """
@@ -105,12 +127,12 @@ def inspect_folder(path_str: str, eq_file: str | None = None) -> dict:
     candidates = _find_rmc6f(path)
 
     chosen = None
-    if eq_file:
-        ef = Path(eq_file).resolve()
-        if ef.is_file():
-            chosen = ef
-            if ef not in candidates:
-                candidates.insert(0, ef)
+    if structure_file:
+        sf = Path(structure_file).resolve()
+        if sf.is_file():
+            chosen = sf
+            if sf not in candidates:
+                candidates.insert(0, sf)
     if chosen is None and candidates:
         chosen = candidates[0]
 
@@ -118,8 +140,11 @@ def inspect_folder(path_str: str, eq_file: str | None = None) -> dict:
         "path": str(path),
         "configs_dir": str(frac_dir) if frac_dir else None,
         "n_configs": n_configs,
-        "rmc6f_candidates": [str(p) for p in candidates],
-        "eq_file": str(chosen) if chosen else None,
+        "structure_candidates": [str(p) for p in candidates],
+        "structure_file": str(chosen) if chosen else None,
+        # Displacement reference (hsym): default = average of all configs.
+        # mode "file" + a path overrides it (chosen via the file picker).
+        "reference": {"mode": "average", "file": None},
         "atoms": None,
         "cell": None,
         "dim": None,
@@ -131,7 +156,7 @@ def inspect_folder(path_str: str, eq_file: str | None = None) -> dict:
         )
     if chosen is None:
         result["warnings"].append(
-            "No .rmc6f equilibrium file found nearby — cannot parse atoms/cell."
+            "No .rmc6f structure file found nearby — needed for atom types + lattice."
         )
         return result
 
