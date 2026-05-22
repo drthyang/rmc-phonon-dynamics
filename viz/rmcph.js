@@ -419,9 +419,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     __perf.plog(`worker ${s.format || '?'} parse`, m.timings.parse);
                     __perf.plog('worker THz → meV', m.timings.thz);
                 }
-                // Offer "Save JSON" only after a YAML load — re-saving JSON
-                // as JSON is pointless.
-                if (saveJsonBtn) saveJsonBtn.hidden = (s.format !== 'yaml');
+                // Offer "Save JSON" after any successful load (it round-trips
+                // losslessly; most useful after a slow YAML parse).
+                if (saveJsonBtn) saveJsonBtn.hidden = false;
                 return;
             }
 
@@ -481,7 +481,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // the 3D viewer in the background. Main thread will still block
             // while phononwebsite parses + builds the supercell mesh, but the
             // user already has S(Q,E) to look at.
-            if (pendingFile && !phononLoaded) {
+            if (pendingFile) {
                 setTimeout(loadDeferredPhonon, 0);
             }
         };
@@ -497,14 +497,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Deferred phononwebsite loading ────────────────────────────────────
     // Phononwebsite's own file-input handler synchronously builds the 3D
     // structure viewer when a file is loaded — for a large supercell that's
-    // tens of seconds of blocked main thread. We intercept the first change
-    // event (capture phase + stopImmediatePropagation), do our YAML parse +
-    // S(Q,E) compute, and only let phononwebsite see the event AFTER the
-    // S(Q,E) heatmap has rendered.
-    let pendingFile      = null;   // first-load file, queued for phononwebsite
-    let phononLoaded     = false;  // becomes true after phononwebsite has seen the file
+    // tens of seconds of blocked main thread. We intercept EVERY change event
+    // (capture phase + stopImmediatePropagation), do our parse + S(Q,E)
+    // compute first, then re-dispatch to phononwebsite only after the S(Q,E)
+    // heatmap has rendered.
+    //
+    // phononwebsite expects a *.yaml file with THz frequencies. A saved
+    // band.json is renamed to .yaml here (JSON is valid YAML 1.2) and its
+    // frequencies are already THz, so phononwebsite parses it unchanged.
+    let pendingFile      = null;   // file queued for phononwebsite (renamed to .yaml)
     let syntheticDispatch = false; // suppress our handler for the re-dispatched event
-    let postLoadSnap     = null;   // DOM snapshot to restore after phononwebsite resets it
+
+    function snapshotInputs() {
+        const snap = {};
+        ['nx','ny','nz','kindex','nindex',
+         'sqe-emin','sqe-emax','sqe-temp','sqe-sigma','sqe-ei'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) snap[id] = el.value;
+        });
+        return snap;
+    }
 
     function restoreSnap(snap) {
         Object.entries(snap).forEach(([id, val]) => {
@@ -522,11 +534,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function loadDeferredPhonon() {
-        if (phononLoaded || !pendingFile) return;
-        phononLoaded = true;
+        if (!pendingFile) return;
         const file = pendingFile;
         pendingFile = null;
         statusEl.textContent += ' · loading 3D…';
+
+        // Snapshot now (the user may have tweaked inputs while S(Q,E) computed)
+        // so we can restore after phononwebsite resets them.
+        const snap = snapshotInputs();
 
         // Re-fire the change event so phononwebsite's bubble-phase listener
         // picks up the file. Our capture-phase handler will see
@@ -538,11 +553,9 @@ document.addEventListener('DOMContentLoaded', () => {
         fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
         // After phononwebsite settles, restore the DOM values it wiped.
-        if (postLoadSnap) {
-            const snap = postLoadSnap;
-            setTimeout(() => restoreSnap(snap), 300);
-            setTimeout(() => restoreSnap(snap), 700);
-        }
+        // (No recompute — S(Q,E) was already computed with these values.)
+        setTimeout(() => restoreSnap(snap), 300);
+        setTimeout(() => restoreSnap(snap), 700);
     }
 
     // Capture-phase listener fires BEFORE phononwebsite's bubble-phase one,
@@ -561,21 +574,16 @@ document.addEventListener('DOMContentLoaded', () => {
         __perf.tFile = performance.now();
         __perf.plog('--- file selected ---', 0);
 
-        // Snapshot all user-controlled settings; phononwebsite resets them
-        // when it eventually runs (either deferred or on subsequent loads).
-        const snap = {};
-        ['nx','ny','nz','kindex','nindex',
-         'sqe-emin','sqe-emax','sqe-temp','sqe-sigma','sqe-ei'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) snap[id] = el.value;
-        });
-        postLoadSnap = snap;
+        // Always defer phononwebsite: block its bubble listener, compute
+        // S(Q,E) first, re-dispatch to it afterwards (see loadDeferredPhonon).
+        e.stopImmediatePropagation();
 
-        if (!phononLoaded) {
-            // First load — defer phononwebsite by blocking its bubble listener.
-            pendingFile = file;
-            e.stopImmediatePropagation();
-        }
+        // phononwebsite needs a *.yaml file; rename a saved band.json (the
+        // bytes are valid YAML 1.2 with THz frequencies, so it parses fine).
+        const yamlName = (file.name || 'band.yaml').replace(/\.json$/i, '.yaml');
+        pendingFile = (yamlName === file.name)
+            ? file
+            : new File([file], yamlName, { type: file.type || 'text/plain' });
 
         // Track filename for the Save JSON download
         lastFileBase = (file.name || 'band').replace(/\.(ya?ml|json)$/i, '') || 'band';
@@ -585,8 +593,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const tRead = performance.now();
             __perf.plog('FileReader.readAsText', tRead - __perf.tFile);
             try {
-                // Ship the raw text to the worker. YAML parse + THz happen
-                // off the main thread; we get a 'loaded' reply with stats.
+                // Ship the raw text to the worker. Parse + THz happen off the
+                // main thread; we get a 'loaded' reply with stats.
                 const t0 = performance.now();
                 worker?.postMessage({ type: 'load', id: ++nextId, text: evt.target.result });
                 const t1 = performance.now();
@@ -596,22 +604,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 ydata = { __loading: true };   // gate so triggerCompute() will fire
                 statusEl.textContent = 'Parsing…';
 
-                if (phononLoaded) {
-                    // Subsequent loads: phononwebsite runs too; restore DOM after it resets.
-                    setTimeout(() => {
-                        restoreSnap(snap);
-                        if (panelBody.style.display !== 'none') triggerCompute();
-                    }, 300);
-                    setTimeout(() => {
-                        restoreSnap(snap);
-                        if (panelBody.style.display !== 'none') triggerCompute();
-                    }, 700);
-                } else {
-                    // First load: phononwebsite deferred. Trigger compute
-                    // immediately — the worker queues 'compute' behind 'load'
-                    // and processes them in order.
-                    if (panelBody.style.display !== 'none') triggerCompute();
-                }
+                // Trigger compute immediately — the worker queues 'compute'
+                // behind 'load' and processes them in order.
+                if (panelBody.style.display !== 'none') triggerCompute();
             } catch(err) {
                 statusEl.textContent = '✗ ' + err.message;
                 console.error(err);
