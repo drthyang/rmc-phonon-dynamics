@@ -24,6 +24,10 @@ export async function mountStructureView(root, _dataset) {
     root.innerHTML = `
       <section class="panel">
         <h2>2 · Crystal structure</h2>
+        <div class="controls">
+          <label class="chk"><input type="checkbox" id="st-bonds" checked> Bonds</label>
+          <label class="chk"><input type="checkbox" id="st-cell" checked> Cell</label>
+        </div>
         <div id="st-canvas" class="canvas3d"></div>
         <div id="st-legend" class="legend"></div>
         <div id="st-msg" class="muted"></div>
@@ -40,11 +44,11 @@ export async function mountStructureView(root, _dataset) {
         return;
     }
 
-    msg.textContent = `${data.natom} atoms / unit cell · source: ${data.source}`;
+    msg.textContent = `${data.natom} atoms · ${data.nbond ?? 0} bonds / unit cell · source: ${data.source}`;
     renderLegend(root.querySelector('#st-legend'), data.atoms);
 
     try {
-        renderScene(root.querySelector('#st-canvas'), data);
+        renderScene(root.querySelector('#st-canvas'), data, root);
     } catch (err) {
         msg.innerHTML = `<span class="err">✗ 3D render failed: ${err.message}</span>`;
         console.error(err);
@@ -69,7 +73,7 @@ function renderLegend(el, atoms) {
     }).join('');
 }
 
-function renderScene(container, data) {
+function renderScene(container, data, root) {
     const L = data.lattice;
     const W = container.clientWidth || 600;
     const H = container.clientHeight || 380;
@@ -122,8 +126,28 @@ function renderScene(container, data) {
         pts.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
     }
     lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    scene.add(new THREE.LineSegments(lineGeom,
-        new THREE.LineBasicMaterial({ color: 0x888888 })));
+    const cellBox = new THREE.LineSegments(lineGeom,
+        new THREE.LineBasicMaterial({ color: 0x888888 }));
+    scene.add(cellBox);
+
+    // ── Bonds (cylinders) ───────────────────────────────────────────────
+    const bondGroup = new THREE.Group();
+    const bondMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.6 });
+    const bondGeom = new THREE.CylinderGeometry(0.09, 0.09, 1, 8);
+    const Y = new THREE.Vector3(0, 1, 0);
+    for (const b of (data.bonds || [])) {
+        const p1 = fracToCart(L, b.a);
+        const p2 = fracToCart(L, b.b);
+        const dir = new THREE.Vector3().subVectors(p2, p1);
+        const len = dir.length();
+        if (len < 1e-6) continue;
+        const m = new THREE.Mesh(bondGeom, bondMat);
+        m.position.copy(p1).add(p2).multiplyScalar(0.5);
+        m.quaternion.setFromUnitVectors(Y, dir.clone().normalize());
+        m.scale.set(1, len, 1);
+        bondGroup.add(m);
+    }
+    scene.add(bondGroup);
 
     // ── Atoms ───────────────────────────────────────────────────────────
     const sphere = new THREE.SphereGeometry(1, 24, 18);
@@ -137,6 +161,12 @@ function renderScene(container, data) {
         mesh.position.copy(fracToCart(L, atom.frac));
         scene.add(mesh);
     }
+
+    // ── Toggles ─────────────────────────────────────────────────────────
+    const bondsChk = root.querySelector('#st-bonds');
+    const cellChk  = root.querySelector('#st-cell');
+    if (bondsChk) bondsChk.addEventListener('change', () => { bondGroup.visible = bondsChk.checked; });
+    if (cellChk)  cellChk.addEventListener('change',  () => { cellBox.visible   = cellChk.checked; });
 
     // ── Loop + resize ───────────────────────────────────────────────────
     let running = true;

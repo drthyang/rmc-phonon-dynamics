@@ -169,4 +169,6 @@ table.atoms tr:last-child td { border-bottom: none; }
   display: inline-block; border: 1px solid rgba(0,0,0,0.2);
 }
 #st-msg { margin-top: 8px; font-size: 12px; }
+.controls { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13px; }
+.controls .chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .panel + #step-structure .panel, #step-structure .panel { margin-top: 18px; }
