@@ -25,7 +25,8 @@ export async function mountBZView(root, _opts = {}) {
         const data = await api.getReciprocal();
         state.set('reciprocal', data);
         info.textContent =
-            `${data.crystal_system} · ${data.spacegroup} · ${data.high_sym_points.length} high-symmetry points`;
+            `${data.spacegroup} · Bravais ${data.crystal_system} · primitive BZ · `
+            + `${data.high_sym_points.length} high-symmetry points (seekpath)`;
         renderBZ(root.querySelector('#bz-canvas'), data, root);
     } catch (err) {
         info.innerHTML = `<span class="err">✗ ${err.message}</span>`;

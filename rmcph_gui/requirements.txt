@@ -12,3 +12,4 @@
 
 fastapi>=0.110
 uvicorn[standard]>=0.27
+seekpath>=2.1     # standardized Brillouin-zone paths & high-symmetry labels
