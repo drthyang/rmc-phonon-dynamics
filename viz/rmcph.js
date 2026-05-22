@@ -378,10 +378,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const powCanvas  = document.getElementById('sqe-pow-canvas');
     const powCb      = document.getElementById('sqe-pow-cb');
     const dosCanvas  = document.getElementById('dos-canvas');
+    const saveJsonBtn = document.getElementById('save-json');
 
-    let ydata     = null;
-    let powResult = null;
-    let dosResult = null;
+    let ydata          = null;
+    let powResult      = null;
+    let dosResult      = null;
+    let lastFileBase   = 'band';   // basename for the Save JSON download
 
     // ── Perf instrumentation (logs each phase to DevTools console) ───────
     // Filter the console for "[sqe perf]" to see the breakdown.
@@ -402,7 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const tRecv = performance.now();
             const m = ev.data;
 
-            // 'loaded' reply: YAML parse + THz finished in the worker.
+            // 'loaded' reply: parse + THz finished in the worker.
             if (m.type === 'loaded') {
                 if (m.error) {
                     statusEl.textContent = '✗ ' + m.error;
@@ -414,9 +416,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusEl.textContent =
                     `✓ ${s.natom} atoms · ${s.nqpoint} q-pts · ${s.nModes} modes`;
                 if (m.timings && __perf.tLoadSend) {
-                    __perf.plog('worker YAML parse', m.timings.parse);
+                    __perf.plog(`worker ${s.format || '?'} parse`, m.timings.parse);
                     __perf.plog('worker THz → meV', m.timings.thz);
                 }
+                // Offer "Save JSON" only after a YAML load — re-saving JSON
+                // as JSON is pointless.
+                if (saveJsonBtn) saveJsonBtn.hidden = (s.format !== 'yaml');
+                return;
+            }
+
+            // 'serialized' reply: worker returned JSON text; trigger download.
+            if (m.type === 'serialized') {
+                if (m.error) {
+                    statusEl.textContent = '✗ serialize: ' + m.error;
+                    console.error('sqeworker serialize:', m.error);
+                    return;
+                }
+                const blob = new Blob([m.json], { type: 'application/json' });
+                const url  = URL.createObjectURL(blob);
+                const a    = document.createElement('a');
+                a.href     = url;
+                a.download = `${lastFileBase}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                statusEl.textContent = `✓ Saved ${a.download}`;
                 return;
             }
 
@@ -552,6 +577,9 @@ document.addEventListener('DOMContentLoaded', () => {
             e.stopImmediatePropagation();
         }
 
+        // Track filename for the Save JSON download
+        lastFileBase = (file.name || 'band').replace(/\.(ya?ml|json)$/i, '') || 'band';
+
         const reader = new FileReader();
         reader.onload = (evt) => {
             const tRead = performance.now();
@@ -593,6 +621,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }, true);  // CAPTURE phase
 
     computeBtn.addEventListener('click', triggerCompute);
+
+    saveJsonBtn?.addEventListener('click', () => {
+        if (!ydata || !worker) return;
+        statusEl.textContent = 'Serialising…';
+        worker.postMessage({ type: 'serialize', id: ++nextId });
+    });
 
     // Compute-affecting inputs: recompute on change
     ['sqe-temp','sqe-sigma','sqe-emin','sqe-emax','sqe-ei'].forEach(id => {

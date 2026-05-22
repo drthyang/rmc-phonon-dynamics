@@ -299,14 +299,24 @@ self.onmessage = (ev) => {
     const msg = ev.data;
 
     if (msg.type === 'load') {
-        // Parse YAML + THz→meV on the worker thread so the main thread stays
-        // responsive. Reply with stats so the UI can show the atom/q-pt/mode
-        // counts without needing the parsed object itself.
+        // Parse on the worker thread so the main thread stays responsive.
+        // Auto-detect format: try JSON first (cheap and ~10x faster); fall
+        // back to YAML if JSON.parse throws.  A `_meta.freqUnit === 'meV'`
+        // marker (written by 'serialize') tells us THz conversion has
+        // already been applied — skip it on JSON reloads.
         const t0 = performance.now();
         try {
-            const ydata = self.jsyaml.load(msg.text);
+            let ydata;
+            let format = 'json';
+            try {
+                ydata = JSON.parse(msg.text);
+            } catch (_) {
+                format = 'yaml';
+                ydata = self.jsyaml.load(msg.text);
+            }
             const t1 = performance.now();
-            if (ydata && ydata.phonon) {
+            const alreadyMeV = ydata && ydata._meta && ydata._meta.freqUnit === 'meV';
+            if (ydata && ydata.phonon && !alreadyMeV) {
                 for (const qpt of ydata.phonon)
                     if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
             }
@@ -319,11 +329,32 @@ self.onmessage = (ev) => {
                     natom:   ydata?.natom   ?? 0,
                     nqpoint: ydata?.nqpoint ?? 0,
                     nModes:  ydata?.phonon?.[0]?.band?.length ?? 0,
+                    format,
                 },
                 timings: { parse: t1 - t0, thz: t2 - t1 },
             });
         } catch (err) {
             self.postMessage({ type: 'loaded', id: msg.id, error: err.message || String(err) });
+        }
+        return;
+    }
+
+    if (msg.type === 'serialize') {
+        // Serialise cachedYdata to JSON text for download. THz conversion is
+        // already applied; the `_meta.freqUnit` marker tells the next load to
+        // skip it.
+        if (!cachedYdata) {
+            self.postMessage({ type: 'serialized', id: msg.id, error: 'no ydata loaded' });
+            return;
+        }
+        const t0 = performance.now();
+        try {
+            const out = Object.assign({ _meta: { freqUnit: 'meV' } }, cachedYdata);
+            const json = JSON.stringify(out);
+            const t1 = performance.now();
+            self.postMessage({ type: 'serialized', id: msg.id, json, timings: { stringify: t1 - t0 } });
+        } catch (err) {
+            self.postMessage({ type: 'serialized', id: msg.id, error: err.message || String(err) });
         }
         return;
     }
