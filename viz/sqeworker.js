@@ -301,9 +301,8 @@ self.onmessage = (ev) => {
     if (msg.type === 'load') {
         // Parse on the worker thread so the main thread stays responsive.
         // Auto-detect format: try JSON first (cheap and ~10x faster); fall
-        // back to YAML if JSON.parse throws.  A `_meta.freqUnit === 'meV'`
-        // marker (written by 'serialize') tells us THz conversion has
-        // already been applied — skip it on JSON reloads.
+        // back to YAML if JSON.parse throws.  Saved JSON keeps THz frequencies
+        // so phononwebsite (which expects THz) accepts it as a renamed .yaml.
         const t0 = performance.now();
         try {
             let ydata;
@@ -315,8 +314,9 @@ self.onmessage = (ev) => {
                 ydata = self.jsyaml.load(msg.text);
             }
             const t1 = performance.now();
-            const alreadyMeV = ydata && ydata._meta && ydata._meta.freqUnit === 'meV';
-            if (ydata && ydata.phonon && !alreadyMeV) {
+            // Always THz → meV for our internal computation.  Both YAML and
+            // JSON sources store frequencies in THz.
+            if (ydata && ydata.phonon) {
                 for (const qpt of ydata.phonon)
                     if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
             }
@@ -340,17 +340,20 @@ self.onmessage = (ev) => {
     }
 
     if (msg.type === 'serialize') {
-        // Serialise cachedYdata to JSON text for download. THz conversion is
-        // already applied; the `_meta.freqUnit` marker tells the next load to
-        // skip it.
+        // Serialise cachedYdata to JSON for download. cachedYdata holds meV
+        // frequencies (we converted on load); convert back to THz on the fly
+        // via a replacer so the saved file matches the original YAML units.
+        // This keeps the JSON valid as a renamed .yaml for phononwebsite AND
+        // round-trips losslessly through our own loader (which re-applies THz).
         if (!cachedYdata) {
             self.postMessage({ type: 'serialized', id: msg.id, error: 'no ydata loaded' });
             return;
         }
         const t0 = performance.now();
         try {
-            const out = Object.assign({ _meta: { freqUnit: 'meV' } }, cachedYdata);
-            const json = JSON.stringify(out);
+            const json = JSON.stringify(cachedYdata, (key, value) =>
+                (key === 'frequency' && typeof value === 'number') ? value / THZ_TO_MEV : value
+            );
             const t1 = performance.now();
             self.postMessage({ type: 'serialized', id: msg.id, json, timings: { stringify: t1 - t0 } });
         } catch (err) {
