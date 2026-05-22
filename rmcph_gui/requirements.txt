@@ -1,0 +1,14 @@
+# rmcph_gui backend dependencies.
+#
+# Install these INTO the same environment that runs src_gpu (the `jax-metal`
+# conda env), because later phases import src_gpu modules (jax / numpy /
+# pymatgen) in the same process as the web server:
+#
+#   conda activate jax-metal      # or: /Users/<you>/miniforge3/envs/jax-metal
+#   pip install -r rmcph_gui/requirements.txt
+#
+# src_gpu's own deps (jax, jax-metal, numpy, scipy, pymatgen, tqdm) are assumed
+# already present in that env and are intentionally not duplicated here.
+
+fastapi>=0.110
+uvicorn[standard]>=0.27

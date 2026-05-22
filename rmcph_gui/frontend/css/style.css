@@ -1,0 +1,38 @@
+:root {
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --accent: #2563eb;
+  --hdr-bg: #111827;
+  --ok: #16a34a;
+  --err: #dc2626;
+  --c100: #f4f4f5;
+  --c300: #d4d4d8;
+  --c500: #71717a;
+  --c900: #18181b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; height: 100%;
+  font-family: var(--font);
+  color: var(--c900);
+  background: #fafafa;
+}
+
+#app-header {
+  display: flex; align-items: center; gap: 10px;
+  height: 48px; padding: 0 16px;
+  background: var(--hdr-bg); color: #fff;
+}
+#app-header .brand { font-weight: 700; font-size: 15px; }
+#app-header .sub   { font-size: 12px; color: rgba(255,255,255,0.6); }
+#app-header .status {
+  margin-left: auto; font-size: 12px;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8);
+}
+#app-header .status.ok  { background: rgba(22,163,74,0.2);  color: #86efac; }
+#app-header .status.err { background: rgba(220,38,38,0.2);  color: #fca5a5; }
+
+#app-main { padding: 24px; }
+.placeholder { color: var(--c500); font-size: 14px; }
