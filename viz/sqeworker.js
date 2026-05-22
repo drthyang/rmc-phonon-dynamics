@@ -1,12 +1,24 @@
-// sqeworker.js  —  off-main-thread S(Q,E) and DOS compute for rmcph.html
+// sqeworker.js  —  off-main-thread YAML parse + S(Q,E) and DOS compute
 //
 // Protocol:
-//   { type: 'load',    ydata }                 → store ydata, no reply
-//   { type: 'compute', id, params }            → compute, reply { id, powResult, dosResult }
+//   { type: 'load',    id, text }              → parse YAML, THz→meV,
+//                                                 cache ydata. Reply with
+//                                                 { type: 'loaded', stats, timings }.
+//   { type: 'compute', id, params }            → compute, reply
+//                                                 { type: 'compute', id, powResult,
+//                                                   dosResult, timings }.
 //
-// ydata is cached so subsequent recomputes (parameter sweeps) skip the
-// postMessage clone of the eigenvector array, which dominates transfer time.
+// YAML parse + THz conversion live here so the main thread doesn't block on
+// the 100k+-element eigenvector tree. We ship the file text (cheap string
+// transfer) instead of a pre-parsed object (expensive structured clone).
 'use strict';
+
+// Pull in js-yaml so we can parse band.yaml on the worker thread.
+// Same CDN URL the main HTML uses; importScripts is synchronous so by the
+// time the first message arrives, jsyaml is ready.
+importScripts('https://cdn.jsdelivr.net/npm/js-yaml@4/dist/js-yaml.min.js');
+
+const THZ_TO_MEV = 4.135667696;   // h·10¹² / e  — band.yaml stores THz
 
 // ── Neutron coherent scattering lengths b (fm) ─────────────────────────────
 const B_COH = {
@@ -285,13 +297,40 @@ let cachedYdata = null;
 
 self.onmessage = (ev) => {
     const msg = ev.data;
+
     if (msg.type === 'load') {
-        cachedYdata = msg.ydata;
+        // Parse YAML + THz→meV on the worker thread so the main thread stays
+        // responsive. Reply with stats so the UI can show the atom/q-pt/mode
+        // counts without needing the parsed object itself.
+        const t0 = performance.now();
+        try {
+            const ydata = self.jsyaml.load(msg.text);
+            const t1 = performance.now();
+            if (ydata && ydata.phonon) {
+                for (const qpt of ydata.phonon)
+                    if (qpt.band) for (const mode of qpt.band) mode.frequency *= THZ_TO_MEV;
+            }
+            const t2 = performance.now();
+            cachedYdata = ydata;
+            self.postMessage({
+                type:  'loaded',
+                id:    msg.id,
+                stats: {
+                    natom:   ydata?.natom   ?? 0,
+                    nqpoint: ydata?.nqpoint ?? 0,
+                    nModes:  ydata?.phonon?.[0]?.band?.length ?? 0,
+                },
+                timings: { parse: t1 - t0, thz: t2 - t1 },
+            });
+        } catch (err) {
+            self.postMessage({ type: 'loaded', id: msg.id, error: err.message || String(err) });
+        }
         return;
     }
+
     if (msg.type === 'compute') {
         if (!cachedYdata) {
-            self.postMessage({ id: msg.id, error: 'no ydata loaded' });
+            self.postMessage({ type: 'compute', id: msg.id, error: 'no ydata loaded' });
             return;
         }
         try {
@@ -309,11 +348,11 @@ self.onmessage = (ev) => {
             if (powResult) transfer.push(powResult.S.buffer, powResult.Eaxis.buffer);
             if (dosResult) transfer.push(dosResult.dos.buffer);
             self.postMessage({
-                id: msg.id, powResult, dosResult,
+                type: 'compute', id: msg.id, powResult, dosResult,
                 timings: { pow: t1 - t0, dos: t2 - t1, total: t2 - t0 }
             }, transfer);
         } catch (err) {
-            self.postMessage({ id: msg.id, error: err.message || String(err) });
+            self.postMessage({ type: 'compute', id: msg.id, error: err.message || String(err) });
         }
     }
 };
