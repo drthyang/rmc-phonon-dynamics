@@ -20,7 +20,7 @@ const ELEMENTS = {
 };
 const DEFAULT_EL = { color: 0xb0b0b0, radius: 0.55 };
 
-export async function mountStructureView(root, _dataset) {
+export async function mountStructureView(root, _dataset, opts = {}) {
     root.innerHTML = `
       <section class="panel">
         <h2>2 · Crystal structure</h2>
@@ -31,8 +31,13 @@ export async function mountStructureView(root, _dataset) {
         <div id="st-canvas" class="canvas3d"></div>
         <div id="st-legend" class="legend"></div>
         <div id="st-msg" class="muted"></div>
+        <div class="next">
+          <button id="st-continue" class="primary">Continue → reciprocal cell (Phase 3)</button>
+        </div>
       </section>
     `;
+    const contBtn = root.querySelector('#st-continue');
+    if (contBtn) contBtn.addEventListener('click', () => { if (opts.onContinue) opts.onContinue(); });
     const msg = root.querySelector('#st-msg');
     msg.textContent = 'loading structure…';
 
