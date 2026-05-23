@@ -101,6 +101,7 @@ class PhononBandsRunner(Runner):
             on_step=on_step,
             on_phase=on_phase,
             reference_file=reference_file,
+            cache_dir=str(config.RESULTS_DIR / "skcache"),
         )
 
         if progress_cb:

@@ -1,5 +1,7 @@
 import numpy as np
 import glob
+import os
+import re
 import jax
 import jax.numpy as jnp
 from tqdm import trange
@@ -185,6 +187,71 @@ def read_rmc6f_atom_ph(fname, atom_dic, dim, atype=0):
     return atom_type.tolist(), xyz, cell_idx
 
 
+def read_config_atom_ph(fname, atom_dic, dim, atype=0):
+    """Read ONE configuration into (atom_type, within-cell xyz, cell_idx),
+    dispatching on file type so callers don't care about the source format:
+      *.rmc6f -> read_rmc6f_atom_ph   (read-only source files)
+      else     -> read_frac_atom_ph   (Frac*.txt)
+    Both return the identical within-cell layout (verified to 4e-5 on paired
+    snapshots; see validate_rmc6f_equiv.py).
+    """
+    if fname.lower().endswith('.rmc6f'):
+        return read_rmc6f_atom_ph(fname, atom_dic, dim, atype)
+    return read_frac_atom_ph(fname, atom_dic, dim, atype)
+
+
+# A configuration .rmc6f is <stem>_<N>.rmc6f with N>=1; the running-average
+# dumps end in 'AVERAGE.rmc6f' and are NOT samples; <stem>.rmc6f (no index) is
+# the base/structure file and <stem>_0.rmc6f is the initial structure (identical
+# to the base) — all excluded from the ensemble.
+_RMC6F_AVERAGE_RE = re.compile(r'AVERAGE\.rmc6f$', re.IGNORECASE)
+_RMC6F_INDEX_RE = re.compile(r'_(\d+)\.rmc6f$', re.IGNORECASE)
+
+
+def list_configs(path):
+    """Return (sorted_config_files, family) for an ensemble folder, auto-detecting:
+
+      'rmc6f' : numbered <stem>_<N>.rmc6f (N>=1) in `path`, EXCLUDING
+                *AVERAGE.rmc6f, the un-numbered base, and _0 (initial structure).
+      'frac'  : Frac*.txt in `path/configs/` (canonical) or directly in `path`.
+      'none'  : neither found.
+
+    Detection order matters:
+      - A numbered .rmc6f ensemble wins (reading source .rmc6f directly is the
+        point of this path), so pointing at the ensemble folder uses it even
+        when a derived configs/ also exists.
+      - For Frac, `configs/` is checked BEFORE `path`, because a lone orphan
+        Frac*.txt can sit in an ensemble parent dir and must not be mistaken for
+        the real (configs/) ensemble — averaging that one file gives garbage.
+
+    These .rmc6f are read-only source files — this only lists them.
+    """
+    path = path.rstrip('/')
+
+    numbered = []
+    for p in glob.glob(os.path.join(path, '*.rmc6f')):
+        base = os.path.basename(p)
+        if _RMC6F_AVERAGE_RE.search(base):
+            continue
+        m = _RMC6F_INDEX_RE.search(base)
+        if not m:                 # un-numbered base / structure file
+            continue
+        n = int(m.group(1))
+        if n < 1:                 # _0 = initial structure (== base)
+            continue
+        numbered.append((n, p))
+    if numbered:
+        numbered.sort()
+        return [p for _, p in numbered], 'rmc6f'
+
+    for d in (os.path.join(path, 'configs'), path):
+        frac = sorted(glob.glob(os.path.join(d, 'Frac*.txt')))
+        if frac:
+            return frac, 'frac'
+
+    return [], 'none'
+
+
 def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=np.float64):
     """Calculate average configuration from multiple files (CPU mean with numpy).
 
@@ -196,7 +263,7 @@ def avg_frac_atom_ph(fnames, atom_dic, dim, atype=0, mode="Frac", dtype=np.float
     atmtype = None
 
     for fidx in trange(len(fnames), desc="📊 Calculating average configuration", disable=False):
-        atmtype, data, cell_idx = read_frac_atom_ph(fnames[fidx], atom_dic, dim, atype, mode)
+        atmtype, data, cell_idx = read_config_atom_ph(fnames[fidx], atom_dic, dim, atype)
 
         data_np = np.asarray(data)
         cell_np = np.asarray(cell_idx)

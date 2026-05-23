@@ -118,7 +118,7 @@ function renderResult(r, root) {
       ${warn ? `<ul class="warnings">${warn}</ul>` : ''}
       <table class="kv">
         <tr><td>Configs dir</td><td><code>${r.configs_dir ?? '—'}</code></td></tr>
-        <tr><td>Configurations</td><td>${r.n_configs}</td></tr>
+        <tr><td>Configurations</td><td>${r.n_configs}${r.config_family && r.config_family !== 'none' ? ` <span class="muted">(${r.config_family === 'rmc6f' ? '.rmc6f' : 'Frac*.txt'})</span>` : ''}</td></tr>
         <tr><td>Structure file</td>
             <td><code>${r.structure_file ?? '—'}</code> ${structPicker}
             <div class="sub">provides atom types + lattice (required)</div></td></tr>

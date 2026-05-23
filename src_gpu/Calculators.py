@@ -91,16 +91,25 @@ def process_batch_kernel(kvec, displacements_batch, cell_idx_batch, masses, type
 # ── Driver functions ──────────────────────────────────────────────────────────
 
 def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, v_super,
-           loadfile=True, save=True, batch_size=50):
-    """Compute the ensemble-averaged S(k) matrix for all atom types."""
-    fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
-    saved_Sk_path = fpath + f'Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv'
+           loadfile=True, save=True, batch_size=50, cache_dir=None):
+    """Compute the ensemble-averaged S(k) matrix for all atom types.
+
+    Configs are discovered via Readers.list_configs (Frac*.txt or a numbered
+    .rmc6f ensemble), so either source format works. The Sk_sum_kvec_*.csv cache
+    is written under `cache_dir` if given, else next to the configs (`fpath`) —
+    pass cache_dir to keep it out of read-only .rmc6f source folders.
+    """
+    fnames, _family = Readers.list_configs(fpath)
+    cache_base = cache_dir if cache_dir else fpath
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+    saved_Sk_path = os.path.join(cache_base, f'Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv')
 
     start_idx = 0
 
     # Initialise static JAX arrays from the first file (topology assumed fixed)
     if len(fnames) > 0:
-        atype_static = Readers.read_frac_atom_ph(fnames[0], atom_dic, dim)[0]
+        atype_static = Readers.read_config_atom_ph(fnames[0], atom_dic, dim)[0]
         masses_gpu = jnp.array(get_mass_array(atype_static, atom_dic))
         unique_types, type_indices_cpu = np.unique(atype_static, return_inverse=True)
         type_indices_gpu = jnp.array(type_indices_cpu, dtype=jnp.int32)
@@ -130,7 +139,7 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, v_super,
         batch_files = fnames[i : i + batch_size]
         disp_list, cell_list = [], []
         for fname in batch_files:
-            _, config, cell_idx = Readers.read_frac_atom_ph(fname, atom_dic, dim)
+            _, config, cell_idx = Readers.read_config_atom_ph(fname, atom_dic, dim)
             disp_list.append((config - hsym_config[1]) / dim @ v_super)
             cell_list.append(cell_idx)
 
@@ -163,10 +172,13 @@ def Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, v_super,
 
 
 def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, v_super,
-                   loadfile=True, save=True, batch_size=50):
+                   loadfile=True, save=True, batch_size=50, cache_dir=None):
     """Compute the ensemble-averaged S(k) matrix for a single atom type."""
-    fnames = sorted(glob.glob(fpath + 'Frac*.txt'))
-    saved_Sk_path = fpath + f'{atype}_Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv'
+    fnames, _family = Readers.list_configs(fpath)
+    cache_base = cache_dir if cache_dir else fpath
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+    saved_Sk_path = os.path.join(cache_base, f'{atype}_Sk_sum_kvec_{kpnt[0]}_{kpnt[1]}_{kpnt[2]}.csv')
 
     start_idx = 0
 
@@ -206,7 +218,7 @@ def Partial_Sk_avg(fpath, hsym_config, atom_dic, dim, kpnt, atype, v_super,
         batch_files = fnames[i : i + batch_size]
         disp_list, cell_list = [], []
         for fname in batch_files:
-            frame = Readers.read_frac_atom_ph(fname, atom_dic, dim, atype)
+            frame = Readers.read_config_atom_ph(fname, atom_dic, dim, atype)
             disp_list.append((frame[1] - hsym_ref_subset) / dim @ v_super)
             cell_list.append(frame[2])
 

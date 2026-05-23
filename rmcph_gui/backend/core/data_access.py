@@ -7,6 +7,7 @@ import cost. Folder browsing needs no jax at all.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -84,11 +85,26 @@ def _find_frac_dir(path: Path) -> Path | None:
     return None
 
 
+# A *.rmc6f is a structure-file candidate (atom types + lattice) unless it is an
+# ensemble member: a numbered snapshot (<stem>_<N>.rmc6f) or a running-average
+# dump (*AVERAGE.rmc6f). Filtering these keeps the structure-file picker from
+# listing the hundreds of config files that live alongside the equilibrium one.
+_RMC6F_NUMBERED_RE = re.compile(r"_\d+\.rmc6f$", re.IGNORECASE)
+_RMC6F_AVERAGE_RE = re.compile(r"AVERAGE\.rmc6f$", re.IGNORECASE)
+
+
+def _is_structure_rmc6f(name: str) -> bool:
+    return (name.lower().endswith(".rmc6f")
+            and not _RMC6F_NUMBERED_RE.search(name)
+            and not _RMC6F_AVERAGE_RE.search(name))
+
+
 def _find_rmc6f(path: Path) -> list[Path]:
-    """Look for *.rmc6f in the folder, its ancestors, and parent's siblings.
+    """Look for structure-file *.rmc6f in the folder, ancestors, parent's siblings.
 
     Covers the data/<T>K_ini/GTS_<T>K.rmc6f layout where the equilibrium file
-    sits in a sibling of the ensemble folder.
+    sits in a sibling of the ensemble folder. Numbered config snapshots and
+    *AVERAGE.rmc6f are excluded — they are ensemble members, not structure files.
     """
     candidates: list[Path] = []
     search: list[Path] = [path, path.parent, path.parent.parent]
@@ -103,7 +119,7 @@ def _find_rmc6f(path: Path) -> list[Path]:
         if d and d not in seen and d.is_dir():
             seen.add(d)
             for f in sorted(d.glob("*.rmc6f")):
-                if f not in candidates:
+                if _is_structure_rmc6f(f.name) and f not in candidates:
                     candidates.append(f)
     return candidates
 
@@ -122,8 +138,10 @@ def inspect_folder(path_str: str, structure_file: str | None = None) -> dict:
     if not path.is_dir():
         raise NotADirectoryError(f"Not a directory: {path}")
 
-    frac_dir = _find_frac_dir(path)
-    n_configs = len(list(frac_dir.glob("Frac*.txt"))) if frac_dir else 0
+    Readers = _readers()
+    cfg_files, config_family = Readers.list_configs(str(path))
+    configs_dir = str(Path(cfg_files[0]).parent) if cfg_files else None
+    n_configs = len(cfg_files)
     candidates = _find_rmc6f(path)
 
     chosen = None
@@ -138,8 +156,10 @@ def inspect_folder(path_str: str, structure_file: str | None = None) -> dict:
 
     result: dict = {
         "path": str(path),
-        "configs_dir": str(frac_dir) if frac_dir else None,
+        "configs_dir": configs_dir,
         "n_configs": n_configs,
+        # "frac" (Frac*.txt) or "rmc6f" (numbered .rmc6f ensemble) or "none".
+        "config_family": config_family,
         "structure_candidates": [str(p) for p in candidates],
         "structure_file": str(chosen) if chosen else None,
         # Displacement reference (hsym): default = average of all configs.
@@ -150,9 +170,10 @@ def inspect_folder(path_str: str, structure_file: str | None = None) -> dict:
         "dim": None,
         "warnings": [],
     }
-    if not frac_dir:
+    if not cfg_files:
         result["warnings"].append(
-            "No Frac*.txt files found here or in a configs/ subfolder."
+            "No Frac*.txt or numbered .rmc6f configurations found here or in a "
+            "configs/ subfolder."
         )
     if chosen is None:
         result["warnings"].append(
@@ -160,7 +181,6 @@ def inspect_folder(path_str: str, structure_file: str | None = None) -> dict:
         )
         return result
 
-    Readers = _readers()
     atom_dic = Readers.get_atom_idx(str(chosen), verbose=0)
     v1, v2, v3, dim = Readers.read_cell_vec(str(chosen), verbose=0)
 

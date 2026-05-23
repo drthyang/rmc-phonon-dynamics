@@ -13,7 +13,6 @@ Two entry points share one compute core (_compute_bands):
 import os
 os.environ.setdefault("JAX_ENABLE_X64", "True")
 
-import glob
 import numpy as np
 
 import Readers
@@ -44,7 +43,7 @@ def _hsym_from_file(reference_file, atom_dic, dim, configs_first_file):
         raise ValueError(f"Unsupported displacement-reference file type: {ext}")
 
     ref_atype, _, ref_cell = hsym
-    cfg_atype, _, cfg_cell = Readers.read_frac_atom_ph(configs_first_file, atom_dic, dim)
+    cfg_atype, _, cfg_cell = Readers.read_config_atom_ph(configs_first_file, atom_dic, dim)
     if (list(ref_atype) != list(cfg_atype)
             or not np.array_equal(np.asarray(ref_cell), np.asarray(cfg_cell))):
         raise ValueError(
@@ -56,7 +55,8 @@ def _hsym_from_file(reference_file, atom_dic, dim, configs_first_file):
 
 def _compute_bands(structure_file, configs_dir, kp, T,
                    loadfile=True, save=True, degenerate_tol=5e-3,
-                   verbose=True, on_step=None, on_phase=None, reference_file=None):
+                   verbose=True, on_step=None, on_phase=None, reference_file=None,
+                   cache_dir=None):
     """Run the Sk -> eigh -> band-connection core over a materialized k-path.
 
     structure_file : *.rmc6f equilibrium file (atom types + lattice).
@@ -78,9 +78,14 @@ def _compute_bands(structure_file, configs_dir, kp, T,
     v1, v2, v3, dim = Readers.read_cell_vec(structure_file, verbose=0)
     v_super = np.array([v1, v2, v3])
 
-    rmcfiles = sorted(glob.glob(configs_dir + 'Frac*.txt'))
+    rmcfiles, family = Readers.list_configs(configs_dir)
     if not rmcfiles:
-        raise FileNotFoundError(f'No Frac*.txt configurations in {configs_dir}')
+        raise FileNotFoundError(
+            f'No Frac*.txt or numbered .rmc6f configurations in {configs_dir}')
+    # Never write the Sk cache into a read-only .rmc6f source folder unless the
+    # caller supplied an explicit (safe) cache_dir.
+    if family == 'rmc6f' and cache_dir is None:
+        loadfile = save = False
     if reference_file:
         if verbose:
             print(f'Using equilibrium reference {reference_file}')
@@ -105,7 +110,7 @@ def _compute_bands(structure_file, configs_dir, kp, T,
                   end=' ... ', flush=True)
 
         Sk = Calculators.Sk_avg(configs_dir, hsym, atom_dic, dim, current_k, v_super,
-                                loadfile=loadfile, save=save)
+                                loadfile=loadfile, save=save, cache_dir=cache_dir)
         Sk = (Sk + Sk.conj().T) / 2
         eigvals, eigvecs = np.linalg.eigh(Sk)
 
@@ -129,7 +134,7 @@ def _compute_bands(structure_file, configs_dir, kp, T,
 def run_bands(structure_file, configs_dir, sym_pnts, k_path, kstep, T,
               out_dir='../results/', loadfile=True, save=True,
               degenerate_tol=5e-3, verbose=True, on_step=None, on_phase=None,
-              reference_file=None):
+              reference_file=None, cache_dir=None):
     """Compute a phonon band structure and write a phonopy band.yaml.
 
     Label-based, uniform-density, contiguous path (the test_run.py case).
@@ -145,7 +150,7 @@ def run_bands(structure_file, configs_dir, sym_pnts, k_path, kstep, T,
                          loadfile=loadfile, save=save,
                          degenerate_tol=degenerate_tol, verbose=verbose,
                          on_step=on_step, on_phase=on_phase,
-                         reference_file=reference_file)
+                         reference_file=reference_file, cache_dir=cache_dir)
 
     if on_phase:
         on_phase('Writing band.yaml')
@@ -165,7 +170,7 @@ def run_bands_segments(structure_file, configs_dir, segments, T,
                        out_dir='../results/', out_name='band_gpu.yaml',
                        loadfile=True, save=True, degenerate_tol=5e-3,
                        verbose=True, on_step=None, on_phase=None,
-                       reference_file=None):
+                       reference_file=None, cache_dir=None):
     """Compute a phonon band structure from an explicit per-segment k-path.
 
     Unlike run_bands, segments may have DIFFERENT point counts and the path may
@@ -187,7 +192,7 @@ def run_bands_segments(structure_file, configs_dir, segments, T,
                          loadfile=loadfile, save=save,
                          degenerate_tol=degenerate_tol, verbose=verbose,
                          on_step=on_step, on_phase=on_phase,
-                         reference_file=reference_file)
+                         reference_file=reference_file, cache_dir=cache_dir)
 
     seg_labels = [(s.get('from_label', ''), s.get('to_label', '')) for s in segments]
     if on_phase:
