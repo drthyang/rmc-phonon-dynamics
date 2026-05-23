@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
+"""Example phonon-band run. Thin caller around runner.run_bands (Phase 4)."""
 import os
 os.environ["JAX_ENABLE_X64"] = "True"
 
 import numpy as np
-import glob
 
-import Readers
-import Calculators
-import Writers
-import constants
-import kpath
+import runner
 
 T = 5  # integer — folder names use e.g. '5K', not '5.0K'
-
 stempath = '../data/'
-fpath_eq = stempath + f'{T}K_ini/GTS_{T}K.rmc6f'
-fpath    = stempath + f'ensemble_20A_{T}K/configs/'  # 500 Frac_coord_*.txt files live here
-
-atom_dic        = Readers.get_atom_idx(fpath_eq)
-v1, v2, v3, dim = Readers.read_cell_vec(fpath_eq)
-v_super         = np.array([v1, v2, v3])
-
-rmcfiles = sorted(glob.glob(fpath + 'Frac*.txt'))
-print(f'Found {len(rmcfiles)} configurations ...')
-hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
 
 # High-symmetry points of the SIMPLE-CUBIC BZ, in fractions of the conventional
 # (cubic) cell that src_gpu tiles. These — not seekpath's FCC-primitive points —
@@ -44,36 +29,13 @@ sym_pnts = {
 k_path = ['GM', 'X', 'M', 'GM']
 kstep  = 16
 
-# Materialize the path: q_frac (fractions, for labelling) and kvec (what src_gpu
-# consumes = TWO_PI_PHASE * q_frac; see constants.APPLY_2PI_PHASE).
-kp = kpath.build_kpath(kpath.segments_from_path(sym_pnts, k_path, kstep))
-print(f'Running {len(kp["kvec"])} k-points ...')
-
-ph_band          = []
-eigenvectors_all = []
-
-for k_frac, current_k in zip(kp['q_frac'], kp['kvec']):
-    print(f'  k = {k_frac} (x{constants.TWO_PI_PHASE:.4f})', end=' ... ', flush=True)
-
-    Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k, v_super,
-                            loadfile=True, save=True)
-
-    Sk = (Sk + Sk.conj().T) / 2
-    eigenvalues, eigenvectors = np.linalg.eigh(Sk)
-
-    ph_band.append(Calculators.eigenvalues_to_meV(eigenvalues, T))
-    eigenvectors_all.append(eigenvectors)
-    print('done')
-
-print('Applying band connection ...')
-ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all, degenerate_tol=5e-3)
-
-print('Writing band.yaml ...')
-Writers.gen_phonopy_band_yaml(
-    atom_dic, hsym_test, v1, v2, v3, dim,
-    ph_band, eigenvectors_all,
-    k_path, sym_pnts, kstep,
+result = runner.run_bands(
+    structure_file=stempath + f'{T}K_ini/GTS_{T}K.rmc6f',
+    configs_dir=stempath + f'ensemble_20A_{T}K/configs/',
+    sym_pnts=sym_pnts,
+    k_path=k_path,
+    kstep=kstep,
+    T=T,
     out_dir='../results/',
 )
-
-print('Done.')
+print(f'Done. {result["n_qpoints"]} k-points -> {result["band_yaml"]}')

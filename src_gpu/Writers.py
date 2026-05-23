@@ -389,6 +389,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
         f.write('\n'.join(lines) + '\n')
 
     print(f'band_gpu.yaml written to {out_path}')
+    return out_path
 
 
 def gen_ev_mcif(cifpath, atom_dic, vectors, eigen_num=np.arange(1), name=None):
