@@ -9,6 +9,7 @@ import Readers
 import Calculators
 import Writers
 import constants
+import kpath
 
 T = 5  # integer — folder names use e.g. '5K', not '5.0K'
 
@@ -43,30 +44,26 @@ sym_pnts = {
 k_path = ['GM', 'X', 'M', 'GM']
 kstep  = 16
 
-print(f'Running {(len(k_path)-1)*(kstep+1)} k-points ...')
+# Materialize the path: q_frac (fractions, for labelling) and kvec (what src_gpu
+# consumes = TWO_PI_PHASE * q_frac; see constants.APPLY_2PI_PHASE).
+kp = kpath.build_kpath(kpath.segments_from_path(sym_pnts, k_path, kstep))
+print(f'Running {len(kp["kvec"])} k-points ...')
 
 ph_band          = []
 eigenvectors_all = []
 
-for ii in range(len(k_path) - 1):
-    k_start = sym_pnts[k_path[ii]]
-    k_vec   = sym_pnts[k_path[ii + 1]] - k_start
-    for jj in range(kstep + 1):
-        k_frac = k_start + jj * k_vec / kstep
-        # Scale fractional k to src_gpu's phase convention. The 2π factor is the
-        # single reversible switch constants.APPLY_2PI_PHASE (see constants.py).
-        current_k = constants.TWO_PI_PHASE * k_frac
-        print(f'  k = {k_frac} (x{constants.TWO_PI_PHASE:.4f})', end=' ... ', flush=True)
+for k_frac, current_k in zip(kp['q_frac'], kp['kvec']):
+    print(f'  k = {k_frac} (x{constants.TWO_PI_PHASE:.4f})', end=' ... ', flush=True)
 
-        Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k, v_super,
-                                loadfile=True, save=True)
+    Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k, v_super,
+                            loadfile=True, save=True)
 
-        Sk = (Sk + Sk.conj().T) / 2
-        eigenvalues, eigenvectors = np.linalg.eigh(Sk)
+    Sk = (Sk + Sk.conj().T) / 2
+    eigenvalues, eigenvectors = np.linalg.eigh(Sk)
 
-        ph_band.append(Calculators.eigenvalues_to_meV(eigenvalues, T))
-        eigenvectors_all.append(eigenvectors)
-        print('done')
+    ph_band.append(Calculators.eigenvalues_to_meV(eigenvalues, T))
+    eigenvectors_all.append(eigenvectors)
+    print('done')
 
 print('Applying band connection ...')
 ph_band, eigenvectors_all = Writers.connect_bands(ph_band, eigenvectors_all, degenerate_tol=5e-3)
