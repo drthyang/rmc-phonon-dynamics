@@ -49,11 +49,16 @@ class PhononBandsRunner(Runner):
         if not configs_dir:
             raise RuntimeError("Dataset has no Frac*.txt configurations.")
 
-        reference = ds.get("reference") or {"mode": "average"}
+        # The reference is chosen in the UI and submitted with the run; fall
+        # back to the session dataset's, then to the ensemble average.
+        reference = params.get("reference") or ds.get("reference") or {"mode": "average"}
+        reference_file = None
         if reference.get("mode") == "file":
-            raise NotImplementedError(
-                "Displacement-reference 'file' mode is not wired through yet; "
-                "use the 'average' reference for now.")
+            reference_file = reference.get("file")
+            if not reference_file:
+                raise RuntimeError(
+                    "Displacement reference is set to 'file' but no equilibrium "
+                    "file was selected.")
 
         raw_segments = params.get("segments") or []
         if not raw_segments:
@@ -70,10 +75,19 @@ class PhononBandsRunner(Runner):
         T = float(params.get("T", 5))
         degenerate_tol = float(params.get("degenerate_tol", 5e-3))
 
+        n_qpoints = sum(s["npoints"] for s in segments)
+
         def on_step(i, n, k_frac):
             if progress_cb:
                 progress_cb(Progress(done=i, total=n,
                                      message=f"S(k) {i + 1}/{n}"))
+
+        def on_phase(message):
+            # Post-loop phases (band connection, file write) have no per-k
+            # progress; keep the bar full and surface the current phase instead.
+            if progress_cb:
+                progress_cb(Progress(done=n_qpoints, total=n_qpoints,
+                                     message=message))
 
         runner_mod = self._src_gpu_runner()
         result = runner_mod.run_bands_segments(
@@ -85,6 +99,8 @@ class PhononBandsRunner(Runner):
             degenerate_tol=degenerate_tol,
             verbose=False,
             on_step=on_step,
+            on_phase=on_phase,
+            reference_file=reference_file,
         )
 
         if progress_cb:

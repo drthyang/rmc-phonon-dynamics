@@ -23,15 +23,50 @@ import constants
 import kpath
 
 
+def _hsym_from_file(reference_file, atom_dic, dim, configs_first_file):
+    """Build the displacement reference (hsym) from a chosen equilibrium file.
+
+    Only *.rmc6f is supported: it carries the same supercell atom layout
+    (RN + cell indices) the Frac configs use, so its positions row-align with
+    each config for the per-atom subtraction in Sk_avg. The layout is verified
+    against the first config; a mismatch raises rather than silently producing
+    a meaningless displacement.
+    """
+    ext = os.path.splitext(reference_file)[1].lower()
+    if ext == '.rmc6f':
+        hsym = Readers.read_rmc6f_atom_ph(reference_file, atom_dic, dim)
+    elif ext == '.cif':
+        raise NotImplementedError(
+            "CIF displacement reference is not supported yet — its unit-cell "
+            "sites must be tiled and matched to the supercell RN ordering. "
+            "Use a .rmc6f equilibrium file.")
+    else:
+        raise ValueError(f"Unsupported displacement-reference file type: {ext}")
+
+    ref_atype, _, ref_cell = hsym
+    cfg_atype, _, cfg_cell = Readers.read_frac_atom_ph(configs_first_file, atom_dic, dim)
+    if (list(ref_atype) != list(cfg_atype)
+            or not np.array_equal(np.asarray(ref_cell), np.asarray(cfg_cell))):
+        raise ValueError(
+            "Reference structure atom layout (RN / cell indices) does not match "
+            "the Frac configurations, so it cannot be used as a displacement "
+            "reference. The equilibrium file must share the configs' atom order.")
+    return hsym
+
+
 def _compute_bands(structure_file, configs_dir, kp, T,
                    loadfile=True, save=True, degenerate_tol=5e-3,
-                   verbose=True, on_step=None):
+                   verbose=True, on_step=None, on_phase=None, reference_file=None):
     """Run the Sk -> eigh -> band-connection core over a materialized k-path.
 
     structure_file : *.rmc6f equilibrium file (atom types + lattice).
     configs_dir    : folder of Frac*.txt ensemble configurations (all are used).
     kp             : dict from kpath.build_kpath ({q_frac, kvec, seg_sizes}).
     on_step        : optional callback(i, n_total, k_frac) for live progress.
+    on_phase       : optional callback(message) for post-loop phases (band
+                     connection, file write) that have no per-k progress.
+    reference_file : optional *.rmc6f equilibrium file whose positions replace
+                     the ensemble-average displacement reference (hsym).
 
     Returns the inputs the band.yaml writers need:
       {atom_dic, hsym, v1, v2, v3, dim, ph_band, eigenvectors_all, n_qpoints}.
@@ -46,7 +81,16 @@ def _compute_bands(structure_file, configs_dir, kp, T,
     rmcfiles = sorted(glob.glob(configs_dir + 'Frac*.txt'))
     if not rmcfiles:
         raise FileNotFoundError(f'No Frac*.txt configurations in {configs_dir}')
-    hsym = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
+    if reference_file:
+        if verbose:
+            print(f'Using equilibrium reference {reference_file}')
+        hsym = _hsym_from_file(reference_file, atom_dic, dim, rmcfiles[0])
+        # The Sk cache (Sk_sum_kvec_*.csv) is keyed only by k-vector, not by the
+        # displacement reference, so reusing/writing average-mode caches here
+        # would cross-contaminate. Bypass the cache for file-mode references.
+        loadfile = save = False
+    else:
+        hsym = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
 
     n = len(kp['kvec'])
     if verbose:
@@ -70,6 +114,8 @@ def _compute_bands(structure_file, configs_dir, kp, T,
         if verbose:
             print('done')
 
+    if on_phase:
+        on_phase('Connecting bands')
     if verbose:
         print('Applying band connection ...')
     ph_band, eigenvectors_all = Writers.connect_bands(
@@ -82,7 +128,8 @@ def _compute_bands(structure_file, configs_dir, kp, T,
 
 def run_bands(structure_file, configs_dir, sym_pnts, k_path, kstep, T,
               out_dir='../results/', loadfile=True, save=True,
-              degenerate_tol=5e-3, verbose=True, on_step=None):
+              degenerate_tol=5e-3, verbose=True, on_step=None, on_phase=None,
+              reference_file=None):
     """Compute a phonon band structure and write a phonopy band.yaml.
 
     Label-based, uniform-density, contiguous path (the test_run.py case).
@@ -97,8 +144,11 @@ def run_bands(structure_file, configs_dir, sym_pnts, k_path, kstep, T,
     res = _compute_bands(structure_file, configs_dir, kp, T,
                          loadfile=loadfile, save=save,
                          degenerate_tol=degenerate_tol, verbose=verbose,
-                         on_step=on_step)
+                         on_step=on_step, on_phase=on_phase,
+                         reference_file=reference_file)
 
+    if on_phase:
+        on_phase('Writing band.yaml')
     if verbose:
         print('Writing band.yaml ...')
     band_yaml = Writers.gen_phonopy_band_yaml(
@@ -114,7 +164,8 @@ def run_bands(structure_file, configs_dir, sym_pnts, k_path, kstep, T,
 def run_bands_segments(structure_file, configs_dir, segments, T,
                        out_dir='../results/', out_name='band_gpu.yaml',
                        loadfile=True, save=True, degenerate_tol=5e-3,
-                       verbose=True, on_step=None):
+                       verbose=True, on_step=None, on_phase=None,
+                       reference_file=None):
     """Compute a phonon band structure from an explicit per-segment k-path.
 
     Unlike run_bands, segments may have DIFFERENT point counts and the path may
@@ -135,9 +186,12 @@ def run_bands_segments(structure_file, configs_dir, segments, T,
     res = _compute_bands(structure_file, configs_dir, kp, T,
                          loadfile=loadfile, save=save,
                          degenerate_tol=degenerate_tol, verbose=verbose,
-                         on_step=on_step)
+                         on_step=on_step, on_phase=on_phase,
+                         reference_file=reference_file)
 
     seg_labels = [(s.get('from_label', ''), s.get('to_label', '')) for s in segments]
+    if on_phase:
+        on_phase('Writing band.yaml')
     if verbose:
         print('Writing band.yaml ...')
     band_yaml = Writers.gen_phonopy_band_yaml_segments(

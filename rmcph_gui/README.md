@@ -16,7 +16,7 @@ Built incrementally, phase by phase (tracked in the session task list):
 | 3a | Backend: reciprocal cell, Brillouin zone, high-symmetry points | ✅ |
 | 3b | Frontend: 3D Brillouin-zone view | ✅ |
 | 3c | Frontend: interactive k-path building + per-segment k-point counts | ✅ |
-| 3d | k-path state + integration | ⬜ |
+| 3d | k-path state + integration (state.kpath → run request) | ✅ |
 | 4  | Refactor `test_run.py` → importable runner + job manager | ✅ |
 | 5  | Job submission UI, live progress, cancel | ✅ |
 | 6  | Results → hand `band.yaml` to `viz/rmcph.html` | ✅ |

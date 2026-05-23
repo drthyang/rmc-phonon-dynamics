@@ -87,7 +87,10 @@ export function mountRunView(root) {
 
     async function submit() {
         const kp = state.get('kpath');
-        const params = { ...readParams(), segments: kp.segments };
+        const ds = state.get('dataset') || {};
+        // The displacement reference is chosen in the folder panel and lives in
+        // the frontend dataset; send it with the run so the backend uses it.
+        const params = { ...readParams(), segments: kp.segments, reference: ds.reference };
         goBtn.disabled = true;
         jobEl.innerHTML = '<p class="muted">submitting…</p>';
         try {
@@ -136,7 +139,7 @@ export function mountRunView(root) {
             resultHtml = `<div class="run-result">
               <div>✓ ${job.result.n_qpoints} k-points · ${job.result.n_segments} segment(s)</div>
               <div>band.yaml: <code>${job.result.band_yaml}</code></div>
-              <a class="run-open" href="${viewerUrl}" target="_blank" rel="noopener">Open in S(Q,E) viewer →</a>
+              <a class="run-open" href="${viewerUrl}" target="_blank" rel="noopener">Open in RMC Phonon Viewer →</a>
             </div>`;
         } else if (job.status === 'error') {
             resultHtml = `<p class="err">✗ ${job.error || 'failed'}</p>`;
