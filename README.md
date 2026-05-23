@@ -10,6 +10,13 @@ A browser-based phonon visualization utility is also available:
 **Phonon Visualization UI:**  
 [https://drthyang.github.io/rmc-phonon-dynamics/viz/rmcph.html](https://drthyang.github.io/rmc-phonon-dynamics/viz/rmcph.html)
 
+Two local tools document their own usage:
+- **RMC Phonon Runner** — [`rmcph_gui/`](rmcph_gui/README.md): a local web app to
+  select a data folder, view the structure & Brillouin zone, build a k-path, run
+  the `src_gpu` calculation with live progress, and open the result in the viewer.
+- **RMC Phonon Viewer** — [`viz/`](viz/README.md): the browser viewer for the
+  resulting band structure, S(Q,E), DOS, and 3D phonon modes.
+
 This utility is a combined effort of custom scientific data processing and adapted open-source visualization tools:
 
 * **Custom Development:** The data parsing pipeline (converting `rmcprofile` to `phonopy` YAML format), inelastic neutron scattering (INS) simulations, and phonon Density of States (DOS) calculations were developed specifically for this project by TSUNG-HAN.
