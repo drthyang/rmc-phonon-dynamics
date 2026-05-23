@@ -32,7 +32,7 @@ export async function mountStructureView(root, _dataset, opts = {}) {
         <div id="st-legend" class="legend"></div>
         <div id="st-msg" class="muted"></div>
         <div class="next">
-          <button id="st-continue" class="primary">Continue → reciprocal cell (Phase 3)</button>
+          <button id="st-continue" class="primary">Continue → Brillouin Zone (Phase 3)</button>
         </div>
       </section>
     `;

@@ -16,19 +16,33 @@ import { api } from '../api.js';
 import { state } from '../state.js';
 
 const GAMMA = 'Γ';
-const showLabel = (l) => (l === 'GM' || l === 'GAMMA' || l === 'G') ? GAMMA : l;
+const PRIMES = ['′', '″', '‴'];
+// seekpath disambiguates symmetry-distinct points of the same type with a
+// numeric suffix (W, W_2, W_3, …). Render those as primes (W, W′, W″) and map
+// GAMMA → Γ.
+function showLabel(raw) {
+    let base = raw, suffix = '';
+    const m = /^(.*)_(\d+)$/.exec(raw);
+    if (m) {
+        base = m[1];
+        const n = parseInt(m[2], 10);
+        suffix = PRIMES[n - 2] || "'".repeat(Math.max(1, n - 1));
+    }
+    if (base === 'GM' || base === 'GAMMA' || base === 'G') base = GAMMA;
+    return base + suffix;
+}
 
 const COLOR_FREE = 0x16a34a;   // green  — not on path
 const COLOR_PATH = 0xf59e0b;   // orange — on path
 const COLOR_TIP  = 0xdc2626;   // red    — active tip (next click extends from here)
-const COLOR_SEG  = 0x2563eb;   // blue   — path segment lines
+const COLOR_SEG  = 0xea580c;   // orange — path segments (tubes + arrowheads)
 
 const BASE_NPTS = 50;          // npoints for the longest segment; others scale by length
 
 export async function mountBZView(root, _opts = {}) {
     root.innerHTML = `
       <section class="panel">
-        <h2>3 · Reciprocal cell & k-path</h2>
+        <h2>3 · Brillouin Zone & k-path</h2>
         <div id="bz-info" class="muted"></div>
         <div id="bz-canvas" class="canvas3d"></div>
         <div id="bz-readout" class="muted">Click a high-symmetry point to extend the path.</div>
@@ -188,30 +202,34 @@ function renderBZ(container, data, root) {
 // Owns the ordered segment list, the active "tip" we extend from, the 3D
 // segment lines, point colors, the segment-list DOM, and state.kpath.
 function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, readout, listRoot }) {
-    let segments = [];   // [{ from: <pt>, to: <pt>, npoints: N }]
-    let tip = null;      // <pt> the next click extends from; null = start fresh
+    let segments = [];        // [{ from, to, npoints, manual }]
+    let tip = null;           // <pt> the next click extends from; null = start fresh
+    let density = BASE_NPTS;  // target k-points for the LONGEST segment; shorter ones scale by length
 
     const cartLen = (a, b) =>
         Math.hypot(a.cart[0] - b.cart[0], a.cart[1] - b.cart[1], a.cart[2] - b.cart[2]);
 
-    function defaultNpoints(from, to, maxLen) {
-        if (maxLen <= 0) return 2;
-        return Math.max(2, Math.round(BASE_NPTS * cartLen(from, to) / maxLen));
+    // Allocate npoints to every non-manual segment proportionally to its length,
+    // so the longest segment gets `density` points. Manual (user-edited) segments
+    // keep their value.
+    function recompute() {
+        const maxLen = Math.max(0, ...segments.map(s => cartLen(s.from, s.to)));
+        for (const s of segments) {
+            if (s.manual) continue;
+            s.npoints = maxLen > 0
+                ? Math.max(2, Math.round(density * cartLen(s.from, s.to) / maxLen))
+                : 2;
+        }
     }
 
     function loadDefault() {
-        const pairs = data.suggested_path || [];
-        const lens = pairs.map(([a, b]) => {
-            const pa = pointByLabel.get(a), pb = pointByLabel.get(b);
-            return (pa && pb) ? cartLen(pa.point, pb.point) : 0;
-        });
-        const maxLen = Math.max(0, ...lens);
         segments = [];
-        for (const [a, b] of pairs) {
+        for (const [a, b] of (data.suggested_path || [])) {
             const pa = pointByLabel.get(a), pb = pointByLabel.get(b);
             if (!pa || !pb) continue;
-            segments.push({ from: pa.point, to: pb.point, npoints: defaultNpoints(pa.point, pb.point, maxLen) });
+            segments.push({ from: pa.point, to: pb.point, npoints: 2, manual: false });
         }
+        recompute();
         tip = segments.length ? segments[segments.length - 1].to : null;
         refresh();
     }
@@ -219,20 +237,28 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
     function clickPoint(p) {
         if (!tip) { tip = p; refresh(); return; }       // anchor a fresh start
         if (p.label === tip.label) return;               // ignore re-click on the tip
-        const maxLen = Math.max(0, ...segments.map(s => cartLen(s.from, s.to)), cartLen(tip, p));
-        segments.push({ from: tip, to: p, npoints: defaultNpoints(tip, p, maxLen) });
+        segments.push({ from: tip, to: p, npoints: 2, manual: false });
+        recompute();
         tip = p;
         refresh();
     }
 
     function removeSegment(i) {
         segments.splice(i, 1);
+        recompute();
         tip = segments.length ? segments[segments.length - 1].to : null;
         refresh();
     }
 
     function setNpoints(i, n) {
         segments[i].npoints = Math.max(2, Math.round(n) || 2);
+        segments[i].manual = true;   // sticky: survives global density changes
+        refresh();
+    }
+
+    function setDensity(n) {
+        density = Math.max(2, Math.round(n) || 2);
+        recompute();
         refresh();
     }
 
@@ -241,14 +267,28 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
 
     // Redraw 3D lines, recolor points, rebuild the DOM list, push to state.
     function refresh() {
-        // 3D segment lines
+        // 3D path: bold tubes + directional arrowheads so traversal order is clear
         for (const c of [...pathGroup.children]) { c.geometry?.dispose(); pathGroup.remove(c); }
-        const segMat = new THREE.LineBasicMaterial({ color: COLOR_SEG });
+        const tubeR = maxR * 0.012;
+        const segMat = new THREE.MeshStandardMaterial({ color: COLOR_SEG, roughness: 0.45 });
+        const up = new THREE.Vector3(0, 1, 0);
         for (const s of segments) {
-            const g = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(...s.from.cart), new THREE.Vector3(...s.to.cart),
-            ]);
-            pathGroup.add(new THREE.Line(g, segMat));
+            const A = new THREE.Vector3(...s.from.cart);
+            const B = new THREE.Vector3(...s.to.cart);
+            const dir = new THREE.Vector3().subVectors(B, A);
+            const len = dir.length();
+            if (len < 1e-9) continue;
+            dir.normalize();
+            const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
+            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(tubeR, tubeR, len, 10), segMat);
+            shaft.position.copy(A).addScaledVector(dir, len / 2);
+            shaft.quaternion.copy(quat);
+            pathGroup.add(shaft);
+            // arrowhead at ~60% toward B (kept clear of the destination sphere)
+            const head = new THREE.Mesh(new THREE.ConeGeometry(tubeR * 2.4, tubeR * 6, 12), segMat);
+            head.position.copy(A).addScaledVector(dir, len * 0.6);
+            head.quaternion.copy(quat);
+            pathGroup.add(head);
         }
 
         // point colors
@@ -268,6 +308,7 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
                 : 'Click a high-symmetry point to start a new branch.';
         }
         state.set('kpath', {
+            density,
             segments: segments.map(s => ({
                 from: s.from.label, to: s.to.label,
                 from_frac_conv: s.from.frac_conv, to_frac_conv: s.to.frac_conv,
@@ -298,6 +339,11 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
             <button class="kp-default">Load seekpath default</button>
             <button class="kp-branch">New branch</button>
             <button class="kp-clear">Clear</button>
+            <span class="kp-density" title="Scale k-points across the whole path proportionally to segment length. Lower = coarser, higher = finer. Per-segment edits are kept.">
+              k-point density
+              <button class="kp-dens-dn" title="Fewer k-points">−</button>
+              <button class="kp-dens-up" title="More k-points">+</button>
+            </span>
           </div>
           <div class="kp-list">${rows || '<div class="muted">No segments. Click a point or load the default path.</div>'}</div>
           <div class="kp-total muted">${segments.length} segment(s) · <strong>${total}</strong> k-points total</div>
@@ -306,6 +352,9 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
         listRoot.querySelector('.kp-default').onclick = loadDefault;
         listRoot.querySelector('.kp-branch').onclick = newBranch;
         listRoot.querySelector('.kp-clear').onclick = clearPath;
+        const DSTEP = 5;
+        listRoot.querySelector('.kp-dens-dn').onclick = () => setDensity(density - DSTEP);
+        listRoot.querySelector('.kp-dens-up').onclick = () => setDensity(density + DSTEP);
         listRoot.querySelectorAll('.kp-del').forEach(b => {
             b.onclick = () => removeSegment(Number(b.dataset.i));
         });
@@ -314,7 +363,7 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
         });
     }
 
-    return { loadDefault, clickPoint, removeSegment, setNpoints, newBranch, clearPath, refresh };
+    return { loadDefault, clickPoint, removeSegment, setNpoints, setDensity, newBranch, clearPath, refresh };
 }
 
 function makeLabel(text, color, worldSize) {
