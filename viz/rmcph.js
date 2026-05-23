@@ -615,6 +615,30 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsText(file);
     }, true);  // CAPTURE phase
 
+    // Auto-load a band file passed as ?band=<url> (rmcph_gui's results hand-off).
+    // Fetch the URL, wrap the text in a File, and drive the SAME change handler
+    // a manual selection would — no separate load path to keep in sync.
+    (async () => {
+        const params = new URLSearchParams(location.search);
+        const url = params.get('band');
+        if (!url) return;
+        try {
+            statusEl.textContent = 'Fetching ' + url + ' …';
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+            const text = await resp.text();
+            const name = (params.get('name') || url.split('/').pop() || 'band.yaml').split('?')[0];
+            const file = new File([text], name, { type: 'text/plain' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (err) {
+            statusEl.textContent = '✗ load failed: ' + err.message;
+            console.error('band auto-load failed:', err);
+        }
+    })();
+
     computeBtn.addEventListener('click', triggerCompute);
 
     saveJsonBtn?.addEventListener('click', () => {

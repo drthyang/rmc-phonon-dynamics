@@ -19,7 +19,7 @@ Built incrementally, phase by phase (tracked in the session task list):
 | 3d | k-path state + integration | ⬜ |
 | 4  | Refactor `test_run.py` → importable runner + job manager | ✅ |
 | 5  | Job submission UI, live progress, cancel | ✅ |
-| 6  | Results → hand `band.yaml` to `viz/rmcph.html` | ⬜ |
+| 6  | Results → hand `band.yaml` to `viz/rmcph.html` | ✅ |
 
 **Resuming:** the live task list (TaskList) tracks each sub-phase with full
 detail; commits are merged to `main` after every sub-phase. Backend runs in the

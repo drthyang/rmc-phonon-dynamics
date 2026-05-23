@@ -131,10 +131,12 @@ export function mountRunView(root) {
 
         let resultHtml = '';
         if (job.status === 'done' && job.result) {
+            const name = (job.result.band_yaml || '').split('/').pop();
+            const viewerUrl = '/viz/rmcph.html?band=' + encodeURIComponent('/results/' + name);
             resultHtml = `<div class="run-result">
               <div>✓ ${job.result.n_qpoints} k-points · ${job.result.n_segments} segment(s)</div>
               <div>band.yaml: <code>${job.result.band_yaml}</code></div>
-              <div class="sub">Hand-off to the S(Q,E) viewer arrives in Phase 6.</div>
+              <a class="run-open" href="${viewerUrl}" target="_blank" rel="noopener">Open in S(Q,E) viewer →</a>
             </div>`;
         } else if (job.status === 'error') {
             resultHtml = `<p class="err">✗ ${job.error || 'failed'}</p>`;

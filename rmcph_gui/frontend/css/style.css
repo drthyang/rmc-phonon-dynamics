@@ -245,3 +245,10 @@ table.atoms tr:last-child td { border-bottom: none; }
   max-width: 580px; overflow: auto; white-space: nowrap;
   display: inline-block; vertical-align: bottom;
 }
+.run-open {
+  align-self: flex-start; margin-top: 6px;
+  display: inline-block; height: 30px; line-height: 30px; padding: 0 14px;
+  background: var(--accent); color: #fff; border-radius: 6px;
+  font-size: 13px; text-decoration: none;
+}
+.run-open:hover { background: #1d4ed8; }
