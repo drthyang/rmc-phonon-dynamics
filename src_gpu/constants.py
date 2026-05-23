@@ -1,5 +1,22 @@
 import numpy as np
 
+# ── k-vector phase convention (REVERSIBLE TOGGLE) ─────────────────────────────
+# src_gpu's structure-factor phase is  exp(i · cell_idx · kvec)  with INTEGER
+# cell indices (see Readers.read_frac_atom_ph), so kvec must be in radians per
+# cell = 2π × (conventional-cell fractional coordinate).
+#
+# Validated 2026-05-22 by the reciprocal-lattice-periodicity test in
+# validate_kpath_2pi.py: WITH the 2π factor, S(k=G)=S(Γ) for true reciprocal
+# vectors G ([1,1,1],[2,0,0],[2,2,0]) to ~1e-4 (vs ‖S(Γ)‖≈29); WITHOUT it the
+# residual was 44–388. Reference outputs: ../results/gpu_with2pi (this setting)
+# vs ../results/gpu_no2pi (the legacy APPLY_2PI_PHASE = False behaviour).
+#
+# To REVERT to the legacy no-2π convention, set APPLY_2PI_PHASE = False — that is
+# the only change needed. Callers (test_run.py and the future GUI runner) scale
+# their fractional k-points by TWO_PI_PHASE, so this flag is the single switch.
+APPLY_2PI_PHASE = True
+TWO_PI_PHASE = (2.0 * np.pi) if APPLY_2PI_PHASE else 1.0
+
 # ── Physical constants ────────────────────────────────────────────────────────
 KB_J      = 1.380649e-23       # Boltzmann constant  [J/K]
 KB_meV    = 8.617333262e-2     # Boltzmann constant  [meV/K]

@@ -8,6 +8,7 @@ import glob
 import Readers
 import Calculators
 import Writers
+import constants
 
 T = 5  # integer — folder names use e.g. '5K', not '5.0K'
 
@@ -23,6 +24,10 @@ rmcfiles = sorted(glob.glob(fpath + 'Frac*.txt'))
 print(f'Found {len(rmcfiles)} configurations ...')
 hsym_test = Readers.avg_frac_atom_ph(rmcfiles, atom_dic, dim)
 
+# High-symmetry points of the SIMPLE-CUBIC BZ, in fractions of the conventional
+# (cubic) cell that src_gpu tiles. These — not seekpath's FCC-primitive points —
+# are the right family here: src_gpu indexes whole cubic cells, so its S(k) is
+# periodic in the simple-cubic reciprocal lattice. (FCC X=[0,1,0] would fold onto Γ.)
 sym_pnts = {
     'A':    np.array([ 0.5,  0.5,  0.5]),
     'GM':   np.array([ 0.0,  0.0,  0.0]),
@@ -47,8 +52,11 @@ for ii in range(len(k_path) - 1):
     k_start = sym_pnts[k_path[ii]]
     k_vec   = sym_pnts[k_path[ii + 1]] - k_start
     for jj in range(kstep + 1):
-        current_k = k_start + jj * k_vec / kstep
-        print(f'  k = {current_k}', end=' ... ', flush=True)
+        k_frac = k_start + jj * k_vec / kstep
+        # Scale fractional k to src_gpu's phase convention. The 2π factor is the
+        # single reversible switch constants.APPLY_2PI_PHASE (see constants.py).
+        current_k = constants.TWO_PI_PHASE * k_frac
+        print(f'  k = {k_frac} (x{constants.TWO_PI_PHASE:.4f})', end=' ... ', flush=True)
 
         Sk = Calculators.Sk_avg(fpath, hsym_test, atom_dic, dim, current_k, v_super,
                                 loadfile=True, save=True)
