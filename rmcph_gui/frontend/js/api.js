@@ -33,4 +33,17 @@ export const api = {
     getStructure: () => getJSON('/api/structure'),
 
     getReciprocal: () => getJSON('/api/reciprocal'),
+
+    listRunners: () => getJSON('/api/runners'),
+
+    submitJob: (runner, params) =>
+        getJSON('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ runner, params }),
+        }),
+
+    getJob: (id) => getJSON(`/api/jobs/${id}`),
+
+    cancelJob: (id) => getJSON(`/api/jobs/${id}/cancel`, { method: 'POST' }),
 };

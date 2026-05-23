@@ -6,6 +6,7 @@ import { api } from './api.js';
 import { mountFolderView } from './views/folder.js';
 import { mountStructureView } from './views/structure3d.js';
 import { mountBZView } from './views/bz.js';
+import { mountRunView } from './views/run.js';
 
 const statusEl = document.getElementById('backend-status');
 const viewRoot = document.getElementById('view-root');
@@ -22,18 +23,21 @@ async function init() {
         return;
     }
 
-    // Step containers stack here: folder → structure → reciprocal/k-path.
+    // Step containers stack here: folder → structure → reciprocal/k-path → run.
     viewRoot.innerHTML =
-        '<div id="step-folder"></div><div id="step-structure"></div><div id="step-reciprocal"></div>';
+        '<div id="step-folder"></div><div id="step-structure"></div>'
+        + '<div id="step-reciprocal"></div><div id="step-run"></div>';
     const stepFolder = document.getElementById('step-folder');
     const stepStructure = document.getElementById('step-structure');
     const stepReciprocal = document.getElementById('step-reciprocal');
+    const stepRun = document.getElementById('step-run');
 
     mountFolderView(stepFolder, {
         onContinue: (dataset) => {
             mountStructureView(stepStructure, dataset, {
                 onContinue: () => {
                     mountBZView(stepReciprocal);
+                    mountRunView(stepRun);
                     stepReciprocal.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 },
             });
