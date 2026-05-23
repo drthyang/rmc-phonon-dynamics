@@ -256,6 +256,11 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
                           out_dir='../results/'):
     '''Write a phonopy-compatible band.yaml from RMC phonon results.
 
+    Label-based convenience API: a single contiguous path of high-symmetry
+    labels with a UNIFORM number of q-points (kstep+1) per segment. For a
+    per-segment / discontinuous path (e.g. driven from the GUI), use
+    gen_phonopy_band_yaml_segments.
+
     Parameters
     ----------
     ph_band          : list of 1-D arrays, one per k-point (same loop order as main.py)
@@ -266,12 +271,84 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     freq_factor      : multiply all frequencies by this to convert to THz
     sym_labels       : optional dict overriding display labels, e.g. {'GM': '$\\Gamma$', 'X': 'X'}
                        'GM' -> '$\\Gamma$' is applied automatically if not overridden.
-
-    Collect eigenvectors in main.py by adding:
-        eigenvectors_all = []
-        # inside the k-loop, after np.linalg.eigh:
-        eigenvectors_all.append(eigenvectors)
     '''
+    # Reconstruct k-points in the same order as ph_band (matching the run loop)
+    # and record which flat q-index is a high-symmetry point + its label.
+    k_points  = []
+    hsym_qi   = {}
+    for ii in range(len(k_path) - 1):
+        k_start = sym_pnts[k_path[ii]]
+        k_vec   = sym_pnts[k_path[ii + 1]] - k_start
+        hsym_qi[len(k_points)] = _hsym_label(k_path[ii], sym_labels)
+        for jj in range(kstep + 1):
+            k_points.append(k_start + jj * k_vec / kstep)
+    hsym_qi[len(k_points) - 1] = _hsym_label(k_path[-1], sym_labels)
+    seg_sizes = [kstep + 1] * (len(k_path) - 1)
+
+    return _write_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
+                            ph_band, eigenvectors_all,
+                            k_points, seg_sizes, hsym_qi,
+                            freq_factor=freq_factor, out_dir=out_dir)
+
+
+def gen_phonopy_band_yaml_segments(atom_dic, hsym_test, v1, v2, v3, dim,
+                                   ph_band, eigenvectors_all,
+                                   q_frac, seg_sizes, seg_labels,
+                                   freq_factor=1.0,
+                                   sym_labels=None,
+                                   out_dir='../results/',
+                                   out_name='band_gpu.yaml'):
+    '''Write band.yaml from an already-materialized, per-segment k-path.
+
+    Unlike gen_phonopy_band_yaml, this takes the explicit q-points and per-
+    segment sizes (so segments may have DIFFERENT lengths and the path may be
+    DISCONTINUOUS — "breaks"). This is what the GUI runner uses.
+
+    Parameters
+    ----------
+    q_frac     : (N, 3) array of fractional reciprocal coords, in ph_band order
+                 (junction points are duplicated, as kpath.build_kpath emits them)
+    seg_sizes  : list of per-segment q-point counts (sum == N)
+    seg_labels : list of (from_label, to_label) per segment
+    '''
+    q_frac = np.asarray(q_frac, float)
+    k_points = [q_frac[i] for i in range(len(q_frac))]
+
+    # Label each segment's start; also label a segment's end when the path breaks
+    # there (last segment, or the next segment doesn't start where this one ended).
+    hsym_qi = {}
+    offset = 0
+    n_seg = len(seg_sizes)
+    for i, sz in enumerate(seg_sizes):
+        from_lab, to_lab = seg_labels[i]
+        hsym_qi[offset] = _hsym_label(from_lab, sym_labels)
+        is_break = (i == n_seg - 1) or (seg_labels[i + 1][0] != to_lab)
+        if is_break:
+            hsym_qi[offset + sz - 1] = _hsym_label(to_lab, sym_labels)
+        offset += sz
+
+    seg_starts = set()
+    off = 0
+    for sz in seg_sizes:
+        seg_starts.add(off)
+        off += sz
+
+    return _write_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
+                            ph_band, eigenvectors_all,
+                            k_points, list(seg_sizes), hsym_qi,
+                            freq_factor=freq_factor, out_dir=out_dir,
+                            out_name=out_name, seg_starts=seg_starts)
+
+
+def _write_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
+                     ph_band, eigenvectors_all,
+                     k_points, seg_sizes, hsym_qi,
+                     freq_factor=1.0, out_dir='../results/',
+                     out_name='band_gpu.yaml', seg_starts=None):
+    '''Shared band.yaml writer. Takes materialized k_points (list, ph_band order),
+    per-segment sizes, and a {q_index: label} map. `seg_starts` (set of flat
+    q-indices that begin a segment) zeroes the path-distance increment at those
+    junctions so contiguous junctions and discontinuous breaks both lay flat.'''
     atom_type_list, xyz, _ = hsym_test
 
     # Supercell lattice (rows = vectors, Å)
@@ -302,31 +379,24 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     all_sorted = sorted(int(idx) for el in elements for idx in atom_dic[el])
     rank = {atom_idx: r for r, atom_idx in enumerate(all_sorted)}
 
-    # Reconstruct k-points in the same order as ph_band (matching main.py loop).
-    # Also record which flat q-point index is a high-symmetry point and its label.
-    k_points  = []
-    hsym_qi   = {}   # qi -> display label string
-    for ii in range(len(k_path) - 1):
-        k_start = sym_pnts[k_path[ii]]
-        k_vec   = sym_pnts[k_path[ii + 1]] - k_start
-        hsym_qi[len(k_points)] = _hsym_label(k_path[ii], sym_labels)
-        for jj in range(kstep + 1):
-            k_points.append(k_start + jj * k_vec / kstep)
-    # Label the very last q-point with the endpoint of the final segment
-    hsym_qi[len(k_points) - 1] = _hsym_label(k_path[-1], sym_labels)
-
     n_qpoints  = len(k_points)
-    n_segments = len(k_path) - 1
+    n_segments = len(seg_sizes)
     n_modes    = len(ph_band[0]) if ph_band else 0
+    seg_starts = seg_starts or set()
 
-    # Cumulative path distance in Å^-1 (no 2π)
+    # Cumulative path distance in Å^-1 (no 2π). Increment is zeroed at segment
+    # starts: contiguous junctions are already Δ=0 (duplicated point), and breaks
+    # would otherwise inject a spurious jump across disconnected branches.
     distances = [0.0]
     for i in range(1, n_qpoints):
+        if i in seg_starts:
+            distances.append(distances[-1])
+            continue
         dq = (k_points[i] - k_points[i - 1]) @ recip
         distances.append(distances[-1] + float(np.linalg.norm(dq)))
 
     os.makedirs(out_dir, exist_ok=True)
-    out_path = _safe_path(out_dir + 'band_gpu.yaml')
+    out_path = _safe_path(out_dir + out_name)
 
     lines = []
 
@@ -334,8 +404,8 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     lines.append(f'nqpoint: {n_qpoints}')
     lines.append(f'npath: {n_segments}')
     lines.append('segment_nqpoint:')
-    for _ in range(n_segments):
-        lines.append(f'- {kstep + 1}')
+    for sz in seg_sizes:
+        lines.append(f'- {sz}')
 
     lines.append('reciprocal_lattice:')
     for rv, lab in zip(recip, ['a*', 'b*', 'c*']):
@@ -388,7 +458,7 @@ def gen_phonopy_band_yaml(atom_dic, hsym_test, v1, v2, v3, dim,
     with open(out_path, 'w') as f:
         f.write('\n'.join(lines) + '\n')
 
-    print(f'band_gpu.yaml written to {out_path}')
+    print(f'{out_name} written to {out_path}')
     return out_path
 
 
