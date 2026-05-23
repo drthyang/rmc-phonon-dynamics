@@ -129,13 +129,20 @@ def read_rmc6f_atom_ph(fname, atom_dic, dim, atype=0):
     displacement reference (hsym) instead of the ensemble average.
 
     rmc6f "Atoms:" line:  id element [type] fx fy fz RN Nx Ny Nz
-      coords   = parts[-7:-4]  (supercell fractional, like Frac's X Y Z)
+      coords   = parts[-7:-4]  (GLOBAL supercell fractional)
       RN       = parts[-4]     (reference number; same column get_atom_idx uses)
       cell_idx = parts[-3:]    (Nx Ny Nz)
     End-anchored so it is robust to variation in the leading columns.
 
-    Returns (atom_type_list, xyz, cell_idx) matching read_frac_atom_ph:
-      xyz = (supercell fraction) * dim, wrapped to [0, dim) per component.
+    Returns (atom_type_list, xyz, cell_idx) matching read_frac_atom_ph EXACTLY,
+    including its WITHIN-CELL coordinate convention: read_frac_atom_ph's Frac
+    X/Y/Z are within-unit-cell fractions (the integer cell offset lives only in
+    Nx,Ny,Nz), so xyz = frac*dim stays in [0,1) per component. The rmc6f stores
+    GLOBAL supercell fractions (cell offset folded in), so we strip it with
+    mod 1.0 to land in the same within-cell frame. This MUST match, or the
+    per-atom subtraction in Sk_avg ((config - hsym)) picks up spurious integer
+    cell offsets. Verified equal to read_frac_atom_ph to ~4e-5 (Frac rounding)
+    on paired configs — see validate_rmc6f_equiv.py.
     """
     rn_list, xyz_list, cell_list = [], [], []
     in_atoms = False
@@ -165,9 +172,10 @@ def read_rmc6f_atom_ph(fname, atom_dic, dim, atype=0):
         raise ValueError(f"No atoms parsed from {fname} (expected an 'Atoms:' block).")
 
     atom_type = np.asarray(rn_list, dtype=np.int64)
-    xyz = np.asarray(xyz_list, dtype=np.float64) * np.asarray(dim, dtype=np.float64)
+    # Global supercell coordinate in unit-cell units, then strip the integer
+    # cell offset (mod 1.0) to match read_frac_atom_ph's within-cell frame.
+    xyz = np.mod(np.asarray(xyz_list, dtype=np.float64) * np.asarray(dim, dtype=np.float64), 1.0)
     cell_idx = np.asarray(cell_list, dtype=np.int64)
-    xyz = np.mod(xyz, np.asarray(dim, dtype=np.float64))
 
     if atype != 0:
         allowed = np.array(list(atom_dic[atype]), dtype=np.int64)
