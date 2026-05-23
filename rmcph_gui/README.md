@@ -13,9 +13,9 @@ Built incrementally, phase by phase (tracked in the session task list):
 | 0  | Scaffold: FastAPI backend + vanilla-JS frontend + `/api/ping` | ✅ |
 | 1  | Data folder selection & parsing (+ structure/reference split) | ✅ |
 | 2  | Crystal structure 3D view (three.js, atoms + bonds) | ✅ |
-| 3a | Backend: reciprocal cell, Brillouin zone, high-symmetry points | ⬜ |
-| 3b | Frontend: 3D Brillouin-zone view | ⬜ |
-| 3c | Frontend: interactive k-path building + per-segment k-point counts | ⬜ |
+| 3a | Backend: reciprocal cell, Brillouin zone, high-symmetry points | ✅ |
+| 3b | Frontend: 3D Brillouin-zone view | ✅ |
+| 3c | Frontend: interactive k-path building + per-segment k-point counts | ✅ |
 | 3d | k-path state + integration | ⬜ |
 | 4  | Refactor `test_run.py` → importable runner + job manager | ⬜ |
 | 5  | Job submission UI, live progress, cancel/resume | ⬜ |

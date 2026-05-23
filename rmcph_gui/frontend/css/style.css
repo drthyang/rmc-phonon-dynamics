@@ -172,3 +172,34 @@ table.atoms tr:last-child td { border-bottom: none; }
 .controls { display: flex; gap: 16px; margin-bottom: 10px; font-size: 13px; }
 .controls .chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .panel + #step-structure .panel, #step-structure .panel { margin-top: 18px; }
+
+/* ── k-path builder (Phase 3c) ───────────────────────────────────────── */
+#bz-path { margin-top: 12px; }
+.kp-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.kp-list {
+  border: 1px solid var(--c300); border-radius: 6px; overflow: hidden;
+  max-height: 240px; overflow-y: auto;
+}
+.kp-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-bottom: 1px solid var(--c300); font-size: 13px;
+}
+.kp-row:last-child { border-bottom: none; }
+.kp-seg { flex: 1; font-variant-numeric: tabular-nums; }
+.kp-npts { display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--c500); }
+.kp-npts input {
+  width: 56px; height: 26px; padding: 0 6px; font-family: var(--font);
+  font-size: 13px; border: 1px solid var(--c300); border-radius: 5px;
+  text-align: right;
+}
+.kp-del {
+  width: 26px; height: 26px; padding: 0; line-height: 1;
+  font-size: 16px; color: var(--c500);
+}
+.kp-del:hover { color: var(--err); border-color: var(--err); }
+.kp-break {
+  padding: 3px 10px; font-size: 11px; color: var(--c500);
+  background: var(--c100); text-align: center; letter-spacing: 0.04em;
+}
+.kp-total { margin-top: 8px; font-size: 12.5px; }

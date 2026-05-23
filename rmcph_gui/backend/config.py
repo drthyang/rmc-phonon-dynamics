@@ -18,9 +18,13 @@ RESULTS_DIR = REPO_ROOT / "results"
 
 # Server-side directory browser (Phase 1):
 #   - browsing starts here
-#   - navigation is clamped to BROWSE_ROOT to avoid wandering the whole disk
+#   - navigation is clamped to BROWSE_ROOT so requests can't escape the volume.
+#     This is the filesystem anchor of the checkout ("/" on POSIX, "C:\\" on
+#     Windows) — not Path.home(), because the repo/data may live outside the
+#     home dir (e.g. an external volume), which would otherwise wall off the
+#     folder picker.
 DATA_BROWSE_START = DATA_ROOT if DATA_ROOT.is_dir() else REPO_ROOT
-BROWSE_ROOT       = Path.home()
+BROWSE_ROOT       = Path(REPO_ROOT.anchor)
 
 APP_NAME    = "rmcph_gui"
 APP_VERSION = "0.1.0"

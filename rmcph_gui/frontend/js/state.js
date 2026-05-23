@@ -7,7 +7,7 @@ const _state = {
     dataset: null,    // { eqFile, configsDir, nConfigs, atomDic, ... }  (Phase 1)
     structure: null,  // { lattice, atoms }                              (Phase 2)
     reciprocal: null, // { recipLattice, bzFacets, highSymPoints }       (Phase 3)
-    kpath: null,      // { labels, coords, kstep }                       (Phase 3)
+    kpath: null,      // { segments:[{from,to,from_frac_conv,to_frac_conv,npoints}], totalPoints } (Phase 3c)
     job: null,        // { id, status, progress }                        (Phase 5)
 };
 
