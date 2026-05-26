@@ -6,7 +6,7 @@ This document is a quick handoff to help contributors pick up work.
 
 - Core physics pipelines exist in both `src/` (CPU) and `src_gpu/` (JAX/GPU).
 - The local runner app (`rmcph_gui/`) can browse datasets, build k-paths, run jobs, and hand results to the viewer.
-- The `rmcph_gui` Fit Quality panel now renders X-ray F(Q) and PDF G(r) fit figures as larger single-column plots with observed/RMC/residual traces, compact Rw metrics, external legends, and tight data-driven axis regions.
+- The `rmcph_gui` Fit Quality panel now renders an Rw-vs-configuration overview for F(Q) and G(r); clicking an overview point selects that configuration and expands the detailed observed/RMC/difference figures.
 - The viewer (`viz/`) has major load/perf optimizations, including Web Worker compute and optional JSON fast-path.
 
 ## What is stable
@@ -14,7 +14,7 @@ This document is a quick handoff to help contributors pick up work.
 - End-to-end `src_gpu` band workflow through GUI runner.
 - `.rmc6f` and `Frac*.txt` config-family detection in GUI flow.
 - Brillouin-zone / high-symmetry point workflow with seekpath mapping to conventional-cell k vectors.
-- Fit Quality preview for RMCProfile output CSVs (`*_XFQ1.csv`, `*_FT_XFQ1.csv`) in `rmcph_gui`, including residual overlays and Chart.js zoom/reset controls.
+- Fit Quality preview for RMCProfile output CSVs (`*_XFQ1.csv`, `*_FT_XFQ1.csv`) in `rmcph_gui`, including clickable Rw trend summaries, residual overlays, and Chart.js zoom/reset controls.
 - Viewer-side S(Q,E) + DOS computation pipeline and delayed heavy 3D initialization.
 
 ## Known gaps / follow-ups
@@ -27,7 +27,7 @@ This document is a quick handoff to help contributors pick up work.
 
 ## Recent development notes
 
-- May 26, 2026: Refined `rmcph_gui` Fit Quality figures. Changes include larger stacked S(Q)/F(Q) and G(r) plots, external figure-header legends, solid residual baseline styling, hover tooltips, x-axis zoom/reset controls, Rw-only metric display, and tightened axis bounds to remove unnecessary empty plot regions.
+- May 26, 2026: Refined `rmcph_gui` Fit Quality figures. Changes include a clickable Rw summary plot over all configurations with percent ticks and a selected-config guide, folded detailed S(Q)/F(Q) and G(r) plots that expand on summary click, external figure-header legends, solid residual baseline styling, hover tooltips, x-axis zoom/reset controls, Rw-only metric display, and tightened axis bounds to remove unnecessary empty plot regions.
 
 ## Suggested next milestones
 

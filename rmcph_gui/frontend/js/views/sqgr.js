@@ -26,7 +26,7 @@ function ensureChartPlugins() {
 
 // ── Chart factory ─────────────────────────────────────────────────────────────
 
-function makeChart(canvas, datasets, xLabel, yLabel, bounds) {
+function makeChart(canvas, datasets, xLabel, yLabel, bounds, chartOptions = {}) {
     ensureChartPlugins();
 
     // Destroy any existing chart on this canvas before creating a new one
@@ -56,12 +56,16 @@ function makeChart(canvas, datasets, xLabel, yLabel, bounds) {
                     callbacks: {
                         title(items) {
                             const x = items[0]?.parsed?.x;
-                            return Number.isFinite(x) ? `${xLabel}: ${x.toFixed(4)}` : '';
+                            if (!Number.isFinite(x)) return '';
+                            if (xLabel === 'Configuration #') return `Configuration #${Math.round(x)}`;
+                            return `${xLabel}: ${x.toFixed(4)}`;
                         },
                         label(item) {
+                            if (item.dataset.label.startsWith('_')) return null;
                             const raw = item.raw || {};
                             const value = Number.isFinite(raw.residual) ? raw.residual : item.parsed.y;
-                            return `${item.dataset.label}: ${formatValue(value)}`;
+                            const suffix = yLabel.includes('%') ? '%' : '';
+                            return `${item.dataset.label}: ${formatValue(value)}${suffix}`;
                         },
                     },
                 },
@@ -93,11 +97,20 @@ function makeChart(canvas, datasets, xLabel, yLabel, bounds) {
                     min: bounds?.yMin,
                     max: bounds?.yMax,
                     title: { display: true, text: yLabel, color: TICK_COLOR, font: { size: 11, weight: 600 } },
-                    ticks: { color: TICK_COLOR, font: { size: 10 }, maxTicksLimit: 6, callback: formatTick },
+                    ticks: {
+                        color: TICK_COLOR,
+                        font: { size: 10 },
+                        maxTicksLimit: 6,
+                        callback(value) {
+                            const label = formatTick(value);
+                            return yLabel.includes('%') ? `${label}%` : label;
+                        },
+                    },
                     grid: { color: GRID_COLOR, tickColor: GRID_COLOR },
                     border: { color: GRID_COLOR },
                 },
             },
+            ...chartOptions,
         },
     });
 }
@@ -204,10 +217,74 @@ function fitDatasets(xs, exptY, rmcY) {
 }
 
 function renderMetrics(el, metrics) {
-    if (!el || !metrics) return;
+    if (!el) return;
+    if (!metrics) {
+        el.innerHTML = '';
+        return;
+    }
     el.innerHTML = `
       <span>Rw ${formatValue(metrics.rw)}%</span>
     `;
+}
+
+function rwSummaryDatasets(summary, selectedConfig) {
+    const xfq = [];
+    const xpdf = [];
+    let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+
+    for (const row of summary.points || []) {
+        const config = row.config;
+        if (!Number.isFinite(config)) continue;
+        if (Number.isFinite(row.xfq)) {
+            xfq.push({ x: config, y: row.xfq });
+            yMin = Math.min(yMin, row.xfq);
+            yMax = Math.max(yMax, row.xfq);
+        }
+        if (Number.isFinite(row.xpdf)) {
+            xpdf.push({ x: config, y: row.xpdf });
+            yMin = Math.min(yMin, row.xpdf);
+            yMax = Math.max(yMax, row.xpdf);
+        }
+        xMin = Math.min(xMin, config);
+        xMax = Math.max(xMax, config);
+    }
+
+    const yBounds = paddedBounds(0, yMax, 0.08);
+    const selectedLine = Number.isFinite(selectedConfig)
+        ? [mkDataset('_selected config', [
+            { x: selectedConfig, y: 0 },
+            { x: selectedConfig, y: yBounds.max },
+        ], 'rgba(15, 23, 42, 0.38)', {
+            borderWidth: 1,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+        })]
+        : [];
+    return {
+        datasets: [
+            ...selectedLine,
+            mkDataset('F(Q)', xfq, 'rgba(37, 99, 235, 0.86)', {
+                borderWidth: 1.25,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                pointHitRadius: 9,
+                spanGaps: true,
+            }),
+            mkDataset('G(r)', xpdf, 'rgba(5, 150, 105, 0.86)', {
+                borderWidth: 1.25,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                pointHitRadius: 9,
+                spanGaps: true,
+            }),
+        ],
+        bounds: {
+            xMin,
+            xMax,
+            yMin: 0,
+            yMax: yBounds.max,
+        },
+    };
 }
 
 // ── Render helpers ────────────────────────────────────────────────────────────
@@ -230,11 +307,34 @@ function renderData(d, charts, container) {
     }
 }
 
-function updateOrCreate(chart, canvas, datasets, xLabel, yLabel, bounds) {
+function renderSummary(summary, charts, container, onConfigClick, selectedConfig) {
+    const rw = rwSummaryDatasets(summary, selectedConfig);
+    charts.rw = updateOrCreate(charts.rw, container.querySelector('#sqgr-rw'),
+                               rw.datasets, 'Configuration #', 'Rw (%)', rw.bounds, {
+                                   onClick(event, _items, chart) {
+                                       const points = chart.getElementsAtEventForMode(
+                                           event, 'nearest', { intersect: false, axis: 'x' }, false
+                                       );
+                                       const point = points[0];
+                                       const config = point
+                                           ? chart.data.datasets[point.datasetIndex].data[point.index]?.x
+                                           : null;
+                                       if (Number.isFinite(config)) onConfigClick(Math.round(config));
+                                   },
+                                   onHover(event, _items, chart) {
+                                       const points = chart.getElementsAtEventForMode(
+                                           event, 'nearest', { intersect: false, axis: 'x' }, false
+                                       );
+                                       chart.canvas.style.cursor = points.length ? 'pointer' : 'default';
+                                   },
+                               });
+}
+
+function updateOrCreate(chart, canvas, datasets, xLabel, yLabel, bounds, chartOptions = {}) {
     if (chart) {
         chart.destroy();
     }
-    return makeChart(canvas, datasets, xLabel, yLabel, bounds);
+    return makeChart(canvas, datasets, xLabel, yLabel, bounds, chartOptions);
 }
 
 // ── Public mount function ─────────────────────────────────────────────────────
@@ -266,12 +366,30 @@ export async function mountSqgrPanel(container, folderPath) {
           <span class="muted sqgr-status" id="sqgr-status">loading…</span>
         </div>
         <div class="sqgr-charts">
-          <div class="sqgr-chart-wrap">
+          <div class="sqgr-chart-wrap sqgr-summary-card">
             <div class="sqgr-chart-head">
               <div>
-                <div class="sqgr-chart-title">X-ray F(Q)</div>
-                <div class="sqgr-metrics" id="sqgr-m0"></div>
+                <div class="sqgr-chart-title">Rw Across Configurations</div>
               </div>
+              <div class="sqgr-chart-tools">
+                <div class="sqgr-legend" aria-label="Figure legend">
+                  <span><i class="sqgr-key rmc"></i>F(Q)</span>
+                  <span><i class="sqgr-key residual"></i>G(r)</span>
+                </div>
+                <button class="sqgr-reset" type="button" data-reset-chart="rw">Reset</button>
+              </div>
+            </div>
+            <div class="sqgr-summary-box"><canvas id="sqgr-rw"></canvas></div>
+          </div>
+
+          <details class="sqgr-detail">
+            <summary>
+              <span>X-ray F(Q)</span>
+              <span class="sqgr-metrics" id="sqgr-m0"></span>
+            </summary>
+          <div class="sqgr-chart-wrap">
+            <div class="sqgr-chart-head">
+              <div class="sqgr-chart-title">Selected Configuration</div>
               <div class="sqgr-chart-tools">
                 <div class="sqgr-legend" aria-label="Figure legend">
                   <span><i class="sqgr-key observed"></i>Exp</span>
@@ -283,12 +401,16 @@ export async function mountSqgrPanel(container, folderPath) {
             </div>
             <div class="sqgr-canvas-box"><canvas id="sqgr-c0"></canvas></div>
           </div>
+          </details>
+
+          <details class="sqgr-detail">
+            <summary>
+              <span>X-ray PDF G(r)</span>
+              <span class="sqgr-metrics" id="sqgr-m1"></span>
+            </summary>
           <div class="sqgr-chart-wrap">
             <div class="sqgr-chart-head">
-              <div>
-                <div class="sqgr-chart-title">X-ray PDF G(r)</div>
-                <div class="sqgr-metrics" id="sqgr-m1"></div>
-              </div>
+              <div class="sqgr-chart-title">Selected Configuration</div>
               <div class="sqgr-chart-tools">
                 <div class="sqgr-legend" aria-label="Figure legend">
                   <span><i class="sqgr-key observed"></i>Exp</span>
@@ -300,18 +422,27 @@ export async function mountSqgrPanel(container, folderPath) {
             </div>
             <div class="sqgr-canvas-box"><canvas id="sqgr-c1"></canvas></div>
           </div>
+          </details>
         </div>
       </div>
     `;
 
     const sel      = container.querySelector('#sqgr-cfg');
     const statusEl = container.querySelector('#sqgr-status');
-    const charts   = [null, null];
+    const charts   = { rw: null, 0: null, 1: null };
+    let selectedData = null;
+    let summaryData = null;
 
     container.querySelectorAll('[data-reset-chart]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const chart = charts[+btn.dataset.resetChart];
+            const chart = charts[btn.dataset.resetChart];
             chart?.resetZoom?.();
+        });
+    });
+
+    container.querySelectorAll('.sqgr-detail').forEach(detail => {
+        detail.addEventListener('toggle', () => {
+            if (detail.open && selectedData) renderData(selectedData, charts, container);
         });
     });
 
@@ -319,12 +450,37 @@ export async function mountSqgrPanel(container, folderPath) {
         statusEl.textContent = `loading config ${configNum}…`;
         try {
             const d = await sqgrFetch(`/api/sqgr/data?folder=${encodeURIComponent(folderPath)}&config=${configNum}`);
-            renderData(d, charts, container);
+            selectedData = d;
+            renderMetrics(container.querySelector('#sqgr-m0'),
+                          d.xfq ? fitDatasets(d.xfq.q, d.xfq.expt, d.xfq.rmc).metrics : null);
+            renderMetrics(container.querySelector('#sqgr-m1'),
+                          d.xpdf ? fitDatasets(d.xpdf.r, d.xpdf.expt, d.xpdf.rmc).metrics : null);
+            container.querySelectorAll('.sqgr-detail').forEach(detail => {
+                if (detail.open) renderData(d, charts, container);
+            });
             statusEl.textContent = `config ${configNum}  ·  ${configs.length} available`;
+            if (summaryData) {
+                renderSummary(summaryData, charts, container, openConfigFromSummary, configNum);
+            }
         } catch (err) {
             statusEl.textContent = `✗ ${err.message}`;
         }
     }
+
+    async function openConfigFromSummary(configNum) {
+        if (![...sel.options].some(option => +option.value === configNum)) return;
+        sel.value = String(configNum);
+        container.querySelectorAll('.sqgr-detail').forEach(detail => { detail.open = true; });
+        await load(configNum);
+        container.querySelector('.sqgr-detail')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    sqgrFetch(`/api/sqgr/rw-summary?folder=${encodeURIComponent(folderPath)}`)
+        .then(summary => {
+            summaryData = summary;
+            renderSummary(summary, charts, container, openConfigFromSummary, +sel.value);
+        })
+        .catch(err => { statusEl.textContent = `✗ ${err.message}`; });
 
     sel.addEventListener('change', () => load(+sel.value));
     load(+sel.value);

@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import re
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -45,10 +46,7 @@ def _read_csv(path: Path) -> dict[str, list[float]]:
     return cols
 
 
-@router.get("/sqgr/configs")
-def list_sqgr_configs(folder: str = Query(...)):
-    """List config numbers that have XFQ1 data in the given folder."""
-    p = _safe_dir(folder)
+def _list_sqgr_configs(p: Path) -> list[int]:
     configs: list[int] = []
     for f in p.glob("*_XFQ1.csv"):
         if "FT_XFQ1" in f.name:
@@ -57,7 +55,69 @@ def list_sqgr_configs(folder: str = Query(...)):
         if m:
             configs.append(int(m.group(2)))
     configs.sort()
+    return configs
+
+
+def _stem_for_config(p: Path, config: int) -> Optional[str]:
+    candidates = [f for f in p.glob(f"*_{config}_XFQ1.csv") if "FT_XFQ1" not in f.name]
+    if not candidates:
+        return None
+    m = _XFQ1_RE.match(candidates[0].name)
+    return m.group(1) if m else None
+
+
+def _rw_from_cols(cols: dict[str, list[float]]) -> Optional[float]:
+    keys = list(cols)
+    if len(keys) < 3:
+        return None
+    calc = cols[keys[1]]
+    exp = cols[keys[2]]
+    sum_sq = 0.0
+    sum_exp_sq = 0.0
+    n = min(len(calc), len(exp))
+    for i in range(n):
+        diff = exp[i] - calc[i]
+        sum_sq += diff * diff
+        sum_exp_sq += exp[i] * exp[i]
+    if n == 0 or sum_exp_sq <= 0:
+        return None
+    return (sum_sq / sum_exp_sq) ** 0.5 * 100.0
+
+
+@router.get("/sqgr/configs")
+def list_sqgr_configs(folder: str = Query(...)):
+    """List config numbers that have XFQ1 data in the given folder."""
+    p = _safe_dir(folder)
+    configs = _list_sqgr_configs(p)
     return {"configs": configs, "count": len(configs)}
+
+
+@router.get("/sqgr/rw-summary")
+def get_sqgr_rw_summary(folder: str = Query(...)):
+    """Return per-config Rw values for X-ray F(Q) and PDF G(r)."""
+    p = _safe_dir(folder)
+    configs = _list_sqgr_configs(p)
+    points: list[dict] = []
+
+    for config in configs:
+        stem = _stem_for_config(p, config)
+        if not stem:
+            continue
+
+        row: dict = {"config": config}
+
+        xfq_path = p / f"{stem}_{config}_XFQ1.csv"
+        if xfq_path.exists():
+            row["xfq"] = _rw_from_cols(_read_csv(xfq_path))
+
+        xpdf_path = p / f"{stem}_{config}_FT_XFQ1.csv"
+        if xpdf_path.exists():
+            row["xpdf"] = _rw_from_cols(_read_csv(xpdf_path))
+
+        if row.get("xfq") is not None or row.get("xpdf") is not None:
+            points.append(row)
+
+    return {"points": points, "count": len(points)}
 
 
 @router.get("/sqgr/data")
@@ -65,11 +125,9 @@ def get_sqgr_data(folder: str = Query(...), config: int = Query(...)):
     """Return X-ray F(Q), X-ray PDF G(r), and G(r) partials for one config."""
     p = _safe_dir(folder)
 
-    # Discover file stem from the XFQ1 file for this config
-    candidates = [f for f in p.glob(f"*_{config}_XFQ1.csv") if "FT_XFQ1" not in f.name]
-    if not candidates:
+    stem = _stem_for_config(p, config)
+    if not stem:
         raise HTTPException(status_code=404, detail=f"No XFQ1 data for config {config}")
-    stem = _XFQ1_RE.match(candidates[0].name).group(1)
 
     result: dict = {}
 
