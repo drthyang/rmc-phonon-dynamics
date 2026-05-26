@@ -8,6 +8,7 @@
 import { api } from '../api.js';
 import { state } from '../state.js';
 import { openFilePicker } from './filepicker.js';
+import { mountSqgrPanel } from './sqgr.js';
 
 let curPath = null;
 let onContinueCb = null;
@@ -36,6 +37,7 @@ function _mount(root) {
 
         <div id="fb-result" class="result"></div>
       </section>
+      <div id="step-sqgr"></div>
     `;
 
     root.querySelector('#fb-up').addEventListener('click', () => {
@@ -189,6 +191,10 @@ function renderResult(r, root) {
     if (cont) cont.addEventListener('click', () => {
         if (onContinueCb) onContinueCb(state.get('dataset'));
     });
+
+    // Fit Quality panel — mounts if XFQ1 data exists in this folder
+    const sqgrEl = root.querySelector('#step-sqgr');
+    if (sqgrEl) mountSqgrPanel(sqgrEl, r.path);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

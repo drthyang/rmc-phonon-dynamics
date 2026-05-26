@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .config import APP_NAME, APP_VERSION, FRONTEND_DIR, VIZ_DIR, RESULTS_DIR
-from .api import ping, data, structure, reciprocal, jobs
+from .api import ping, data, structure, reciprocal, jobs, sqgr
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
@@ -23,6 +23,7 @@ app.include_router(data.router, prefix="/api")
 app.include_router(structure.router, prefix="/api")
 app.include_router(reciprocal.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(sqgr.router, prefix="/api")
 
 # Results hand-off (Phase 6): serve the S(Q,E) viewer and the computed band.yaml
 # files at the same origin, so a finished job can deep-link the viewer to its

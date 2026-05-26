@@ -46,4 +46,10 @@ export const api = {
     getJob: (id) => getJSON(`/api/jobs/${id}`),
 
     cancelJob: (id) => getJSON(`/api/jobs/${id}/cancel`, { method: 'POST' }),
+
+    sqgrConfigs: (folder) =>
+        getJSON(`/api/sqgr/configs?${new URLSearchParams({ folder })}`),
+
+    sqgrData: (folder, config) =>
+        getJSON(`/api/sqgr/data?${new URLSearchParams({ folder, config })}`),
 };
