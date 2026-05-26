@@ -37,7 +37,6 @@ function _mount(root) {
 
         <div id="fb-result" class="result"></div>
       </section>
-      <div id="step-sqgr"></div>
     `;
 
     root.querySelector('#fb-up').addEventListener('click', () => {
@@ -143,6 +142,8 @@ function renderResult(r, root) {
           <button id="fb-ref-browse">Browse…</button>
         </div>
       </div>
+
+      <div id="step-sqgr"></div>
 
       <div class="next">
         <button id="fb-continue" class="primary" ${r.structure_file && r.n_configs ? '' : 'disabled'}>

@@ -168,6 +168,11 @@ Create the initial configuration files required for the ensemble calculations.
 python ./src_gpu/main.py
 ```
 
+
+## Project Handoff
+
+For the latest implementation status and recommended next milestones, see [`PROJECT_STATUS.md`](PROJECT_STATUS.md).
+
 ## References and Acknowledgments
 
 This project builds on established concepts in lattice dynamics, phonon analysis from powder diffraction, and reverse Monte Carlo modeling:
