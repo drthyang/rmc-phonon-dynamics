@@ -112,14 +112,8 @@ html, body {
   text-align: center;
   padding: 22px 32px 30px;
   border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
 }
-#app-footer .footer-author { font-size: 13px; color: var(--muted); }
-#app-footer .dev-name { color: var(--text); font-weight: 600; }
-#app-footer .footer-affil { font-size: 12px; color: var(--subtle); }
-#app-footer .footer-copy { font-size: 11px; color: var(--subtle); margin-top: 4px; }
+#app-footer .footer-copy { font-size: 12px; color: var(--subtle); }
 
 /* Scroll offset so sticky headers don't overlap when scrolling to a step */
 #step-folder, #step-structure, #step-reciprocal, #step-run {
