@@ -3,11 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rmcph GUI — RMC Phonon Runner</title>
+<title>rmcph — RMC Phonon Runner</title>
 <link rel="stylesheet" href="css/style.css">
 
-<!-- three.js is loaded on demand (Phase 2+). Pinned CDN via import map; can be
-     vendored into js/lib/ later for offline use without touching import sites. -->
 <script type="importmap">
 {
   "imports": {
@@ -20,16 +18,30 @@
 <body>
   <header id="app-header">
     <span class="brand">rmcph</span>
-    <span class="sub">RMC Phonon Runner</span>
-    <span id="backend-status" class="status">connecting…</span>
+    <span class="header-div"></span>
+    <span class="header-sub">RMC Phonon Runner</span>
+    <span class="header-spacer"></span>
+    <span id="backend-status">connecting…</span>
   </header>
 
+  <nav id="step-nav">
+    <div class="step-item active" id="snav-1">
+      <span class="step-num">1</span>Data folder
+    </div>
+    <div class="step-item" id="snav-2">
+      <span class="step-num">2</span>Crystal structure
+    </div>
+    <div class="step-item" id="snav-3">
+      <span class="step-num">3</span>k-path
+    </div>
+    <div class="step-item" id="snav-4">
+      <span class="step-num">4</span>Run
+    </div>
+  </nav>
+
   <main id="app-main">
-    <!-- Phase 1+ views mount here. -->
     <section id="view-root">
-      <p class="placeholder">
-        Scaffold ready. Data-folder selection arrives in Phase 1.
-      </p>
+      <p class="placeholder">Connecting to backend…</p>
     </section>
   </main>
 

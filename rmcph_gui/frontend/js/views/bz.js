@@ -42,10 +42,10 @@ const BASE_NPTS = 50;          // npoints for the longest segment; others scale 
 export async function mountBZView(root, _opts = {}) {
     root.innerHTML = `
       <section class="panel">
-        <h2>3 · Brillouin Zone & k-path</h2>
-        <div id="bz-info" class="muted"></div>
+        <h2><span class="step-badge">3</span>Brillouin zone &amp; k-path</h2>
+        <div id="bz-info"></div>
         <div id="bz-canvas" class="canvas3d"></div>
-        <div id="bz-readout" class="muted">Click a high-symmetry point to extend the path.</div>
+        <div id="bz-readout">Click a high-symmetry point to extend the path.</div>
         <div id="bz-path"></div>
       </section>
     `;
@@ -53,9 +53,10 @@ export async function mountBZView(root, _opts = {}) {
     try {
         const data = await api.getReciprocal();
         state.set('reciprocal', data);
-        info.textContent =
-            `${data.spacegroup} · Bravais ${data.crystal_system} · primitive BZ · `
-            + `${data.high_sym_points.length} high-symmetry points (seekpath)`;
+        info.innerHTML =
+            `<span class="chip">${data.spacegroup}</span> `
+            + `<span class="chip">${data.crystal_system}</span> `
+            + `<span class="chip">${data.high_sym_points.length} high-symmetry points</span>`;
         renderBZ(root.querySelector('#bz-canvas'), data, root);
     } catch (err) {
         info.innerHTML = `<span class="err">✗ ${err.message}</span>`;

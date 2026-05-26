@@ -1,5 +1,3 @@
-// Entry point. Phase 0: confirm the backend is reachable and show its status.
-// Later phases mount their views into #view-root.
 'use strict';
 
 import { api } from './api.js';
@@ -10,6 +8,19 @@ import { mountRunView } from './views/run.js';
 
 const statusEl = document.getElementById('backend-status');
 const viewRoot = document.getElementById('view-root');
+
+function stepDone(n) {
+    const el = document.getElementById(`snav-${n}`);
+    if (!el) return;
+    el.classList.remove('active');
+    el.classList.add('done');
+    el.querySelector('.step-num').textContent = '✓';
+}
+
+function stepActive(n) {
+    const el = document.getElementById(`snav-${n}`);
+    if (el) el.classList.add('active');
+}
 
 async function init() {
     try {
@@ -23,21 +34,23 @@ async function init() {
         return;
     }
 
-    // Step containers stack here: folder → structure → reciprocal/k-path → run.
     viewRoot.innerHTML =
         '<div id="step-folder"></div><div id="step-structure"></div>'
         + '<div id="step-reciprocal"></div><div id="step-run"></div>';
-    const stepFolder = document.getElementById('step-folder');
-    const stepStructure = document.getElementById('step-structure');
+    const stepFolder     = document.getElementById('step-folder');
+    const stepStructure  = document.getElementById('step-structure');
     const stepReciprocal = document.getElementById('step-reciprocal');
-    const stepRun = document.getElementById('step-run');
+    const stepRun        = document.getElementById('step-run');
 
     mountFolderView(stepFolder, {
         onContinue: (dataset) => {
+            stepDone(1); stepActive(2);
             mountStructureView(stepStructure, dataset, {
                 onContinue: () => {
+                    stepDone(2); stepActive(3);
                     mountBZView(stepReciprocal);
                     mountRunView(stepRun);
+                    stepDone(3); stepActive(4);
                     stepReciprocal.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 },
             });

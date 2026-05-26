@@ -23,7 +23,7 @@ const DEFAULT_EL = { color: 0xb0b0b0, radius: 0.55 };
 export async function mountStructureView(root, _dataset, opts = {}) {
     root.innerHTML = `
       <section class="panel">
-        <h2>2 · Crystal structure</h2>
+        <h2><span class="step-badge">2</span>Crystal structure</h2>
         <div class="controls">
           <label class="chk"><input type="checkbox" id="st-bonds" checked> Bonds</label>
           <label class="chk"><input type="checkbox" id="st-cell" checked> Cell</label>
@@ -32,7 +32,7 @@ export async function mountStructureView(root, _dataset, opts = {}) {
         <div id="st-legend" class="legend"></div>
         <div id="st-msg" class="muted"></div>
         <div class="next">
-          <button id="st-continue" class="primary">Continue → Brillouin Zone (Phase 3)</button>
+          <button id="st-continue" class="primary">Continue to k-path →</button>
         </div>
       </section>
     `;

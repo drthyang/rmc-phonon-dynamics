@@ -20,8 +20,8 @@ export function mountFolderView(root, opts = {}) {
 function _mount(root) {
     root.innerHTML = `
       <section class="panel">
-        <h2>1 · Select data folder</h2>
-        <p class="hint">Browse to the folder with your <code>Frac*.txt</code>
+        <h2><span class="step-badge">1</span>Data folder</h2>
+        <p class="hint">Browse to the folder containing your <code>Frac*.txt</code>
           configurations (or its parent). The matching <code>.rmc6f</code> is
           auto-detected nearby.</p>
 
@@ -144,7 +144,7 @@ function renderResult(r, root) {
 
       <div class="next">
         <button id="fb-continue" class="primary" ${r.structure_file && r.n_configs ? '' : 'disabled'}>
-          Continue → structure (Phase 2)
+          Continue to structure →
         </button>
       </div>
     `;

@@ -16,7 +16,7 @@ let unsub = null;
 export function mountRunView(root) {
     root.innerHTML = `
       <section class="panel">
-        <h2>4 · Run calculation</h2>
+        <h2><span class="step-badge">4</span>Run calculation</h2>
         <div id="run-summary" class="run-summary"></div>
         <div id="run-form"></div>
         <div class="next"><button id="run-go" class="primary">Run phonon bands</button></div>
@@ -130,7 +130,7 @@ export function mountRunView(root) {
         const p = job.progress || { done: 0, total: 0, fraction: 0, message: '' };
         const pct = Math.round((p.fraction || 0) * 100);
         const running = job.status === 'running' || job.status === 'queued';
-        const statusClass = { done: 'ok', error: 'err', cancelled: 'muted' }[job.status] || '';
+        const statusClass = { done: 'ok', error: 'err', cancelled: 'muted', running: 'running', queued: 'running' }[job.status] || '';
 
         let resultHtml = '';
         if (job.status === 'done' && job.result) {
