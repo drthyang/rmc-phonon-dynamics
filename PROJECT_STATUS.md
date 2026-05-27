@@ -28,6 +28,7 @@ This document is a quick handoff to help contributors pick up work.
 ## Recent development notes
 
 - May 26, 2026: Refined `rmcph_gui` Fit Quality figures. Changes include a clickable Rw summary plot over all configurations with percent ticks and a selected-config guide, folded detailed S(Q)/F(Q) and G(r) plots that expand on summary click, external figure-header legends, solid residual baseline styling, hover tooltips, x-axis zoom/reset controls, Rw-only metric display, and tightened axis bounds to remove unnecessary empty plot regions.
+- May 27, 2026: Added `PHYSICS_ALGORITHM_AUDIT.md`, a physics/algorithm handoff covering the active GPU runner flow, displacement and k-vector conventions, energy conversion, band output, risks, and prioritized implementation/debug TODOs.
 
 ## Suggested next milestones
 
