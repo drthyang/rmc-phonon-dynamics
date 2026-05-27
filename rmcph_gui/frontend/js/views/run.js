@@ -92,7 +92,14 @@ export function mountRunView(root) {
         // the frontend dataset; send it with the run so the backend uses it.
         const params = { ...readParams(), segments: kp.segments, reference: ds.reference };
         goBtn.disabled = true;
-        jobEl.innerHTML = '<p class="muted">submitting…</p>';
+        jobEl.innerHTML = `
+          <div class="run-job breathing">
+            <div class="run-jobhead">
+              <span class="run-status running">submitting</span>
+              <span class="muted">starting calculation…</span>
+            </div>
+            <div class="run-bar"><div class="run-bar-fill" style="width:4%"></div></div>
+          </div>`;
         try {
             const job = await api.submitJob('phonon_bands', params);
             state.set('job', job);
@@ -130,6 +137,7 @@ export function mountRunView(root) {
         const p = job.progress || { done: 0, total: 0, fraction: 0, message: '' };
         const pct = Math.round((p.fraction || 0) * 100);
         const running = job.status === 'running' || job.status === 'queued';
+        const fillPct = running ? Math.max(4, pct) : pct;
         const statusClass = { done: 'ok', error: 'err', cancelled: 'muted', running: 'running', queued: 'running' }[job.status] || '';
 
         let resultHtml = '';
@@ -146,14 +154,16 @@ export function mountRunView(root) {
         }
 
         jobEl.innerHTML = `
+          <div class="run-job ${running ? 'breathing' : ''}">
           <div class="run-jobhead">
             <span class="run-status ${statusClass}">${job.status}</span>
             <span class="muted">${p.message || ''}</span>
             ${running ? '<button id="run-cancel">Cancel</button>' : ''}
           </div>
-          <div class="run-bar"><div class="run-bar-fill" style="width:${pct}%"></div></div>
+          <div class="run-bar"><div class="run-bar-fill" style="width:${fillPct}%"></div></div>
           <div class="run-bar-label muted">${p.done}/${p.total} (${pct}%)</div>
           ${resultHtml}
+          </div>
         `;
 
         const cancelBtn = jobEl.querySelector('#run-cancel');

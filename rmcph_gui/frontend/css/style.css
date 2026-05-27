@@ -85,6 +85,11 @@ html, body {
   transition: color 0.15s, border-color 0.15s;
   user-select: none;
 }
+.step-item.available { cursor: pointer; }
+.step-item.available:hover {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
 .step-item + .step-item { border-left: 1px solid var(--border); }
 .step-num {
   width: 21px; height: 21px; border-radius: 50%;
@@ -98,6 +103,10 @@ html, body {
 .step-item.active .step-num { background: var(--accent); color: #fff; }
 .step-item.done { color: var(--ok); border-bottom-color: transparent; }
 .step-item.done .step-num { background: rgba(22,163,74,0.12); color: var(--ok); }
+.step-item.done.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
 
 /* ── Main content area ───────────────────────────────────────────────── */
 #app-main {
@@ -137,6 +146,28 @@ html, body {
   display: flex; align-items: center; gap: 10px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
+}
+.panel.collapsed {
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.panel.collapsed > :not(h2) { display: none; }
+.panel.collapsed h2 {
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.panel-status {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--ok);
+  font-weight: 600;
+}
+button.panel-toggle {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  margin-left: 10px;
 }
 .step-badge {
   width: 26px; height: 26px; border-radius: 50%;
@@ -391,9 +422,19 @@ table.atoms tr:last-child td { border-bottom: none; }
 }
 .run-field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 .run-fhelp { font-size: 11.5px; color: var(--subtle); }
+.run-job {
+  margin-top: 18px;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.run-job.breathing {
+  background: rgba(37,99,235,0.035);
+  border-color: rgba(37,99,235,0.16);
+}
 .run-jobhead {
   display: flex; align-items: center; gap: 10px;
-  margin: 18px 0 8px; font-size: 13px;
+  margin: 0 0 10px; font-size: 13px;
 }
 .run-status {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em;
@@ -403,14 +444,30 @@ table.atoms tr:last-child td { border-bottom: none; }
 .run-status.ok      { background: rgba(22,163,74,0.1);  color: #16a34a; }
 .run-status.err     { background: rgba(220,38,38,0.1);  color: var(--err); }
 .run-status.running { background: var(--accent-dim); color: var(--accent); }
+.run-status.running::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+  animation: run-dot 2.6s ease-in-out infinite;
+}
 #run-cancel { margin-left: auto; }
 .run-bar {
-  height: 6px; background: var(--c100); border: none;
+  height: 8px; background: var(--c100); border: none;
   border-radius: 999px; overflow: hidden;
 }
 .run-bar-fill {
   height: 100%; background: var(--accent);
   transition: width 0.3s ease; border-radius: 999px;
+}
+.run-job.breathing .run-bar-fill {
+  background: linear-gradient(90deg, var(--accent), #38bdf8, var(--accent));
+  background-size: 220% 100%;
+  animation: run-flow 4.2s ease-in-out infinite;
 }
 .run-bar-label { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .run-result {
@@ -432,6 +489,22 @@ table.atoms tr:last-child td { border-bottom: none; }
   transition: background 0.12s;
 }
 .run-open:hover { background: var(--accent-dark); }
+
+@keyframes run-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes run-dot {
+  0%, 100% { opacity: 0.35; transform: scale(0.75); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-job.breathing .run-bar-fill {
+    animation: none;
+  }
+}
 
 /* ── Fit Quality (embedded in Data folder card) ──────────────────────── */
 .fitq {

@@ -39,7 +39,7 @@ const COLOR_SEG  = 0xea580c;   // orange — path segments (tubes + arrowheads)
 
 const BASE_NPTS = 50;          // npoints for the longest segment; others scale by length
 
-export async function mountBZView(root, _opts = {}) {
+export async function mountBZView(root, opts = {}) {
     root.innerHTML = `
       <section class="panel">
         <h2><span class="step-badge">3</span>Brillouin zone &amp; k-path</h2>
@@ -47,9 +47,17 @@ export async function mountBZView(root, _opts = {}) {
         <div id="bz-canvas" class="canvas3d"></div>
         <div id="bz-readout">Click a high-symmetry point to extend the path.</div>
         <div id="bz-path"></div>
+        <div class="next">
+          <button id="bz-continue" class="primary" disabled>Continue to run →</button>
+        </div>
       </section>
     `;
     const info = root.querySelector('#bz-info');
+    const contBtn = root.querySelector('#bz-continue');
+    if (contBtn) contBtn.addEventListener('click', () => {
+        const kp = state.get('kpath');
+        if (kp?.segments?.length && opts.onContinue) opts.onContinue(kp);
+    });
     try {
         const data = await api.getReciprocal();
         state.set('reciprocal', data);
@@ -151,6 +159,7 @@ function renderBZ(container, data, root) {
         data, pointByLabel, pointMeshes, pathGroup, maxR,
         readout: root.querySelector('#bz-readout'),
         listRoot: root.querySelector('#bz-path'),
+        continueButton: root.querySelector('#bz-continue'),
     });
     pathCtl.loadDefault();   // pre-populate from seekpath suggested_path
 
@@ -202,7 +211,7 @@ function renderBZ(container, data, root) {
 // ── Path controller ─────────────────────────────────────────────────────
 // Owns the ordered segment list, the active "tip" we extend from, the 3D
 // segment lines, point colors, the segment-list DOM, and state.kpath.
-function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, readout, listRoot }) {
+function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, readout, listRoot, continueButton }) {
     let segments = [];        // [{ from, to, npoints, manual }]
     let tip = null;           // <pt> the next click extends from; null = start fresh
     let density = BASE_NPTS;  // target k-points for the LONGEST segment; shorter ones scale by length
@@ -321,6 +330,7 @@ function makePathController({ data, pointByLabel, pointMeshes, pathGroup, maxR, 
 
     function renderList() {
         const total = segments.reduce((a, s) => a + s.npoints, 0);
+        if (continueButton) continueButton.disabled = !segments.length;
         const rows = segments.map((s, i) => {
             const isBreak = i > 0 && segments[i - 1].to.label !== s.from.label;
             return `
