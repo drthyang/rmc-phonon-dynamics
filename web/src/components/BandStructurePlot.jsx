@@ -12,7 +12,7 @@ import { conventionalLattice, reciprocalLattice, pathDistances } from '../math/r
 const W = 820, H = 420;
 const M = { l: 56, r: 16, t: 18, b: 40 };
 
-export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick }) {
+export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax }) {
   const svgRef = useRef(null);
   const [hover, setHover] = useState(null);
 
@@ -24,6 +24,8 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     let yMin = 0, yMax = 1;
     for (const row of bands) for (const v of row) { if (!isFinite(v)) continue; if (v < yMin) yMin = v; if (v > yMax) yMax = v; }
     yMax *= 1.05; if (yMin < 0) yMin *= 1.05;
+    if (Number.isFinite(eMin)) yMin = eMin;
+    if (Number.isFinite(eMax)) yMax = eMax;
     const nModes = bands[0].length;
 
     const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
@@ -59,7 +61,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     }
 
     return { dist, xOf, yOf, paths, ticks, yticks, nModes, yMin, yMax };
-  }, [bands, qPoints, baseStructure, kpathMeta]);
+  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax]);
 
   if (!model) return null;
 

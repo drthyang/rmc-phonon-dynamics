@@ -41,7 +41,8 @@ export class PhononPipeline {
     });
   }
 
-  async runCalculation(files, family, baseStructure, kPathPoints, temperature, batchSize = 50) {
+  async runCalculation(files, family, baseStructure, kPathPoints, temperature, batchSize = 50, options = {}) {
+    const { referenceHandle = null, degenerateTol = 5e-3 } = options;
     // 1. Read all files (Parse)
     this.onProgress(5, "Parsing configurations...");
     const numFiles = files.length;
@@ -64,15 +65,26 @@ export class PhononPipeline {
 
     const numAtoms = parsedFrames[0].xyz.length / 3;
     const hsym_xyz = new Float64Array(numAtoms * 3);
-    
-    for (let i = 0; i < parsedFrames.length; i++) {
-      const xyz = parsedFrames[i].xyz;
-      for (let j = 0; j < xyz.length; j++) {
-        hsym_xyz[j] += xyz[j];
+
+    if (referenceHandle) {
+      // Displacement reference from a chosen equilibrium .rmc6f, verified to
+      // share the configs' atom (RN) + cell-index layout (legacy _hsym_from_file).
+      this.onProgress(30, "Reading equilibrium reference file...");
+      const ref = await this.parseFile(referenceHandle, 'rmc6f', baseStructure.atomDic, baseStructure.dim, 0);
+      if (ref.xyz.length !== numAtoms * 3) throw new Error("Reference file atom count does not match the configurations.");
+      const a0 = parsedFrames[0].atomType, c0 = parsedFrames[0].cellIdx;
+      for (let i = 0; i < numAtoms; i++) {
+        if (ref.atomType[i] !== a0[i] || ref.cellIdx[i * 3] !== c0[i * 3] || ref.cellIdx[i * 3 + 1] !== c0[i * 3 + 1] || ref.cellIdx[i * 3 + 2] !== c0[i * 3 + 2]) {
+          throw new Error("Reference structure atom layout (RN / cell indices) does not match the configurations.");
+        }
       }
-    }
-    for (let j = 0; j < hsym_xyz.length; j++) {
-      hsym_xyz[j] /= parsedFrames.length;
+      for (let j = 0; j < hsym_xyz.length; j++) hsym_xyz[j] = ref.xyz[j];
+    } else {
+      for (let i = 0; i < parsedFrames.length; i++) {
+        const xyz = parsedFrames[i].xyz;
+        for (let j = 0; j < xyz.length; j++) hsym_xyz[j] += xyz[j];
+      }
+      for (let j = 0; j < hsym_xyz.length; j++) hsym_xyz[j] /= parsedFrames.length;
     }
 
     this.onProgress(35, "Preparing WebGPU buffers...");
@@ -198,7 +210,7 @@ export class PhononPipeline {
     }
 
     this.onProgress(95, "Connecting bands...");
-    const { connectedBands, connectedEigvecs } = connectBands(phononBands, phononEigvecs);
+    const { connectedBands, connectedEigvecs } = connectBands(phononBands, phononEigvecs, 2, 0.0, degenerateTol);
 
     this.onProgress(100, "Done!");
     // Attach derived structure metadata so the 3D viewer / band.yaml / INS can

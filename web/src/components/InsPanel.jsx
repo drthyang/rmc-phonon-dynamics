@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Waves } from 'lucide-react';
-import { buildYData } from '../compute/ins';
+import { buildInsData } from '../compute/ins';
 import { downloadString } from '../io/writers';
 
 /**
@@ -15,17 +15,23 @@ export default function InsPanel({ results, temperature }) {
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
 
-  // Default energy window from the computed band range.
+  // Default energy window from the computed band range (robust 99th-percentile
+  // cap so a single huge soft/near-zero-eigenvalue mode can't blow up the grid).
   const maxE = useMemo(() => {
-    let m = 1;
-    for (const row of results.bands) for (const v of row) if (isFinite(v)) m = Math.max(m, Math.abs(v));
-    return Math.ceil(m * 1.15);
+    const vals = [];
+    for (const row of results.bands) for (const v of row) if (isFinite(v)) vals.push(Math.abs(v));
+    if (!vals.length) return 50;
+    vals.sort((a, b) => a - b);
+    const p99 = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.99))];
+    return Math.max(5, Math.ceil(p99 * 1.15));
   }, [results]);
 
   const [params, setParams] = useState(() => ({
     T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.5, maxE / 40),
     nE: 128, nQbins: 128, Ei: 0,
   }));
+  const [cmap, setCmap] = useState('viridis');
+  const [logScale, setLogScale] = useState(true);
 
   useEffect(() => {
     setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.5, maxE / 40) }));
@@ -45,8 +51,8 @@ export default function InsPanel({ results, temperature }) {
     setRunning(true);
     setError(null);
     try {
-      const ydata = buildYData(results);
-      workerRef.current.postMessage({ ydata, params });
+      const { data, transfer } = buildInsData(results);
+      workerRef.current.postMessage({ data, params }, transfer);
     } catch (err) {
       setRunning(false);
       setError(err.message);
@@ -62,16 +68,18 @@ export default function InsPanel({ results, temperature }) {
     const ctx = cv.getContext('2d');
     const img = ctx.createImageData(nX, nE);
     const inv = Smax > 0 ? 1 / Smax : 0;
+    const logK = 1 / Math.log1p(1000);
     for (let qi = 0; qi < nX; qi++) {
       for (let ei = 0; ei < nE; ei++) {
-        const v = Math.sqrt(Math.max(0, S[qi * nE + ei] * inv)); // sqrt for contrast
-        const [r, g, b] = colormap(v);                            // matches colorbar
+        const raw = Math.max(0, S[qi * nE + ei] * inv);
+        const v = logScale ? Math.log1p(raw * 1000) * logK : Math.sqrt(raw);
+        const [r, g, b] = colormap(v, cmap);
         const px = ((nE - 1 - ei) * nX + qi) * 4;                 // energy increases upward
         img.data[px] = r; img.data[px + 1] = g; img.data[px + 2] = b; img.data[px + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [out]);
+  }, [out, cmap, logScale]);
 
   const exportCsv = () => {
     if (!out?.powResult) return;
@@ -100,20 +108,33 @@ export default function InsPanel({ results, temperature }) {
         <h2 className="text-lg font-medium">Simulated INS — S(|Q|,E) &amp; DOS</h2>
       </div>
 
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+      <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 mb-4">
         {numField('T (K)', 'T')}
         {numField('E min', 'Emin')}
         {numField('E max', 'Emax')}
         {numField('σ (meV)', 'sigma', 0.1)}
+        {numField('Eᵢ (meV)', 'Ei')}
         {numField('nE', 'nE')}
         {numField('nQ', 'nQbins')}
       </div>
 
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <button onClick={run} disabled={running}
           className={`px-4 py-2 rounded-lg text-sm font-medium ${running ? 'bg-cyan-700/40' : 'bg-cyan-600 hover:bg-cyan-500'}`}>
           {running ? 'Computing…' : 'Run INS'}
         </button>
+        <label className="text-xs text-gray-400 flex items-center gap-1">
+          colormap
+          <select value={cmap} onChange={e => setCmap(e.target.value)} className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm">
+            <option value="viridis">viridis</option>
+            <option value="magma">magma</option>
+            <option value="gray">gray</option>
+          </select>
+        </label>
+        <label className="text-xs text-gray-400 flex items-center gap-1">
+          <input type="checkbox" checked={logScale} onChange={e => setLogScale(e.target.checked)} /> log
+        </label>
+        <span className="text-[10px] text-gray-500">Eᵢ=0 ⇒ direct (full Q range)</span>
         {out?.powResult && (
           <button onClick={exportCsv} className="px-4 py-2 rounded-lg text-sm bg-white/10 hover:bg-white/20 border border-white/10">
             Export S(Q,E) CSV
@@ -171,9 +192,14 @@ function ticks(min, max, n) {
   return arr;
 }
 
-// 4-stop colormap (dark -> blue -> cyan -> pale yellow), matching the colorbar.
-function colormap(t) {
-  const stops = [[6, 7, 10], [30, 58, 138], [34, 211, 238], [254, 249, 195]];
+// Multi-stop colormaps. Default 'viridis'-like dark->blue->cyan->yellow.
+const CMAPS = {
+  viridis: [[6, 7, 10], [30, 58, 138], [34, 211, 238], [254, 249, 195]],
+  magma: [[0, 0, 4], [80, 18, 123], [221, 73, 104], [252, 253, 191]],
+  gray: [[10, 10, 12], [90, 90, 96], [180, 180, 186], [245, 245, 245]],
+};
+function colormap(t, name = 'viridis') {
+  const stops = CMAPS[name] || CMAPS.viridis;
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
   const i = Math.min(stops.length - 2, Math.floor(x));
   const f = x - i;

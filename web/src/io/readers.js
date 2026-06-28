@@ -62,6 +62,19 @@ export async function findStructureFile(dirHandle) {
 }
 
 /**
+ * List every .rmc6f file in the directory as {name, handle}, sorted by name.
+ * Used for the structure-file override and the file-reference picker.
+ */
+export async function listRmc6f(dirHandle) {
+  const out = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.rmc6f')) out.push({ name: entry.name, handle: entry });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+/**
  * Read the base structure (cell vectors, atoms) from an rmc6f file.
  */
 export async function readBaseStructure(fileHandle) {

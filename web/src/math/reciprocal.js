@@ -182,6 +182,28 @@ export function buildKPath(sym_pnts, pathLabels, kstep = 20) {
 }
 
 /**
+ * Build a k-path from explicit per-segment {from,to,npoints} (labels into
+ * sym_pnts). Allows different point counts per segment and discontinuous breaks.
+ * Junction points are duplicated (phonopy convention). Not scaled by 2*pi.
+ */
+export function buildKPathFromSegments(sym_pnts, segments) {
+  const qFrac = [], segSizes = [], hsymIndex = {};
+  for (const seg of segments) {
+    const a = sym_pnts[seg.from], b = sym_pnts[seg.to];
+    if (!a || !b) continue;
+    const n = Math.max(2, Math.round(seg.npoints) || 2);
+    hsymIndex[qFrac.length] = seg.from;
+    for (let j = 0; j < n; j++) {
+      const t = j / (n - 1);
+      qFrac.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])]);
+    }
+    segSizes.push(n);
+    hsymIndex[qFrac.length - 1] = seg.to;
+  }
+  return { qFrac, segSizes, hsymIndex };
+}
+
+/**
  * Cumulative physical path distance (Å^-1, no 2*pi) for each q-point, with the
  * increment zeroed at segment starts (matches src_gpu/Writers distances). Used
  * by the band-structure plot x-axis.
