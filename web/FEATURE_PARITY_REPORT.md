@@ -209,10 +209,14 @@ All items below are committed and validated by `npm run validate` (passes):
 
 ## Still NOT migrated (lower priority / out of phonon core)
 
+- **RMCProfile fit-quality preview** (F(Q)/G(r)/Rw) — **now migrated** as a third
+  "Fit Quality" page (`io/sqgr.js` + `FitQualityPage`): Rw-vs-configuration
+  overview for X-ray F(Q) and G(r), click a config to see observed/RMC/difference
+  + G(r) partials. Rw matches the Python backend exactly (4.200019 / 1.643170 on
+  GTS config 100).
 - **Eigenvector MCIF** (intentionally removed in the old repo), **partial
-  single-type S(k)** (`Partial_Sk_avg` — flagged buggy in the old code), q-grid
-  generator, and the **RMCProfile fit-quality CSV preview** (F(Q)/G(r)/Rw — a
-  separate analysis tool over RMCProfile output, orthogonal to the phonon flow).
+  single-type S(k)** (`Partial_Sk_avg` — flagged buggy in the old code), and the
+  **q-grid generator** remain unported (niche).
 - Exact S–C high-symmetry tables for the **centered** tetragonal/orthorhombic/
   monoclinic + rhombohedral variants (currently fall back to a related point set;
   the BZ *polyhedron* itself is always exact, and cubic/hex/simple are exact).
