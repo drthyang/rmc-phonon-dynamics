@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, Download, BarChart3, Box, Waves, Play, Pause } from 'lucide-react';
+import { Upload, Download, BarChart3, Box, Waves, Play, Pause, Circle } from 'lucide-react';
 import BandStructurePlot from '../components/BandStructurePlot';
 import CrystalViewer from '../components/CrystalViewer';
+import { DEFAULT_COLORS, COVALENT_R } from '../constants';
 import ModeInspector from '../components/ModeInspector';
 import InsPanel from '../components/InsPanel';
 import { generatePhonopyBandYaml, downloadString } from '../io/writers';
@@ -34,8 +35,19 @@ export default function ViewerPage({ model, onLoadModel }) {
   const [atomScale, setAtomScale] = useState(1);
   const [camNonce, setCamNonce] = useState(null);
 
+  // Appearance
+  const [displayStyle, setDisplayStyle] = useState('ballstick');
+  const [showBonds, setShowBonds] = useState(true);
+  const [bondScale, setBondScale] = useState(1.15);
+  const [shading, setShading] = useState(true);
+  const [elementColors, setElementColors] = useState({});
+  const [elementRadii, setElementRadii] = useState({});
+  const [recording, setRecording] = useState(false);
+
   const [thz, setThz] = useState(false);
   const [loadErr, setLoadErr] = useState(null);
+
+  const elements = model ? Object.keys(model.baseStructure.atomDic) : [];
 
   const loadFile = async (e) => {
     const file = e.target.files?.[0];
@@ -111,7 +123,7 @@ export default function ViewerPage({ model, onLoadModel }) {
       {/* 3D tab */}
       {tab === '3d' && (
         <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-12 lg:col-span-3 glass-panel rounded-2xl p-4 space-y-4 text-sm">
+          <div className="col-span-12 lg:col-span-3 glass-panel rounded-2xl p-4 space-y-4 text-sm max-h-[640px] overflow-y-auto custom-scrollbar">
             <div>
               <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Supercell</div>
               <div className="flex gap-2">
@@ -122,28 +134,66 @@ export default function ViewerPage({ model, onLoadModel }) {
             </div>
             <Slider label={`Amplitude ${amplitude.toFixed(1)}`} min={0} max={10} step={0.1} value={amplitude} onChange={setAmplitude} />
             <Slider label={`Speed ${speed.toFixed(2)}`} min={0.01} max={0.3} step={0.01} value={speed} onChange={setSpeed} />
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <button onClick={() => setPlaying(p => !p)} className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10 text-xs">
                 {playing ? <><Pause className="w-3.5 h-3.5" />Pause</> : <><Play className="w-3.5 h-3.5" />Play</>}
               </button>
+              <button onClick={() => setRecording(r => !r)} className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${recording ? 'bg-red-600 border-red-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}>
+                <Circle className="w-3 h-3" />{recording ? 'Stop' : 'WebM'}
+              </button>
             </div>
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
-            <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCell} onChange={e => setShowCell(e.target.checked)} /> show cell</label>
-            <Slider label={`Atom size ${atomScale.toFixed(1)}`} min={0.3} max={3} step={0.1} value={atomScale} onChange={setAtomScale} />
+
+            {/* Appearance */}
+            <div className="border-t border-white/10 pt-3">
+              <div className="text-xs text-gray-400 uppercase tracking-wider mb-2">Appearance</div>
+              <label className="block text-xs mb-2">style
+                <select value={displayStyle} onChange={e => setDisplayStyle(e.target.value)} className="w-full mt-1 bg-white/5 border border-white/10 rounded px-2 py-1">
+                  <option value="ballstick">ball &amp; stick</option>
+                  <option value="spacefill">spacefill</option>
+                  <option value="wireframe">wireframe</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-xs mb-1"><input type="checkbox" checked={showBonds} onChange={e => setShowBonds(e.target.checked)} /> bonds</label>
+              <Slider label={`bond cutoff ×${bondScale.toFixed(2)}`} min={0.6} max={1.8} step={0.05} value={bondScale} onChange={setBondScale} />
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={shading} onChange={e => setShading(e.target.checked)} /> shading</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCell} onChange={e => setShowCell(e.target.checked)} /> show cell</label>
+              <Slider label={`atom size ×${atomScale.toFixed(1)}`} min={0.3} max={3} step={0.1} value={atomScale} onChange={setAtomScale} />
+            </div>
+
+            {/* Per-element color + radius */}
+            <div className="border-t border-white/10 pt-3">
+              <div className="text-xs text-gray-400 uppercase tracking-wider mb-2">Atom types</div>
+              {elements.map(el => (
+                <div key={el} className="flex items-center gap-2 mb-1.5 text-xs">
+                  <span className="w-8 font-mono">{el}</span>
+                  <input type="color" value={elementColors[el] || DEFAULT_COLORS[el] || '#cccccc'}
+                    onChange={e => setElementColors(c => ({ ...c, [el]: e.target.value }))} className="w-7 h-6 bg-transparent border border-white/10 rounded" />
+                  <input type="number" min={0.1} max={3} step={0.05} value={elementRadii[el] ?? (COVALENT_R[el] || 1.0)}
+                    onChange={e => setElementRadii(r => ({ ...r, [el]: parseFloat(e.target.value) }))} className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" title="radius (Å)" />
+                </div>
+              ))}
+              <button onClick={() => { setElementColors({}); setElementRadii({}); }} className="text-xs text-gray-400 hover:text-gray-200 mt-1">reset types</button>
+            </div>
+
             <div>
               <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Camera</div>
               <div className="flex gap-2">
-                {['x', 'y', 'z'].map(ax => <button key={ax} onClick={() => setCamNonce(ax + Math.random())} data-ax={ax} className="flex-1 bg-white/10 hover:bg-white/20 rounded py-1 text-xs uppercase">{ax}</button>)}
+                {['x', 'y', 'z'].map(ax => <button key={ax} onClick={() => setCamNonce(ax + Math.random())} className="flex-1 bg-white/10 hover:bg-white/20 rounded py-1 text-xs uppercase">{ax}</button>)}
               </div>
             </div>
+
             <ModeInspector results={model} selectedK={selK} selectedMode={selM} />
+            <StructureTables model={model} />
           </div>
-          <div className="col-span-12 lg:col-span-9 glass-panel rounded-2xl h-[460px]">
+          <div className="col-span-12 lg:col-span-9 glass-panel rounded-2xl h-[640px]">
             {model.eigvecs ? (
               <CrystalViewer baseStructure={model.baseStructure} eigenvector={eig} qPoint={qPoint}
                 isPlaying={playing} amplitude={amplitude} speed={speed}
                 supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
-                cameraAxis={camNonce ? camNonce[0] : null} />
+                cameraAxis={camNonce ? camNonce[0] : null}
+                elementColors={elementColors} elementRadii={elementRadii} displayStyle={displayStyle}
+                showBonds={showBonds} bondScale={bondScale} shading={shading} recording={recording} />
             ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
           </div>
         </div>
@@ -156,6 +206,42 @@ export default function ViewerPage({ model, onLoadModel }) {
             : <div className="text-gray-500 text-sm">Loaded file has no eigenvectors — S(Q,E) unavailable. Eigenvectors are required for the structure factor.</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+function StructureTables({ model }) {
+  const bs = model.baseStructure;
+  const A = [bs.v1, bs.v2, bs.v3];
+  const rev = {};
+  for (const [el, idxs] of Object.entries(bs.atomDic)) idxs.forEach(i => { rev[i] = el; });
+  const sites = (bs.uniqueRN || []).map((rn, r) => ({
+    el: rev[rn] || '?', rn,
+    pos: [bs.hsym_xyz[r * 3], bs.hsym_xyz[r * 3 + 1], bs.hsym_xyz[r * 3 + 2]],
+  }));
+  return (
+    <div className="border-t border-white/10 pt-3 space-y-2">
+      <details>
+        <summary className="text-xs text-gray-400 uppercase tracking-wider cursor-pointer">Lattice (Å)</summary>
+        <table className="mt-1 text-[10px] font-mono w-full">
+          <tbody>
+            {A.map((v, i) => (
+              <tr key={i}><td className="text-gray-500 pr-2">{'abc'[i]}</td>{v.map((x, j) => <td key={j} className="text-right tabular-nums">{x.toFixed(3)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+      <details>
+        <summary className="text-xs text-gray-400 uppercase tracking-wider cursor-pointer">Atom positions ({sites.length})</summary>
+        <table className="mt-1 text-[10px] font-mono w-full">
+          <thead><tr className="text-gray-500"><td>el</td><td className="text-right">x</td><td className="text-right">y</td><td className="text-right">z</td></tr></thead>
+          <tbody>
+            {sites.map((s, i) => (
+              <tr key={i}><td>{s.el}</td>{s.pos.map((x, j) => <td key={j} className="text-right tabular-nums">{x.toFixed(4)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 }

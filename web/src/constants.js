@@ -43,6 +43,18 @@ export const TWO_PI_PHASE = 2.0 * Math.PI;
 // THz <-> meV (band.yaml convention is THz; we compute internally in meV).
 export const THZ_TO_MEV = 4.135667696;
 
+// ── 3D viewer element appearance ────────────────────────────────────────────
+// CPK-ish default colors and covalent radii [Å] (fallbacks; user-overridable).
+export const DEFAULT_COLORS = {
+  H: '#ffffff', O: '#ff3030', C: '#444444', N: '#3050f8', S: '#ffff30', Se: '#ff9900',
+  Te: '#d4aa00', Pb: '#575961', Ga: '#a67e5b', Ta: '#4da6ff', Si: '#f0c8a0', Ge: '#668f8f',
+};
+export const COVALENT_R = {
+  H: 0.31, C: 0.76, N: 0.71, O: 0.66, F: 0.57, Si: 1.11, P: 1.07, S: 1.05, Cl: 1.02,
+  Ga: 1.22, Ge: 1.20, As: 1.19, Se: 1.20, Br: 1.20, Sn: 1.39, Sb: 1.39, Te: 1.38,
+  I: 1.39, Ta: 1.70, Pb: 1.46, Bi: 1.48,
+};
+
 // ── Neutron total scattering cross-sections [barn] (NIST, natural abundance) ──
 // From src_gpu/constants.py NEUTRON_SCATT_SIGMA.
 export const NEUTRON_SCATT_SIGMA = {
