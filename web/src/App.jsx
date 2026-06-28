@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Activity, Cpu, Cog, Eye, LineChart as LineChartIcon } from 'lucide-react';
+import { Activity, Cpu, Cog, Eye } from 'lucide-react';
 import { PhononPipeline } from './compute/pipeline';
 import { fromResults } from './io/viewermodel';
 import { generatePhonopyBandYaml, downloadString } from './io/writers';
 import RunnerPage from './pages/RunnerPage';
 import ViewerPage from './pages/ViewerPage';
-import FitQualityPage from './pages/FitQualityPage';
 
 export default function App() {
   const [page, setPage] = useState('runner');     // 'runner' | 'viewer'
@@ -47,9 +46,6 @@ export default function App() {
             <button onClick={() => setPage('viewer')} className={`flex items-center gap-1.5 px-4 py-1.5 text-sm ${page === 'viewer' ? 'bg-blue-600 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}>
               <Eye className="w-4 h-4" />Viewer
             </button>
-            <button onClick={() => setPage('fit')} className={`flex items-center gap-1.5 px-4 py-1.5 text-sm ${page === 'fit' ? 'bg-blue-600 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}>
-              <LineChartIcon className="w-4 h-4" />Fit Quality
-            </button>
           </div>
         </div>
         <div className="flex items-center gap-2 bg-blue-500/10 text-blue-400 px-3 py-1 rounded-full border border-blue-500/20 text-sm font-medium">
@@ -61,7 +57,6 @@ export default function App() {
       <main className="flex-1 max-w-[1400px] w-full mx-auto p-6">
         {page === 'runner' && <RunnerPage pipeline={pipelineRef.current} onResults={onResults} onLoadResult={loadModel} />}
         {page === 'viewer' && <ViewerPage model={model} onLoadModel={setModel} />}
-        {page === 'fit' && <FitQualityPage />}
       </main>
     </div>
   );

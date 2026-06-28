@@ -7,6 +7,7 @@ import { buildBZModel, displayLabel } from '../math/highsym';
 import { fromBandText } from '../io/viewermodel';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import DatasetInspector from '../components/DatasetInspector';
+import FitQuality from '../components/FitQuality';
 import { Upload } from 'lucide-react';
 
 /**
@@ -117,6 +118,7 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
   };
 
   return (
+    <div className="flex flex-col gap-6">
     <div className="grid grid-cols-12 gap-6">
       {/* Left: data + reference + settings */}
       <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
@@ -215,6 +217,13 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
           )}
         </div>
       </div>
+    </div>
+
+    {dirHandle && (
+      <div className="glass-panel rounded-2xl p-6">
+        <FitQuality dirHandle={dirHandle} />
+      </div>
+    )}
     </div>
   );
 }
