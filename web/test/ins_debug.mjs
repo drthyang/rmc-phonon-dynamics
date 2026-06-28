@@ -72,18 +72,26 @@ const chars = ' .:-=+*#%@';
 const RW = 28, CW = 60;
 const { S, nX, nE, Smax } = pow;
 const logK = 1 / Math.log1p(1000);
-for (const [name, xform] of [['sqrt', v => Math.sqrt(v)], ['log', v => Math.log1p(v * 1000) * logK]]) {
-  console.log(`\nS(|Q|,E)  [${name} scale]  (top=high E, left=low Q):`);
+const HBAR2_2MN = 2.0723;
+const EiTest = 40;                 // incident energy for the kinematic cutoff demo
+const ki = Math.sqrt(EiTest / HBAR2_2MN);
+const dQ = pow.xMax / nX;
+const masked = (Q, E) => { if (E > EiTest) return true; const kf = Math.sqrt(Math.max(0, EiTest - E) / HBAR2_2MN); return Q < Math.abs(ki - kf) || Q > ki + kf; };
+
+for (const [name, mask] of [['log, full', false], [`log, kinematic Eᵢ=${EiTest}`, true]]) {
+  console.log(`\nS(|Q|,E)  [${name}]  (top=high E, left=low Q):`);
   for (let r = 0; r < RW; r++) {
     const ei = Math.round((1 - r / (RW - 1)) * (nE - 1));
+    const E = params.Emin + ei / (nE - 1) * (params.Emax - params.Emin);
     let line = '';
     for (let c = 0; c < CW; c++) {
       const qi = Math.round(c / (CW - 1) * (nX - 1));
-      const v = xform(Math.max(0, S[qi * nE + ei] / Smax));
+      const Q = (qi + 0.5) * dQ;
+      if (mask && masked(Q, E)) { line += ' '; continue; }
+      const v = Math.log1p(Math.max(0, S[qi * nE + ei] / Smax) * 1000) * logK;
       line += chars[Math.min(chars.length - 1, Math.floor(v * chars.length))];
     }
-    const E = (params.Emin + ei / (nE - 1) * (params.Emax - params.Emin)).toFixed(0).padStart(3);
-    console.log(`${E}|${line}`);
+    console.log(`${E.toFixed(0).padStart(3)}|${line}`);
   }
 }
 

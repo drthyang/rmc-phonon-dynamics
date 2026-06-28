@@ -29,15 +29,17 @@ export default function InsPanel({ results, temperature }) {
     return Math.max(5, Math.ceil(p90 * 1.1));
   }, [results]);
 
+  // Eᵢ (incident energy) defaults to just above the band top so the kinematic
+  // (energy-conservation) cutoff frames the spectrum, as in the legacy viewer.
   const [params, setParams] = useState(() => ({
     T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.3, maxE / 100),
-    nE: 160, nQbins: 140, Ei: 0,
+    nE: 160, nQbins: 140, Ei: Math.max(5, Math.ceil(maxE * 1.25)),
   }));
   const [cmap, setCmap] = useState('viridis');
   const [logScale, setLogScale] = useState(true);
 
   useEffect(() => {
-    setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.3, maxE / 100) }));
+    setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.3, maxE / 100), Ei: Math.max(5, Math.ceil(maxE * 1.25)) }));
   }, [maxE]);
 
   useEffect(() => {
@@ -62,27 +64,47 @@ export default function InsPanel({ results, temperature }) {
     }
   };
 
-  // Draw S(Q,E) heatmap.
+  // Draw S(Q,E) heatmap, masking the kinematically inaccessible region for a
+  // direct-geometry spectrometer with incident energy Eᵢ:
+  //   kᵢ=√(Eᵢ/c), k_f=√((Eᵢ−E)/c), c=ħ²/2mₙ; accessible iff E≤Eᵢ and
+  //   |kᵢ−k_f| ≤ Q ≤ kᵢ+k_f. This produces the parabolic energy-conservation cutoff.
   useEffect(() => {
     if (!out?.powResult || !canvasRef.current) return;
-    const { S, nX, nE, Smax } = out.powResult;
+    const { S, nX, nE, Smax, Eaxis, xMax } = out.powResult;
     const cv = canvasRef.current;
     cv.width = nX; cv.height = nE;
     const ctx = cv.getContext('2d');
     const img = ctx.createImageData(nX, nE);
     const inv = Smax > 0 ? 1 / Smax : 0;
     const logK = 1 / Math.log1p(1000);
-    for (let qi = 0; qi < nX; qi++) {
-      for (let ei = 0; ei < nE; ei++) {
-        const raw = Math.max(0, S[qi * nE + ei] * inv);
-        const v = logScale ? Math.log1p(raw * 1000) * logK : Math.sqrt(raw);
-        const [r, g, b] = colormap(v, cmap);
-        const px = ((nE - 1 - ei) * nX + qi) * 4;                 // energy increases upward
+    const HBAR2_2MN = 2.0723;
+    const dQ = xMax / nX;
+    const Ei = params.Ei;
+    const ki = Ei > 0 ? Math.sqrt(Ei / HBAR2_2MN) : 0;
+    const BG = [6, 7, 10];
+
+    for (let ei = 0; ei < nE; ei++) {
+      const E = Eaxis[ei];
+      let qlo = -1, qhi = Infinity;
+      if (Ei > 0) {
+        if (E > Ei) { qlo = 1; qhi = -1; }       // above Eᵢ → fully inaccessible
+        else { const kf = Math.sqrt(Math.max(0, (Ei - E)) / HBAR2_2MN); qlo = Math.abs(ki - kf); qhi = ki + kf; }
+      }
+      for (let qi = 0; qi < nX; qi++) {
+        const px = ((nE - 1 - ei) * nX + qi) * 4;
+        const Q = (qi + 0.5) * dQ;
+        let r, g, b;
+        if (Ei > 0 && (Q < qlo || Q > qhi)) { [r, g, b] = BG; }
+        else {
+          const raw = Math.max(0, S[qi * nE + ei] * inv);
+          const v = logScale ? Math.log1p(raw * 1000) * logK : Math.sqrt(raw);
+          [r, g, b] = colormap(v, cmap);
+        }
         img.data[px] = r; img.data[px + 1] = g; img.data[px + 2] = b; img.data[px + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [out, cmap, logScale]);
+  }, [out, cmap, logScale, params.Ei]);
 
   const exportCsv = () => {
     if (!out?.powResult) return;
