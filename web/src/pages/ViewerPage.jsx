@@ -32,6 +32,7 @@ export default function ViewerPage({ model, onLoadModel }) {
   const [speed, setSpeed] = useState(0.08);
   const [playing, setPlaying] = useState(true);
   const [showVectors, setShowVectors] = useState(false);
+  const [vectorScale, setVectorScale] = useState(1.5);
   const [showCell, setShowCell] = useState(true);
   const [atomScale, setAtomScale] = useState(1);
   const [camNonce, setCamNonce] = useState(null);
@@ -132,7 +133,8 @@ export default function ViewerPage({ model, onLoadModel }) {
                     supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
                     cameraAxis={camNonce ? camNonce[0] : null}
                     elementColors={elementColors} elementRadii={elementRadii} displayStyle={displayStyle}
-                    showBonds={showBonds} bondScale={bondScale} bondRules={bondRules} shading={shading} recording={recording} gifSignal={gifSignal} />
+                    showBonds={showBonds} bondScale={bondScale} bondRules={bondRules} shading={shading} recording={recording} gifSignal={gifSignal}
+                    vectorScale={vectorScale} />
                   <div className="absolute bottom-3 left-3"><ModeInspector results={model} selectedK={selK} selectedMode={selM} /></div>
                 </>
               ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
@@ -200,6 +202,7 @@ export default function ViewerPage({ model, onLoadModel }) {
               )}
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={shading} onChange={e => setShading(e.target.checked)} /> shading</label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
+              {showVectors && <Slider label={`vector size ${vectorScale.toFixed(1)} Å`} min={0.2} max={5} step={0.1} value={vectorScale} onChange={setVectorScale} />}
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCell} onChange={e => setShowCell(e.target.checked)} /> show cell</label>
               <Slider label={`atom size ×${atomScale.toFixed(1)}`} min={0.3} max={3} step={0.1} value={atomScale} onChange={setAtomScale} />
             </div>

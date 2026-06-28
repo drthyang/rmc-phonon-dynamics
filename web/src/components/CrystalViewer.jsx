@@ -28,6 +28,7 @@ export default function CrystalViewer({
   supercell = [2, 2, 1], showVectors = false, showCell = true, atomScale = 1.0, cameraAxis = null,
   elementColors = {}, elementRadii = {}, displayStyle = 'ballstick',
   showBonds = true, bondScale = 1.15, bondRules = {}, shading = true, recording = false, gifSignal = 0,
+  vectorScale = 1.5,
 }) {
   const mountRef = useRef(null);
   const objs = useRef(null);
@@ -36,8 +37,8 @@ export default function CrystalViewer({
   const gifRef = useRef(null);   // { active, frames, gif } during GIF capture
   const view = useRef(null);     // saved camera {pos,target} preserved across rebuilds
 
-  useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint }; },
-    [isPlaying, amplitude, speed, eigenvector, qPoint]);
+  useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale }; },
+    [isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale]);
 
   // Camera preset.
   useEffect(() => {
@@ -126,6 +127,16 @@ export default function CrystalViewer({
       return geoCache.get(key);
     };
 
+    // Displacement-vector arrows: solid shaft (cylinder) + cone head, sized in
+    // the animation loop. Unit geometry along +Y; base of the cylinder at origin.
+    const showArrows = showVectors && nSites * nx * ny * nz <= 1500;
+    let shaftGeo, headGeo, vecMat;
+    if (showArrows) {
+      shaftGeo = new THREE.CylinderGeometry(1, 1, 1, 10); shaftGeo.translate(0, 0.5, 0);
+      headGeo = new THREE.ConeGeometry(1, 1, 14);
+      vecMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+    }
+
     for (let cx = 0; cx < nx; cx++) for (let cy = 0; cy < ny; cy++) for (let cz = 0; cz < nz; cz++) {
       for (let s = 0; s < nSites; s += stride) {
         const rn = atomType[s];
@@ -139,11 +150,15 @@ export default function CrystalViewer({
         mesh.position.set(...r0);
         scene.add(mesh);
         let arrow = null;
-        if (showVectors && nSites * nx * ny * nz <= 2000) {
-          arrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(...r0), 0.001, 0x22d3ee, undefined, 0.4);
-          scene.add(arrow);
+        if (showArrows) {
+          const g = new THREE.Group();
+          const shaft = new THREE.Mesh(shaftGeo, vecMat);
+          const head = new THREE.Mesh(headGeo, vecMat);
+          g.add(shaft); g.add(head); g.visible = false;
+          scene.add(g);
+          arrow = { g, shaft, head };
         }
-        atoms.push({ mesh, arrow, r0, el, row: rnToRow.get(rn) ?? 0, cell: [cx, cy, cz] });
+        atoms.push({ mesh, arrow, r0, el, row: rnToRow.get(rn) ?? 0, cell: [cx, cy, cz], vd: [0, 0, 0], vlen: 0 });
         center.add(mesh.position);
       }
     }
@@ -175,6 +190,8 @@ export default function CrystalViewer({
     }
 
     const span = Math.hypot(...matvec([nx, ny, nz]));
+    // Arrow visual sizes (world units, scaled to the cell extent).
+    const aShaftR = span * 0.006, aHeadR = span * 0.018, aHeadH = span * 0.05;
     controls.target.copy(center);
     camera.position.copy(center).add(new THREE.Vector3(span * 0.4, span * 0.3, span * 1.1 + 5));
     // Restore the previous view so appearance tweaks don't reset the camera.
@@ -184,13 +201,14 @@ export default function CrystalViewer({
 
     let t = 0, animId;
     const up = new THREE.Vector3();
+    const Y0 = new THREE.Vector3(0, 1, 0);
     const animate = () => {
       animId = requestAnimationFrame(animate);
       const P = params.current;
       const ev = P.eigenvector;
+      const k = P.qPoint ? [P.qPoint[0] * TWO_PI_PHASE, P.qPoint[1] * TWO_PI_PHASE, P.qPoint[2] * TWO_PI_PHASE] : [0, 0, 0];
       if (P.isPlaying && ev && ev.real) {
         t += P.speed;
-        const k = P.qPoint ? [P.qPoint[0] * TWO_PI_PHASE, P.qPoint[1] * TWO_PI_PHASE, P.qPoint[2] * TWO_PI_PHASE] : [0, 0, 0];
         for (const at of atoms) {
           const r = at.row;
           if (r * 3 + 2 >= ev.real.length) continue;
@@ -200,11 +218,6 @@ export default function CrystalViewer({
           const dy = (ev.real[r * 3 + 1] * cp - ev.imag[r * 3 + 1] * sp) * P.amplitude;
           const dz = (ev.real[r * 3 + 2] * cp - ev.imag[r * 3 + 2] * sp) * P.amplitude;
           at.mesh.position.set(at.r0[0] + dx, at.r0[1] + dy, at.r0[2] + dz);
-          if (at.arrow) {
-            const len = Math.hypot(dx, dy, dz);
-            if (len > 1e-4) { up.set(dx / len, dy / len, dz / len); at.arrow.setDirection(up); at.arrow.setLength(len, Math.min(0.3, len * 0.4), Math.min(0.2, len * 0.25)); }
-            at.arrow.position.set(...at.r0);
-          }
         }
         if (bondLines) {
           const pos = bondLines.geometry.attributes.position.array;
@@ -217,6 +230,41 @@ export default function CrystalViewer({
           bondLines.geometry.attributes.position.needsUpdate = true;
         }
       }
+
+      // Displacement vectors (mode polarization): solid arrows that DON'T pulse.
+      // Each arrow shows the t=0 real displacement Re(e·e^{i k·n}) at its site —
+      // constant in time — anchored at the (possibly animating) atom, with length
+      // normalized so the largest site = vectorScale Å. Shown whether playing or
+      // paused, so the mode pattern is always legible.
+      if (showArrows && ev && ev.real) {
+        let maxV = 1e-12;
+        for (const at of atoms) {
+          const r = at.row;
+          if (!at.arrow || r * 3 + 2 >= ev.real.length) { at.vlen = 0; continue; }
+          const kn = k[0] * at.cell[0] + k[1] * at.cell[1] + k[2] * at.cell[2];
+          const ck = Math.cos(kn), sk = Math.sin(kn);
+          const vx = ev.real[r * 3] * ck - ev.imag[r * 3] * sk;
+          const vy = ev.real[r * 3 + 1] * ck - ev.imag[r * 3 + 1] * sk;
+          const vz = ev.real[r * 3 + 2] * ck - ev.imag[r * 3 + 2] * sk;
+          at.vd[0] = vx; at.vd[1] = vy; at.vd[2] = vz;
+          at.vlen = Math.hypot(vx, vy, vz);
+          if (at.vlen > maxV) maxV = at.vlen;
+        }
+        for (const at of atoms) {
+          if (!at.arrow) continue;
+          const L = (at.vlen / maxV) * P.vectorScale;
+          if (!(L > aHeadH)) { at.arrow.g.visible = false; continue; }
+          const shaftLen = L - aHeadH;
+          at.arrow.g.visible = true;
+          at.arrow.shaft.scale.set(aShaftR, shaftLen, aShaftR);
+          at.arrow.head.scale.set(aHeadR, aHeadH, aHeadR);
+          at.arrow.head.position.set(0, shaftLen + aHeadH / 2, 0);
+          up.set(at.vd[0] / at.vlen, at.vd[1] / at.vlen, at.vd[2] / at.vlen);
+          at.arrow.g.quaternion.setFromUnitVectors(Y0, up);
+          at.arrow.g.position.copy(at.mesh.position);
+        }
+      }
+
       controls.update();
       renderer.render(scene, camera);
       const G = gifRef.current;
