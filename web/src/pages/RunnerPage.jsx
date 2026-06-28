@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { FolderOpen, Play, Settings, Database, Network } from 'lucide-react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
@@ -36,10 +36,16 @@ export default function RunnerPage({ pipeline, onResults }) {
   const [progressText, setProgressText] = useState('');
 
   // Bravais analysis (seekpath-style): primitive cell + BZ + standard points.
-  const bravais = baseStructure?.v1 && baseStructure.basis
-    ? analyzeBravais(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim), baseStructure.basis)
-    : null;
-  const bzModel = bravais ? buildBZModel(bravais) : null;
+  // Memoized so bzModel keeps a STABLE identity across re-renders — otherwise the
+  // BZ viewer's build effect re-runs every render and resets the camera (you
+  // couldn't orbit the zone).
+  const bravais = useMemo(
+    () => (baseStructure?.v1 && baseStructure.basis
+      ? analyzeBravais(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim), baseStructure.basis)
+      : null),
+    [baseStructure]
+  );
+  const bzModel = useMemo(() => (bravais ? buildBZModel(bravais) : null), [bravais]);
 
   const loadStructure = async (handle, name) => {
     const info = await readBaseStructure(handle);

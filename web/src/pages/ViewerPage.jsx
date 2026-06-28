@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Upload, Download, BarChart3, Box, Waves, Play, Pause } from 'lucide-react';
 import BandStructurePlot from '../components/BandStructurePlot';
 import CrystalViewer from '../components/CrystalViewer';
@@ -23,6 +23,9 @@ export default function ViewerPage({ model, onLoadModel }) {
 
   // 3D controls
   const [nx, setNx] = useState(2), [ny, setNy] = useState(2), [nz, setNz] = useState(1);
+  // Stable identity so CrystalViewer doesn't rebuild (and reset the camera) on
+  // every unrelated re-render (e.g. moving the amplitude slider).
+  const supercell = useMemo(() => [nx, ny, nz], [nx, ny, nz]);
   const [amplitude, setAmplitude] = useState(3);
   const [speed, setSpeed] = useState(0.08);
   const [playing, setPlaying] = useState(true);
@@ -139,7 +142,7 @@ export default function ViewerPage({ model, onLoadModel }) {
             {model.eigvecs ? (
               <CrystalViewer baseStructure={model.baseStructure} eigenvector={eig} qPoint={qPoint}
                 isPlaying={playing} amplitude={amplitude} speed={speed}
-                supercell={[nx, ny, nz]} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
+                supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
                 cameraAxis={camNonce ? camNonce[0] : null} />
             ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
           </div>
