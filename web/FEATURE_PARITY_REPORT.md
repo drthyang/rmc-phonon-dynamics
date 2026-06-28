@@ -191,16 +191,31 @@ All items below are committed and validated by `npm run validate` (passes):
 10. **Validation + build + Pages.** `test/reference_sk.py` (independent reference)
     + `test/validate.mjs`; `vite.config.js` `base` via `VITE_BASE` for project Pages.
 
+## Now migrated (later passes)
+
+- **VASP export** (`io/vaspexport.js`): equilibrium POSCAR + displaced-mode
+  POSCAR (selected band point) + INCAR/KPOINTS templates.
+- **Per-element band character** (ModeInspector), **file-reference displacement
+  mode** (runner radio + `referenceHandle`).
+- **True primitive Brillouin zone** with centering detection (P/F/I/C/A/B): the
+  Wigner-Seitz polyhedron + Setyawan–Curtarolo points/paths in primitive coords,
+  conventional coords fed to the calculation. GTS correctly resolves to FCC
+  (truncated octahedron). Verified incl. cartesian-k-vector preservation.
+- **Viewer cosmetics**: per-element color/radius, display styles, bonds
+  (+ per-pair cutoff rules), shading, lattice/atom tables; **WebM + GIF** capture.
+- **Save/load**: band.yaml + fast band.json export, auto-save after run, and a
+  runner "load saved result" that skips recomputation.
+- **Side-by-side** band + 3D mode view (click a band point → see the mode).
+
 ## Still NOT migrated (lower priority / out of phonon core)
 
-- **VASP export** (`Writers.gen_vasp_phonon`), **eigenvector MCIF**
-  (intentionally removed earlier), **per-element band-character weights**,
-  **partial single-type S(k)**, **file-reference displacement mode**, and the
-  **RMCProfile fit-quality CSV preview** from the old GUI.
-- True **spglib/seekpath** symmetry (centering F/I/C detection, exact BZ
-  polyhedron). The JS module detects the crystal *system* and uses simple-setting
-  (P) points — correct for the GTS cubic test case and a large improvement over
-  "always cubic," but not a full replacement for seekpath on centered lattices.
+- **Eigenvector MCIF** (intentionally removed in the old repo), **partial
+  single-type S(k)** (`Partial_Sk_avg` — flagged buggy in the old code), q-grid
+  generator, and the **RMCProfile fit-quality CSV preview** (F(Q)/G(r)/Rw — a
+  separate analysis tool over RMCProfile output, orthogonal to the phonon flow).
+- Exact S–C high-symmetry tables for the **centered** tetragonal/orthorhombic/
+  monoclinic + rhombohedral variants (currently fall back to a related point set;
+  the BZ *polyhedron* itself is always exact, and cubic/hex/simple are exact).
 
 ## Remaining scientific / architectural risks
 

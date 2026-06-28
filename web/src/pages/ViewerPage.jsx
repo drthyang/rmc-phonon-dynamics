@@ -5,7 +5,8 @@ import CrystalViewer from '../components/CrystalViewer';
 import { DEFAULT_COLORS, COVALENT_R } from '../constants';
 import ModeInspector from '../components/ModeInspector';
 import InsPanel from '../components/InsPanel';
-import { generatePhonopyBandYaml, downloadString } from '../io/writers';
+import { generatePhonopyBandYaml, generateBandJson, downloadString } from '../io/writers';
+import { exportVASP } from '../io/vaspexport';
 import { fromBandText } from '../io/viewermodel';
 
 /**
@@ -39,10 +40,12 @@ export default function ViewerPage({ model, onLoadModel }) {
   const [displayStyle, setDisplayStyle] = useState('ballstick');
   const [showBonds, setShowBonds] = useState(true);
   const [bondScale, setBondScale] = useState(1.15);
+  const [bondRules, setBondRules] = useState({}); // "A-B" -> cutoff Å override
   const [shading, setShading] = useState(true);
   const [elementColors, setElementColors] = useState({});
   const [elementRadii, setElementRadii] = useState({});
   const [recording, setRecording] = useState(false);
+  const [gifSignal, setGifSignal] = useState(0);
 
   const [thz, setThz] = useState(false);
   const [loadErr, setLoadErr] = useState(null);
@@ -99,6 +102,7 @@ export default function ViewerPage({ model, onLoadModel }) {
           <>
             <button onClick={exportYaml} className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />band.yaml</button>
             <button onClick={exportJson} className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />band.json</button>
+            <button onClick={() => exportVASP(model, selK, selM)} title="POSCAR (eq + displaced mode) + INCAR + KPOINTS" className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />VASP</button>
           </>
         )}
       </div>
@@ -128,7 +132,7 @@ export default function ViewerPage({ model, onLoadModel }) {
                     supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
                     cameraAxis={camNonce ? camNonce[0] : null}
                     elementColors={elementColors} elementRadii={elementRadii} displayStyle={displayStyle}
-                    showBonds={showBonds} bondScale={bondScale} shading={shading} recording={recording} />
+                    showBonds={showBonds} bondScale={bondScale} bondRules={bondRules} shading={shading} recording={recording} gifSignal={gifSignal} />
                   <div className="absolute bottom-3 left-3"><ModeInspector results={model} selectedK={selK} selectedMode={selM} /></div>
                 </>
               ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
@@ -155,6 +159,7 @@ export default function ViewerPage({ model, onLoadModel }) {
                 <button onClick={() => setRecording(r => !r)} className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${recording ? 'bg-red-600 border-red-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}>
                   <Circle className="w-3 h-3" />{recording ? 'Stop' : 'WebM'}
                 </button>
+                <button onClick={() => setGifSignal(s => s + 1)} title="Capture ~50 frames as an animated GIF" className="flex items-center gap-1 px-3 py-1.5 rounded border text-xs bg-white/10 hover:bg-white/20 border-white/10">GIF</button>
               </div>
               <div>
                 <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Camera</div>
@@ -175,6 +180,24 @@ export default function ViewerPage({ model, onLoadModel }) {
               </label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showBonds} onChange={e => setShowBonds(e.target.checked)} /> bonds</label>
               <Slider label={`bond cutoff ×${bondScale.toFixed(2)}`} min={0.6} max={1.8} step={0.05} value={bondScale} onChange={setBondScale} />
+              {showBonds && elements.length > 0 && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-gray-400">per-pair cutoffs (Å)</summary>
+                  <div className="mt-1 space-y-1">
+                    {elementPairs(elements).map(([a, b]) => {
+                      const key = [a, b].sort().join('-');
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="font-mono w-12">{a}–{b}</span>
+                          <input type="number" step={0.05} min={0} placeholder="auto" value={bondRules[key] ?? ''}
+                            onChange={e => setBondRules(r => { const n = { ...r }; if (e.target.value === '') delete n[key]; else n[key] = parseFloat(e.target.value); return n; })}
+                            className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={shading} onChange={e => setShading(e.target.checked)} /> shading</label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCell} onChange={e => setShowCell(e.target.checked)} /> show cell</label>
@@ -211,6 +234,12 @@ export default function ViewerPage({ model, onLoadModel }) {
       )}
     </div>
   );
+}
+
+function elementPairs(elements) {
+  const out = [];
+  for (let i = 0; i < elements.length; i++) for (let j = i; j < elements.length; j++) out.push([elements[i], elements[j]]);
+  return out;
 }
 
 function StructureTables({ model }) {

@@ -1,8 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import GIF from 'gif.js';
+import gifWorkerUrl from 'gif.js/dist/gif.worker.js?url';
 import { conventionalLattice } from '../math/reciprocal';
 import { TWO_PI_PHASE, DEFAULT_COLORS, COVALENT_R } from '../constants';
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
 
 const defColor = (el) => DEFAULT_COLORS[el] || '#cccccc';
 const defRadius = (el) => COVALENT_R[el] || 1.0;
@@ -18,12 +27,13 @@ export default function CrystalViewer({
   isPlaying = true, amplitude = 2.0, speed = 0.08,
   supercell = [2, 2, 1], showVectors = false, showCell = true, atomScale = 1.0, cameraAxis = null,
   elementColors = {}, elementRadii = {}, displayStyle = 'ballstick',
-  showBonds = true, bondScale = 1.15, shading = true, recording = false,
+  showBonds = true, bondScale = 1.15, bondRules = {}, shading = true, recording = false, gifSignal = 0,
 }) {
   const mountRef = useRef(null);
   const objs = useRef(null);
   const params = useRef({ isPlaying, amplitude, speed, eigenvector, qPoint });
   const recRef = useRef(null);
+  const gifRef = useRef(null);   // { active, frames, gif } during GIF capture
   const view = useRef(null);     // saved camera {pos,target} preserved across rebuilds
 
   useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint }; },
@@ -52,13 +62,7 @@ export default function CrystalViewer({
       try { mr = new MediaRecorder(stream, { mimeType: 'video/webm' }); }
       catch { return; }
       mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-      mr.onstop = () => {
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = 'mode.webm';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(a.href);
-      };
+      mr.onstop = () => downloadBlob(new Blob(chunks, { type: 'video/webm' }), 'mode.webm');
       mr.start();
       recRef.current = mr;
     } else if (!recording && recRef.current) {
@@ -66,6 +70,15 @@ export default function CrystalViewer({
       recRef.current = null;
     }
   }, [recording]);
+
+  // GIF capture: start a ~50-frame grab; the animation loop adds frames.
+  useEffect(() => {
+    if (!gifSignal || !objs.current || gifRef.current?.active) return;
+    const canvas = objs.current.renderer.domElement;
+    const gif = new GIF({ workers: 2, quality: 10, workerScript: gifWorkerUrl, width: canvas.width, height: canvas.height });
+    gif.on('finished', (blob) => { downloadBlob(blob, 'mode.gif'); gifRef.current = null; });
+    gifRef.current = { active: true, frames: 0, gif };
+  }, [gifSignal]);
 
   useEffect(() => {
     if (!mountRef.current || !baseStructure || !baseStructure.hsym_xyz) return;
@@ -140,7 +153,8 @@ export default function CrystalViewer({
     let bondLines = null, bondPairs = [];
     if (bondsOn && atoms.length <= 1600) {
       for (let i = 0; i < atoms.length; i++) for (let j = i + 1; j < atoms.length; j++) {
-        const cut = bondScale * (defRadius(atoms[i].el) + defRadius(atoms[j].el));
+        const key = [atoms[i].el, atoms[j].el].sort().join('-');
+        const cut = (bondRules[key] != null) ? bondRules[key] : bondScale * (defRadius(atoms[i].el) + defRadius(atoms[j].el));
         const dx = atoms[i].r0[0] - atoms[j].r0[0], dy = atoms[i].r0[1] - atoms[j].r0[1], dz = atoms[i].r0[2] - atoms[j].r0[2];
         if (dx * dx + dy * dy + dz * dz <= cut * cut) bondPairs.push([i, j]);
       }
@@ -205,6 +219,11 @@ export default function CrystalViewer({
       }
       controls.update();
       renderer.render(scene, camera);
+      const G = gifRef.current;
+      if (G && G.active) {
+        G.gif.addFrame(renderer.domElement, { copy: true, delay: 40 });
+        if (++G.frames >= 50) { G.active = false; G.gif.render(); }
+      }
     };
     animate();
 
@@ -215,7 +234,7 @@ export default function CrystalViewer({
     };
     window.addEventListener('resize', onResize);
     return () => { window.removeEventListener('resize', onResize); cancelAnimationFrame(animId); renderer.dispose(); };
-  }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondScale, shading]);
+  }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondScale, bondRules, shading]);
 
   return <div ref={mountRef} className="w-full h-full min-h-[360px] cursor-move rounded-xl overflow-hidden" />;
 }
