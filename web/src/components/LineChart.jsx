@@ -36,8 +36,13 @@ export default function LineChart({ series, xLabel, yLabel, onPick, height = 300
   const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(2);
   const pick = (e) => {
     if (!onPick) return;
-    const rect = ref.current.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / rect.width * W;
+    // Map to viewBox user space via the SVG CTM (accurate under letterboxing).
+    const svg = ref.current;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const px = pt.matrixTransform(ctm.inverse()).x;
     const s = series[markerSeries >= 0 ? markerSeries : 0];
     let best = -1, bd = Infinity;
     for (let i = 0; i < s.points.length; i++) {

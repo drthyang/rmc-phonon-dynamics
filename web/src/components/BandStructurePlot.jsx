@@ -66,9 +66,16 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
   if (!model) return null;
 
   const pickNearest = (evt) => {
-    const rect = svgRef.current.getBoundingClientRect();
-    const px = (evt.clientX - rect.left) / rect.width * W;
-    const py = (evt.clientY - rect.top) / rect.height * H;
+    // Map client coords to viewBox user space via the SVG CTM so the picked
+    // point matches the cursor exactly regardless of preserveAspectRatio
+    // letterboxing (a naive rect ratio is wrong when aspect ratios differ).
+    const svg = svgRef.current;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const loc = pt.matrixTransform(ctm.inverse());
+    const px = loc.x, py = loc.y;
     let best = null, bestD = Infinity;
     for (let k = 0; k < bands.length; k++) {
       const x = model.xOf(model.dist[k]);
