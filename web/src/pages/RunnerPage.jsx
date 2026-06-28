@@ -6,6 +6,7 @@ import { analyzeBravais } from '../math/bravais';
 import { buildBZModel, displayLabel } from '../math/highsym';
 import { fromBandText } from '../io/viewermodel';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
+import CrystalViewer from '../components/CrystalViewer';
 import DatasetInspector from '../components/DatasetInspector';
 import FitQuality from '../components/FitQuality';
 import { Upload } from 'lucide-react';
@@ -49,6 +50,21 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
     [baseStructure]
   );
   const bzModel = useMemo(() => (bravais ? buildBZModel(bravais) : null), [bravais]);
+
+  // Static crystal-structure preview (basis sites of one conventional cell),
+  // available before running. Memoized so CrystalViewer doesn't rebuild/reset.
+  const previewStruct = useMemo(() => {
+    if (!baseStructure?.basis) return null;
+    const b = baseStructure.basis;
+    return {
+      v1: baseStructure.v1, v2: baseStructure.v2, v3: baseStructure.v3, dim: baseStructure.dim,
+      atomDic: baseStructure.atomDic,
+      uniqueRN: b.map(x => x.rn),
+      atomType: b.map(x => x.rn),
+      hsym_xyz: Float64Array.from(b.flatMap(x => x.frac)),
+      cellIdx: new Float64Array(b.length * 3),
+    };
+  }, [baseStructure]);
 
   const loadStructure = async (handle, name) => {
     const info = await readBaseStructure(handle);
@@ -113,7 +129,9 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
       setProgressText('Done — opening viewer…');
       onResults(res, kpathMeta);
     } catch (e) {
-      console.error(e); setProgressText('Error: ' + e.message); setIsProcessing(false);
+      if (e.message === 'cancelled') setProgressText('Cancelled.');
+      else { console.error(e); setProgressText('Error: ' + e.message); }
+      setIsProcessing(false);
     }
   };
 
@@ -178,10 +196,20 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
             <Num label="pts/seg" value={density} step={1} onChange={v => setDensity(Math.max(2, Math.round(v)))} />
           </div>
           <div className="text-xs text-gray-500 mb-3">{segments.length} segment(s) · {totalK} k-points</div>
-          <button onClick={run} disabled={isProcessing}
-            className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium ${isProcessing ? 'bg-blue-600/50' : 'bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/25'}`}>
-            {isProcessing ? <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Processing…</> : <><Play className="w-5 h-5" />Run phonon bands</>}
-          </button>
+          {isProcessing ? (
+            <div className="flex gap-2">
+              <button disabled className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium bg-blue-600/50">
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Processing…
+              </button>
+              <button onClick={() => { pipeline?.cancel(); setProgressText('Cancelling…'); }}
+                className="px-4 py-3 rounded-xl font-medium bg-red-600/80 hover:bg-red-600">Cancel</button>
+            </div>
+          ) : (
+            <button onClick={run}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/25">
+              <Play className="w-5 h-5" />Run phonon bands
+            </button>
+          )}
           {progressText && (
             <div className="mt-4">
               <div className="flex justify-between text-xs text-gray-400 mb-1"><span className="truncate mr-3">{progressText}</span><span>{Math.round(progress)}%</span></div>
@@ -193,9 +221,17 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
 
       {/* Right: BZ + k-path editor */}
       <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-        <div className={`glass-panel rounded-2xl h-[420px] ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-          <BrillouinZoneViewer bzModel={bzModel} system={bravais?.system}
-            onPathChange={(segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); }} />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className={`glass-panel rounded-2xl h-[420px] relative ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
+            <div className="absolute top-2 left-3 z-10 text-xs text-gray-400 pointer-events-none">2 · Crystal structure</div>
+            {previewStruct
+              ? <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={[1, 1, 1]} showCell={true} showBonds={true} />
+              : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Select a dataset to preview the structure.</div>}
+          </div>
+          <div className={`glass-panel rounded-2xl h-[420px] ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
+            <BrillouinZoneViewer bzModel={bzModel} system={bravais?.system}
+              onPathChange={(segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); }} />
+          </div>
         </div>
 
         <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>

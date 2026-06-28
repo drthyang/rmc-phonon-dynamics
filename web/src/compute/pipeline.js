@@ -8,7 +8,12 @@ export class PhononPipeline {
     this.engine = new ComputeEngine();
     this.onProgress = onProgress || (() => {});
     this.workerPool = [];
+    this._cancel = false;
+    this._cache = null;   // { key, parsedFrames } — reuse parse across runs
   }
+
+  /** Request cancellation of the in-flight run (checked between k-points). */
+  cancel() { this._cancel = true; }
 
   async initWorkers(count = 4) {
     for (let i = 0; i < count; i++) {
@@ -43,22 +48,32 @@ export class PhononPipeline {
 
   async runCalculation(files, family, baseStructure, kPathPoints, temperature, batchSize = 50, options = {}) {
     const { referenceHandle = null, degenerateTol = 5e-3 } = options;
-    // 1. Read all files (Parse)
-    this.onProgress(5, "Parsing configurations...");
+    this._cancel = false;
     const numFiles = files.length;
-    
-    // Process in small parallel batches to not overload RAM at once, though workers help
-    let parsedCount = 0;
-    const promises = files.map(async (file) => {
-      const data = await this.parseFile(file, family, baseStructure.atomDic, baseStructure.dim, 0);
-      parsedCount++;
-      if (parsedCount % 20 === 0) {
-        this.onProgress(5 + (parsedCount / numFiles) * 25, `Parsed ${parsedCount} / ${numFiles} frames...`);
-      }
-      return data;
-    });
 
-    const parsedFrames = await Promise.all(promises);
+    // 1. Parse configs — reuse the cache if the same dataset was just parsed, so
+    // changing the k-path / temperature / reference only re-runs S(k), not the
+    // slow file parse (browser equivalent of the legacy Sk cache benefit).
+    const els = Object.keys(baseStructure.atomDic).join(',');
+    const cacheKey = `${family}|${numFiles}|${files[0]?.name}|${files[numFiles - 1]?.name}|${baseStructure.dim?.join('x')}|${els}`;
+    let parsedFrames;
+    if (this._cache && this._cache.key === cacheKey) {
+      this.onProgress(30, `Reusing ${numFiles} parsed configs (cached)...`);
+      parsedFrames = this._cache.parsedFrames;
+    } else {
+      this.onProgress(5, "Parsing configurations...");
+      let parsedCount = 0;
+      const promises = files.map(async (file) => {
+        const data = await this.parseFile(file, family, baseStructure.atomDic, baseStructure.dim, 0);
+        parsedCount++;
+        if (parsedCount % 20 === 0) {
+          this.onProgress(5 + (parsedCount / numFiles) * 25, `Parsed ${parsedCount} / ${numFiles} frames...`);
+        }
+        return data;
+      });
+      parsedFrames = await Promise.all(promises);
+      this._cache = { key: cacheKey, parsedFrames }; // keep only the latest dataset
+    }
     this.onProgress(30, "Computing average structure (hsym)...");
 
     if (parsedFrames.length === 0) throw new Error("No valid frames parsed.");
@@ -142,6 +157,7 @@ export class PhononPipeline {
     const totalKPoints = kPathPoints.length;
 
     for (let k = 0; k < totalKPoints; k++) {
+      if (this._cancel) throw new Error('cancelled');
       // kPathPoints are CONVENTIONAL-cell fractional reciprocal coords (q_frac).
       // src_gpu's Bloch phase needs radians per cell: kvec = 2*pi * q_frac
       // (TWO_PI_PHASE). This factor was missing before — without it S(G) != S(Gamma).
