@@ -1,0 +1,115 @@
+// web/src/io/viewermodel.js
+//
+// A single "viewer model" feeds the Viewer page, whether the data came from an
+// in-memory runner result or a loaded band.yaml/.json. It is always a UNIT-CELL
+// representation (one cell, one atom per basis site); the 3D viewer tiles it by
+// the user's supercell nx,ny,nz. Shape:
+//
+//   { bands, eigvecs, qPoints, kpathMeta, temperature, source,
+//     baseStructure: { atomDic, dim:[1,1,1], v1,v2,v3, uniqueRN, atomType,
+//                      hsym_xyz, cellIdx } }
+//
+// eigvecs[q][m] = { real, imag } (length 3*nSites) with rows ordered by
+// uniqueRN (sorted reference numbers) — consistent with the diagonalizer.
+
+import yaml from 'js-yaml';
+import { conventionalLattice } from '../math/reciprocal.js';
+import { THZ_TO_MEV } from '../constants.js';
+
+/** Convert in-memory pipeline results into the unit-cell viewer model. */
+export function fromResults(results, kpathMeta) {
+  const bs = results.baseStructure;
+  const A = conventionalLattice(bs.v1, bs.v2, bs.v3, bs.dim); // unit-cell rows
+  const uniqueRN = bs.uniqueRN;
+  const natom = uniqueRN.length;
+
+  const rnFirst = new Map();
+  for (let i = 0; i < bs.atomType.length; i++) {
+    if (!rnFirst.has(bs.atomType[i])) rnFirst.set(bs.atomType[i], i);
+  }
+  const hsym = new Float64Array(natom * 3);
+  for (let r = 0; r < natom; r++) {
+    const ai = rnFirst.get(uniqueRN[r]);
+    for (let c = 0; c < 3; c++) hsym[r * 3 + c] = ((bs.hsym_xyz[ai * 3 + c] % 1) + 1) % 1;
+  }
+
+  return {
+    bands: results.bands,
+    eigvecs: results.eigvecs,
+    qPoints: results.qPoints,
+    kpathMeta,
+    temperature: results.temperature,
+    source: 'runner',
+    baseStructure: {
+      atomDic: bs.atomDic, dim: [1, 1, 1],
+      v1: A[0], v2: A[1], v3: A[2],
+      uniqueRN, atomType: Array.from(uniqueRN),
+      hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
+    },
+  };
+}
+
+/** Parse a band.yaml or band.json string into the viewer model. */
+export function fromBandText(text, { thz = false } = {}) {
+  let doc;
+  try { doc = JSON.parse(text); } catch { doc = yaml.load(text); }
+  if (!doc || !doc.phonon) throw new Error('Not a band.yaml/.json (no "phonon" block).');
+
+  const points = doc.points || [];
+  const natom = points.length;
+  const lattice = doc.lattice || [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+  // Basis sites: RN = index+1, grouped into atomDic by symbol.
+  const atomDic = {};
+  const atomType = [];
+  const hsym = new Float64Array(natom * 3);
+  for (let i = 0; i < natom; i++) {
+    const sym = points[i].symbol || 'X';
+    (atomDic[sym] || (atomDic[sym] = [])).push(i + 1);
+    atomType.push(i + 1);
+    const c = points[i].coordinates || [0, 0, 0];
+    hsym[i * 3] = c[0]; hsym[i * 3 + 1] = c[1]; hsym[i * 3 + 2] = c[2];
+  }
+  const uniqueRN = atomType.slice();
+
+  const conv = thz ? THZ_TO_MEV : 1;
+  const qPoints = [];
+  const bands = [];
+  const eigvecs = [];
+  const hsymIndex = {};
+  let hasEig = true;
+  for (let qi = 0; qi < doc.phonon.length; qi++) {
+    const p = doc.phonon[qi];
+    qPoints.push(p['q-position'] || [0, 0, 0]);
+    if (p.label) hsymIndex[qi] = String(p.label).replace(/\$|\\/g, '');
+    const bandRow = [];
+    const evRow = [];
+    for (const mode of (p.band || [])) {
+      bandRow.push((mode.frequency || 0) * conv);
+      if (mode.eigenvector) {
+        const real = new Float64Array(3 * natom);
+        const imag = new Float64Array(3 * natom);
+        for (let a = 0; a < natom; a++) {
+          const ea = mode.eigenvector[a];
+          for (let c = 0; c < 3; c++) { real[a * 3 + c] = ea[c][0]; imag[a * 3 + c] = ea[c][1]; }
+        }
+        evRow.push({ real, imag });
+      } else { hasEig = false; evRow.push(null); }
+    }
+    bands.push(bandRow);
+    eigvecs.push(evRow);
+  }
+
+  const segSizes = doc.segment_nqpoint || [qPoints.length];
+
+  return {
+    bands, eigvecs: hasEig ? eigvecs : null, qPoints,
+    kpathMeta: { segSizes, hsymIndex },
+    temperature: 5, source: 'file', hasEig,
+    baseStructure: {
+      atomDic, dim: [1, 1, 1],
+      v1: lattice[0], v2: lattice[1], v3: lattice[2],
+      uniqueRN, atomType, hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
+    },
+  };
+}
