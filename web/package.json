@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "validate": "node test/validate.mjs",
-    "gen-reference": "python3 test/reference_sk.py"
+    "gen-reference": "python3 test/reference_sk.py",
+    "ins-debug": "node test/ins_debug.mjs"
   },
   "dependencies": {
     "framer-motion": "^12.42.0",

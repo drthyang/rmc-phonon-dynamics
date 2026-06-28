@@ -15,26 +15,29 @@ export default function InsPanel({ results, temperature }) {
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
 
-  // Default energy window from the computed band range (robust 99th-percentile
-  // cap so a single huge soft/near-zero-eigenvalue mode can't blow up the grid).
+  // Default energy window from the BULK of the spectrum. RMC covariance can emit
+  // a few modes with very small eigenvalues -> huge meV; a 99th-percentile cap
+  // still let those dominate and crammed the real bands into the bottom. Use the
+  // 90th percentile of POSITIVE energies so the visible window tracks the actual
+  // phonon bandwidth, not the outlier tail.
   const maxE = useMemo(() => {
     const vals = [];
-    for (const row of results.bands) for (const v of row) if (isFinite(v)) vals.push(Math.abs(v));
+    for (const row of results.bands) for (const v of row) if (isFinite(v) && v > 0) vals.push(v);
     if (!vals.length) return 50;
     vals.sort((a, b) => a - b);
-    const p99 = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.99))];
-    return Math.max(5, Math.ceil(p99 * 1.15));
+    const p90 = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.90))];
+    return Math.max(5, Math.ceil(p90 * 1.1));
   }, [results]);
 
   const [params, setParams] = useState(() => ({
-    T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.5, maxE / 40),
-    nE: 128, nQbins: 128, Ei: 0,
+    T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.3, maxE / 100),
+    nE: 160, nQbins: 140, Ei: 0,
   }));
   const [cmap, setCmap] = useState('viridis');
   const [logScale, setLogScale] = useState(true);
 
   useEffect(() => {
-    setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.5, maxE / 40) }));
+    setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.3, maxE / 100) }));
   }, [maxE]);
 
   useEffect(() => {

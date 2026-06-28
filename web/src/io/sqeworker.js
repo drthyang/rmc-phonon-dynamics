@@ -156,19 +156,25 @@ function computePhononDOS(D, sigma, Emin, Emax, nE) {
   return { dos, nE, Emin, Emax, dosMax };
 }
 
-self.onmessage = (ev) => {
-  const { data, params } = ev.data;
-  try {
-    const t0 = performance.now();
-    const powResult = computePowderSqE(data, params.T, params.sigma, params.Emin, params.Emax, params.nE, params.nQbins, params.Ei);
-    const t1 = performance.now();
-    const dosResult = computePhononDOS(data, params.sigma, params.Emin, params.Emax, params.nE);
-    const t2 = performance.now();
-    const transfer = [];
-    if (powResult) transfer.push(powResult.S.buffer, powResult.Eaxis.buffer);
-    if (dosResult) transfer.push(dosResult.dos.buffer);
-    self.postMessage({ success: true, powResult, dosResult, timings: { pow: t1 - t0, dos: t2 - t0 } }, transfer);
-  } catch (err) {
-    self.postMessage({ success: false, error: (err && err.message) || String(err) });
-  }
-};
+// Exported for testing/debugging (test/ins_debug.mjs). The worker hook below is
+// only registered in a real Worker context (guarded so Node imports are safe).
+export { computePowderSqE, computePhononDOS };
+
+if (typeof self !== 'undefined' && typeof self.postMessage === 'function') {
+  self.onmessage = (ev) => {
+    const { data, params } = ev.data;
+    try {
+      const t0 = performance.now();
+      const powResult = computePowderSqE(data, params.T, params.sigma, params.Emin, params.Emax, params.nE, params.nQbins, params.Ei);
+      const t1 = performance.now();
+      const dosResult = computePhononDOS(data, params.sigma, params.Emin, params.Emax, params.nE);
+      const t2 = performance.now();
+      const transfer = [];
+      if (powResult) transfer.push(powResult.S.buffer, powResult.Eaxis.buffer);
+      if (dosResult) transfer.push(dosResult.dos.buffer);
+      self.postMessage({ success: true, powResult, dosResult, timings: { pow: t1 - t0, dos: t2 - t0 } }, transfer);
+    } catch (err) {
+      self.postMessage({ success: false, error: (err && err.message) || String(err) });
+    }
+  };
+}
