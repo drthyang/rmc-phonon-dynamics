@@ -9,6 +9,7 @@ import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import CrystalViewer from '../components/CrystalViewer';
 import DatasetInspector from '../components/DatasetInspector';
 import FitQuality from '../components/FitQuality';
+import PhononDOS from '../components/PhononDOS';
 import { Upload } from 'lucide-react';
 
 /**
@@ -254,6 +255,14 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
         </div>
       </div>
     </div>
+
+    {baseStructure && filesList.length > 0 && (
+      <div className="glass-panel rounded-2xl p-6">
+        <PhononDOS pipeline={pipeline} files={filesList} family={configFamily} baseStructure={baseStructure}
+          temperature={temperature}
+          referenceHandle={refMode === 'file' ? rmc6fList.find(r => r.name === refName)?.handle : null} />
+      </div>
+    )}
 
     {dirHandle && (
       <div className="glass-panel rounded-2xl p-6">
