@@ -32,7 +32,7 @@ const CENTERING_M = {
   P: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
   F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]],
   I: [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]],
-  C: [[0.5, 0.5, 0], [-0.5, 0.5, 0], [0, 0, 1]],
+  C: [[0.5, -0.5, 0], [0.5, 0.5, 0], [0, 0, 1]],   // S-C base-centered primitive
   A: [[1, 0, 0], [0, 0.5, 0.5], [0, -0.5, 0.5]],
   B: [[0.5, 0, 0.5], [0, 1, 0], [-0.5, 0, 0.5]],
 };
@@ -95,7 +95,8 @@ function bravaisCode(system, centering) {
  * Returns { system, centering, code, A_conv, A_prim, B_conv, B_prim, T }.
  */
 export function analyzeBravais(A_conv, basis) {
-  const { system } = detectSystemFromMatrix(A_conv);
+  const metric = detectSystemFromMatrix(A_conv);
+  const { system } = metric;
   let centering = detectCentering(basis);
   // Centering must be compatible with the system (e.g. no F in hexagonal).
   const allowed = { cubic: 'PFI', tetragonal: 'PI', orthorhombic: 'PFICAB', hexagonal: 'P', rhombohedral: 'P', monoclinic: 'PC', triclinic: 'P' };
@@ -108,7 +109,7 @@ export function analyzeBravais(A_conv, basis) {
   const B_prim = scale3(mat3Transpose(mat3Inverse(A_prim)), TWO_PI);
   const T = matmul3(B_prim, mat3Inverse(B_conv));                    // k_conv = k_prim · T
 
-  return { system, centering, code: bravaisCode(system, centering), A_conv, A_prim, B_conv, B_prim, T };
+  return { system, centering, code: bravaisCode(system, centering), metric, A_conv, A_prim, B_conv, B_prim, T };
 }
 
 // detectSystem in reciprocal.js takes (v1,v2,v3,dim); wrap for an A matrix.

@@ -1,0 +1,67 @@
+// web/test/highsym_test.mjs
+//
+// Validates the Setyawan–Curtarolo high-symmetry tables for the variant lattices.
+// We can't compare labels to seekpath here, but every S-C point must lie ON or
+// INSIDE the primitive Wigner-Seitz BZ — a wrong/mis-transcribed coordinate
+// falls outside it. Also checks the detected Bravais code/variant and that the
+// prim→conv transform preserves the cartesian k-vector.
+
+import { analyzeBravais, primToConv, fracToCart } from '../src/math/bravais.js';
+import { buildBZModel } from '../src/math/highsym.js';
+
+let fail = 0;
+const ok = (c, m) => { if (!c) { console.error('  FAIL ' + m); fail++; } else console.log('  ok   ' + m); };
+
+// Conventional cell rows from lengths + angles (crystallographic convention).
+function cell(a, b, c, al, be, ga) {
+  const r = d => d * Math.PI / 180;
+  const ca = Math.cos(r(al)), cb = Math.cos(r(be)), cg = Math.cos(r(ga)), sg = Math.sin(r(ga));
+  const cx = c * cb, cy = c * (ca - cb * cg) / sg;
+  const cz = c * Math.sqrt(Math.max(0, 1 - ca * ca - cb * cb - cg * cg + 2 * ca * cb * cg)) / sg;
+  return [[a, 0, 0], [b * cg, b * sg, 0], [cx, cy, cz]];
+}
+const FACE = [[0, 0, 0], [0, .5, .5], [.5, 0, .5], [.5, .5, 0]].map(f => ({ el: 'A', frac: f }));
+const BODY = [{ el: 'A', frac: [0, 0, 0] }, { el: 'A', frac: [.5, .5, .5] }];
+const CBASE = [{ el: 'A', frac: [0, 0, 0] }, { el: 'A', frac: [.5, .5, 0] }];
+const P1 = [{ el: 'A', frac: [0, 0, 0] }];
+
+// A cartesian k lies in the WS BZ iff k·G ≤ |G|²/2 for all reciprocal vectors G.
+function inBZ(kCart, B, tol = 1e-6) {
+  for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) for (let k = -2; k <= 2; k++) {
+    if (!i && !j && !k) continue;
+    const G = [i * B[0][0] + j * B[1][0] + k * B[2][0], i * B[0][1] + j * B[1][1] + k * B[2][1], i * B[0][2] + j * B[1][2] + k * B[2][2]];
+    const g2 = G[0] * G[0] + G[1] * G[1] + G[2] * G[2];
+    const kg = kCart[0] * G[0] + kCart[1] * G[1] + kCart[2] * G[2];
+    if (kg > g2 / 2 + tol) return false;
+  }
+  return true;
+}
+
+function check(name, A, basis, expectCode) {
+  const br = analyzeBravais(A, basis);
+  const m = buildBZModel(br);
+  ok(br.code === expectCode, `${name}: code ${br.code} (expect ${expectCode}) — variant ${m.variant}`);
+  let allIn = true, maxCErr = 0;
+  for (const [, p] of Object.entries(m.points)) {
+    if (!inBZ(p.cart, br.B_prim)) allIn = false;
+    const c2 = fracToCart(primToConv(p.frac, br.T), br.B_conv);
+    maxCErr = Math.max(maxCErr, Math.hypot(p.cart[0] - c2[0], p.cart[1] - c2[1], p.cart[2] - c2[2]));
+  }
+  ok(allIn, `${name}: all ${Object.keys(m.points).length} high-sym points lie in the BZ`);
+  ok(maxCErr < 1e-9, `${name}: prim→conv preserves cartesian k (maxErr ${maxCErr.toExponential(1)})`);
+}
+
+console.log('\nSetyawan–Curtarolo variant lattices:');
+check('BCT1 (c<a)', cell(4, 4, 3, 90, 90, 90), BODY, 'BCT');
+check('BCT2 (c>a)', cell(4, 4, 6, 90, 90, 90), BODY, 'BCT');
+check('RHL1 (α<90)', cell(4, 4, 4, 60, 60, 60), P1, 'RHL');
+check('RHL2 (α>90)', cell(4, 4, 4, 110, 110, 110), P1, 'RHL');
+check('ORCC', cell(3, 5, 7, 90, 90, 90), CBASE, 'ORCC');
+check('ORCI', cell(3, 5, 7, 90, 90, 90), BODY, 'ORCI');
+check('ORCF1', cell(3, 5, 7, 90, 90, 90), FACE, 'ORCF');
+check('ORCF2', cell(3, 3.2, 3.4, 90, 90, 90), FACE, 'ORCF');
+check('MCL (β≠90)', cell(4, 5, 6, 90, 80, 90), P1, 'MCL');
+check('TRI', cell(4, 5, 6, 80, 85, 70), P1, 'TRI');
+
+console.log(`\n${fail === 0 ? '✅ high-sym tables OK (all points in BZ)' : `❌ ${fail} failed`}`);
+process.exit(fail ? 1 : 0);

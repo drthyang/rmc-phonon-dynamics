@@ -217,9 +217,18 @@ All items below are committed and validated by `npm run validate` (passes):
 - **Eigenvector MCIF** (intentionally removed in the old repo), **partial
   single-type S(k)** (`Partial_Sk_avg` — flagged buggy in the old code), and the
   **q-grid generator** remain unported (niche).
-- Exact S–C high-symmetry tables for the **centered** tetragonal/orthorhombic/
-  monoclinic + rhombohedral variants (currently fall back to a related point set;
-  the BZ *polyhedron* itself is always exact, and cubic/hex/simple are exact).
+- Exact S–C high-symmetry tables now cover **CUB, FCC, BCC, TET, ORC, HEX, BCT
+  (1/2), RHL (1/2), ORCC, ORCI, ORCF (1/2/3)** — verified by `test/highsym_test.mjs`
+  (every point lies in the BZ; prim→conv preserves the cartesian k-vector).
+  **MCL/MCLC** use a generic in-BZ primitive point set (their exact S–C labels
+  need cell standardization to the S–C unique-axis setting, which requires
+  spglib); **TRI** uses the standard 1a/1b set. A runtime guard swaps any lattice
+  to the generic set + prunes stragglers if the cell isn't in standard setting,
+  so emitted points are always valid (in-BZ).
+- **seekpath-in-browser was investigated and is not possible**: seekpath needs
+  spglib (C extension), which has no Pyodide package and no pure-Python wheel.
+  A backend Python service would do it, but that breaks the no-backend/Pages
+  constraint.
 
 ## Remaining scientific / architectural risks
 

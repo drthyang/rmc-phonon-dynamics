@@ -144,7 +144,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     <div className="bg-black/40 rounded-xl border border-white/5 overflow-hidden flex flex-col h-full relative">
       <div className="px-4 py-3 border-b border-white/10 bg-white/5 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-          <Network className="w-4 h-4 text-amber-500" />Primitive BZ — {bzModel.code}{system ? ` (${system})` : ''}
+          <Network className="w-4 h-4 text-amber-500" />Primitive BZ — {bzModel.variant || bzModel.code}{system ? ` · ${system}` : ''}
         </h3>
         <div className="flex gap-1">
           <button onClick={resetToDefault} className="text-xs bg-white/10 text-gray-300 px-2 py-1 rounded hover:bg-white/20">Default</button>
