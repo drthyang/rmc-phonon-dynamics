@@ -13,8 +13,8 @@
 // uniqueRN (sorted reference numbers) — consistent with the diagonalizer.
 
 import yaml from 'js-yaml';
-import { conventionalLattice } from '../math/reciprocal';
-import { THZ_TO_MEV } from '../constants';
+import { conventionalLattice } from '../math/reciprocal.js';
+import { THZ_TO_MEV } from '../constants.js';
 
 /** Convert in-memory pipeline results into the unit-cell viewer model. */
 export function fromResults(results, kpathMeta) {

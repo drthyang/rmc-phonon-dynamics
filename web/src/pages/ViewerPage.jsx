@@ -202,7 +202,7 @@ export default function ViewerPage({ model, onLoadModel }) {
               )}
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={shading} onChange={e => setShading(e.target.checked)} /> shading</label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
-              {showVectors && <Slider label={`vector size ${vectorScale.toFixed(1)} Å`} min={0.2} max={5} step={0.1} value={vectorScale} onChange={setVectorScale} />}
+              {showVectors && <Slider label={`vector size ×${vectorScale.toFixed(1)}`} min={0.2} max={6} step={0.1} value={vectorScale} onChange={setVectorScale} />}
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showCell} onChange={e => setShowCell(e.target.checked)} /> show cell</label>
               <Slider label={`atom size ×${atomScale.toFixed(1)}`} min={0.3} max={3} step={0.1} value={atomScale} onChange={setAtomScale} />
             </div>

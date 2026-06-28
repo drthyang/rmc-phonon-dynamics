@@ -207,17 +207,42 @@ export default function CrystalViewer({
       const P = params.current;
       const ev = P.eigenvector;
       const k = P.qPoint ? [P.qPoint[0] * TWO_PI_PHASE, P.qPoint[1] * TWO_PI_PHASE, P.qPoint[2] * TWO_PI_PHASE] : [0, 0, 0];
-      if (P.isPlaying && ev && ev.real) {
-        t += P.speed;
+      // Advance the animation phase only while playing (paused = frozen frame,
+      // but atoms/arrows are still placed at the current phase below).
+      if (P.isPlaying) t += P.speed;
+
+      if (ev && ev.real) {
         for (const at of atoms) {
           const r = at.row;
           if (r * 3 + 2 >= ev.real.length) continue;
+          // INSTANTANEOUS displacement u(t) = Re(e · e^{i(k·n + t)}) — exactly the
+          // vector the atom is moving along right now (phononwebsite convention).
           const kn = k[0] * at.cell[0] + k[1] * at.cell[1] + k[2] * at.cell[2];
           const cp = Math.cos(kn + t), sp = Math.sin(kn + t);
-          const dx = (ev.real[r * 3] * cp - ev.imag[r * 3] * sp) * P.amplitude;
-          const dy = (ev.real[r * 3 + 1] * cp - ev.imag[r * 3 + 1] * sp) * P.amplitude;
-          const dz = (ev.real[r * 3 + 2] * cp - ev.imag[r * 3 + 2] * sp) * P.amplitude;
+          const ux = ev.real[r * 3] * cp - ev.imag[r * 3] * sp;
+          const uy = ev.real[r * 3 + 1] * cp - ev.imag[r * 3 + 1] * sp;
+          const uz = ev.real[r * 3 + 2] * cp - ev.imag[r * 3 + 2] * sp;
+          const dx = ux * P.amplitude, dy = uy * P.amplitude, dz = uz * P.amplitude;
           at.mesh.position.set(at.r0[0] + dx, at.r0[1] + dy, at.r0[2] + dz);
+
+          if (at.arrow) {
+            // Arrow = the SAME instantaneous displacement, so every moving atom
+            // has a matching vector that oscillates with it. Anchored at rest.
+            const len = Math.hypot(dx, dy, dz);
+            const L = len * P.vectorScale;
+            if (L > 1e-4 * span) {
+              at.arrow.g.visible = true;
+              const hH = Math.min(aHeadH, L * 0.45);
+              const hR = aHeadR * (hH / aHeadH);
+              const shaftLen = Math.max(L - hH, L * 0.02);
+              at.arrow.shaft.scale.set(aShaftR, shaftLen, aShaftR);
+              at.arrow.head.scale.set(hR, hH, hR);
+              at.arrow.head.position.set(0, shaftLen + hH / 2, 0);
+              up.set(dx / len, dy / len, dz / len);
+              at.arrow.g.quaternion.setFromUnitVectors(Y0, up);
+              at.arrow.g.position.set(at.r0[0], at.r0[1], at.r0[2]);
+            } else { at.arrow.g.visible = false; }
+          }
         }
         if (bondLines) {
           const pos = bondLines.geometry.attributes.position.array;
@@ -228,40 +253,6 @@ export default function CrystalViewer({
             pos[b * 6 + 3] = pj.x; pos[b * 6 + 4] = pj.y; pos[b * 6 + 5] = pj.z;
           }
           bondLines.geometry.attributes.position.needsUpdate = true;
-        }
-      }
-
-      // Displacement vectors (mode polarization): solid arrows that DON'T pulse.
-      // Each arrow shows the t=0 real displacement Re(e·e^{i k·n}) at its site —
-      // constant in time — anchored at the (possibly animating) atom, with length
-      // normalized so the largest site = vectorScale Å. Shown whether playing or
-      // paused, so the mode pattern is always legible.
-      if (showArrows && ev && ev.real) {
-        let maxV = 1e-12;
-        for (const at of atoms) {
-          const r = at.row;
-          if (!at.arrow || r * 3 + 2 >= ev.real.length) { at.vlen = 0; continue; }
-          const kn = k[0] * at.cell[0] + k[1] * at.cell[1] + k[2] * at.cell[2];
-          const ck = Math.cos(kn), sk = Math.sin(kn);
-          const vx = ev.real[r * 3] * ck - ev.imag[r * 3] * sk;
-          const vy = ev.real[r * 3 + 1] * ck - ev.imag[r * 3 + 1] * sk;
-          const vz = ev.real[r * 3 + 2] * ck - ev.imag[r * 3 + 2] * sk;
-          at.vd[0] = vx; at.vd[1] = vy; at.vd[2] = vz;
-          at.vlen = Math.hypot(vx, vy, vz);
-          if (at.vlen > maxV) maxV = at.vlen;
-        }
-        for (const at of atoms) {
-          if (!at.arrow) continue;
-          const L = (at.vlen / maxV) * P.vectorScale;
-          if (!(L > aHeadH)) { at.arrow.g.visible = false; continue; }
-          const shaftLen = L - aHeadH;
-          at.arrow.g.visible = true;
-          at.arrow.shaft.scale.set(aShaftR, shaftLen, aShaftR);
-          at.arrow.head.scale.set(aHeadR, aHeadH, aHeadR);
-          at.arrow.head.position.set(0, shaftLen + aHeadH / 2, 0);
-          up.set(at.vd[0] / at.vlen, at.vd[1] / at.vlen, at.vd[2] / at.vlen);
-          at.arrow.g.quaternion.setFromUnitVectors(Y0, up);
-          at.arrow.g.position.copy(at.mesh.position);
         }
       }
 

@@ -1,5 +1,5 @@
-import { ATOMIC_MASS } from '../constants';
-import { conventionalLattice, reciprocalLattice } from '../math/reciprocal';
+import { ATOMIC_MASS } from '../constants.js';
+import { conventionalLattice, reciprocalLattice } from '../math/reciprocal.js';
 
 /**
  * Build the phonopy band-data object (the common structure that both band.yaml
