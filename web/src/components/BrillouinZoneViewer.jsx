@@ -4,158 +4,184 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { Network } from 'lucide-react';
 
 /**
- * Lattice-aware k-path picker.
+ * Primitive Brillouin-zone k-path picker (seekpath-style).
  *
- * High-symmetry points come from the parent (derived from the detected crystal
- * system in math/reciprocal.js), in CONVENTIONAL-cell fractional reciprocal
- * coordinates. The user clicks spheres to build a path; the path of labels and
- * the points map are reported via onPathChange(labels, points).
+ * Renders the true primitive Wigner-Seitz polyhedron (faces + edges) with the
+ * standard high-symmetry points at their cartesian positions and the suggested
+ * path. Clicking a point extends the path from the current tip. Reports the path
+ * as label segments {from,to} plus the label→conventional-fractional map (which
+ * the calculation consumes).
  *
- * The geometry shown is a reference cube spanning the first BZ octants; it is a
- * schematic, not the exact BZ polyhedron (documented UI limitation).
+ * Props: bzModel = { points:{label:{cart,fracConv,display}}, path:[[a,b]], bz, code }
  */
-export default function BrillouinZoneViewer({ symSet, system, onPathChange }) {
+export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
   const mountRef = useRef(null);
-  const [path, setPath] = useState([]);
+  const sceneApi = useRef(null);   // { drawPath } set by the build effect
+  const tipRef = useRef(null);
+  const [segments, setSegments] = useState([]);
 
-  // Initialise the path to the system's default whenever the point set changes.
+  const reportRef = useRef(onPathChange);
+  reportRef.current = onPathChange;
+
+  const emit = (segs) => {
+    if (!bzModel || !reportRef.current) return;
+    const conv = {};
+    for (const [l, p] of Object.entries(bzModel.points)) conv[l] = p.fracConv;
+    reportRef.current(segs, conv);
+  };
+
+  const resetToDefault = () => {
+    const segs = (bzModel?.path || []).map(([from, to]) => ({ from, to }));
+    tipRef.current = segs.length ? segs[segs.length - 1].to : null;
+    setSegments(segs); emit(segs);
+  };
+  const clearPath = () => { tipRef.current = null; setSegments([]); emit([]); };
+
+  // Build scene once per model.
   useEffect(() => {
-    if (!symSet) return;
-    const def = symSet.defaultPath || [];
-    setPath(def);
-    if (onPathChange) onPathChange(def, symSet.points);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symSet]);
-
-  useEffect(() => {
-    if (!mountRef.current || !symSet) return;
-    const width = mountRef.current.clientWidth;
-    const height = mountRef.current.clientHeight;
-
+    if (!mountRef.current || !bzModel) return;
+    const { points, bz } = bzModel;
+    const w = mountRef.current.clientWidth, h = mountRef.current.clientHeight;
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.set(1.4, 1.2, 1.8);
-    camera.lookAt(0.25, 0.25, 0.25);
-
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.001, 1000);
+    const maxR = Math.max(0.1, ...bz.vertices.map(v => Math.hypot(...v)));
+    camera.position.set(maxR * 2.2, maxR * 1.6, maxR * 2.6);
+    camera.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(w, h); renderer.setPixelRatio(window.devicePixelRatio);
     mountRef.current.innerHTML = '';
     mountRef.current.appendChild(renderer.domElement);
-
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0.25, 0.25, 0.25);
 
-    // Reference box [0,0.5]^3 (one octant of the BZ in fractional coords).
-    const box = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-    box.translate(0.25, 0.25, 0.25);
-    const edges = new THREE.EdgesGeometry(box);
-    scene.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x4f46e5 })));
+    const faceMat = new THREE.MeshBasicMaterial({ color: 0x4f46e5, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+    for (const face of bz.faces) {
+      const pos = [];
+      for (let i = 1; i < face.length - 1; i++) pos.push(...face[0], ...face[i], ...face[i + 1]);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      scene.add(new THREE.Mesh(g, faceMat));
+    }
+    const edgePos = [];
+    for (const [a, b] of bz.edges) edgePos.push(...a, ...b);
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
+    scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x818cf8 })));
 
-    // High-symmetry point spheres.
-    const sphereGeo = new THREE.SphereGeometry(0.025, 16, 16);
-    const pointMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const sphereGeo = new THREE.SphereGeometry(maxR * 0.03, 16, 16);
+    const baseMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
     const activeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
     const pointsGroup = new THREE.Group();
-    const pointMeshes = {};
-    for (const [label, coords] of Object.entries(symSet.points)) {
-      const mesh = new THREE.Mesh(sphereGeo, pointMat);
-      mesh.position.set(coords[0], coords[1], coords[2]);
+    scene.add(pointsGroup);
+    for (const [label, p] of Object.entries(points)) {
+      const mesh = new THREE.Mesh(sphereGeo, baseMat);
+      mesh.position.set(...p.cart);
       mesh.userData = { label };
       pointsGroup.add(mesh);
-      pointMeshes[label] = mesh;
+      const spr = makeLabel(p.display, maxR * 0.16);
+      spr.position.set(p.cart[0] * 1.14, p.cart[1] * 1.14 + maxR * 0.04, p.cart[2] * 1.14);
+      scene.add(spr);
     }
-    scene.add(pointsGroup);
 
     const pathGroup = new THREE.Group();
     scene.add(pathGroup);
-    const drawPath = (labels) => {
+    const drawPath = (segs) => {
       pathGroup.clear();
-      Object.values(pointMeshes).forEach(m => { m.material = pointMat; });
-      labels.forEach(l => { if (pointMeshes[l]) pointMeshes[l].material = activeMat; });
-      if (labels.length >= 2) {
-        const pts = labels.map(l => new THREE.Vector3(...symSet.points[l]));
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        pathGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xf59e0b })));
+      const onPath = new Set();
+      if (tipRef.current) onPath.add(tipRef.current);
+      for (const s of segs) {
+        const a = points[s.from]?.cart, b = points[s.to]?.cart;
+        if (!a || !b) continue;
+        onPath.add(s.from); onPath.add(s.to);
+        const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xf59e0b })));
       }
+      pointsGroup.children.forEach(m => { m.material = onPath.has(m.userData.label) ? activeMat : baseMat; });
     };
-    drawPath(path);
+    sceneApi.current = { drawPath };
+    drawPath(segments);
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    const onClick = (event) => {
+    const onClick = (ev) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / height) * 2 + 1;
+      mouse.x = ((ev.clientX - rect.left) / w) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / h) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects(pointsGroup.children);
-      if (hits.length > 0) {
-        const label = hits[0].object.userData.label;
-        setPath(prev => {
-          const next = [...prev, label];
-          if (onPathChange) onPathChange(next, symSet.points);
-          return next;
-        });
-      }
+      const hit = raycaster.intersectObjects(pointsGroup.children)[0];
+      if (!hit) return;
+      const label = hit.object.userData.label;
+      if (tipRef.current == null) { tipRef.current = label; drawPath(segments); return; }
+      if (label === tipRef.current) return;
+      const from = tipRef.current;
+      tipRef.current = label;
+      setSegments(prev => { const next = [...prev, { from, to: label }]; emit(next); return next; });
     };
     renderer.domElement.addEventListener('click', onClick);
 
-    let animId;
-    const animate = () => {
-      animId = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+    let id;
+    const loop = () => { id = requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); };
+    loop();
+    const onResize = () => {
+      if (!mountRef.current) return;
+      const W = mountRef.current.clientWidth, H = mountRef.current.clientHeight;
+      camera.aspect = W / H; camera.updateProjectionMatrix(); renderer.setSize(W, H);
     };
-    animate();
-
-    return () => {
-      renderer.domElement.removeEventListener('click', onClick);
-      cancelAnimationFrame(animId);
-      renderer.dispose();
-    };
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); renderer.domElement.removeEventListener('click', onClick); cancelAnimationFrame(id); renderer.dispose(); sceneApi.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symSet, path]);
+  }, [bzModel]);
+
+  // Initialise path from the suggested path when the model loads.
+  useEffect(() => { if (bzModel) resetToDefault(); /* eslint-disable-next-line */ }, [bzModel]);
+
+  // Redraw path on segment change.
+  useEffect(() => { sceneApi.current?.drawPath(segments); }, [segments]);
+
+  if (!bzModel) return <div className="flex items-center justify-center h-full text-gray-500 text-sm">Load a dataset to build the Brillouin zone.</div>;
 
   return (
     <div className="bg-black/40 rounded-xl border border-white/5 overflow-hidden flex flex-col h-full relative">
       <div className="px-4 py-3 border-b border-white/10 bg-white/5 flex items-center justify-between">
         <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-          <Network className="w-4 h-4 text-amber-500" />
-          K-Path {system ? `(${system})` : ''}
+          <Network className="w-4 h-4 text-amber-500" />Primitive BZ — {bzModel.code}{system ? ` (${system})` : ''}
         </h3>
         <div className="flex gap-1">
-          <button
-            onClick={() => { const d = symSet?.defaultPath || []; setPath(d); if (onPathChange) onPathChange(d, symSet.points); }}
-            className="text-xs bg-white/10 text-gray-300 px-2 py-1 rounded hover:bg-white/20 transition-colors"
-          >
-            Default
-          </button>
-          <button
-            onClick={() => { setPath([]); if (onPathChange) onPathChange([], symSet?.points || {}); }}
-            className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30 transition-colors"
-          >
-            Clear
-          </button>
+          <button onClick={resetToDefault} className="text-xs bg-white/10 text-gray-300 px-2 py-1 rounded hover:bg-white/20">Default</button>
+          <button onClick={clearPath} className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30">Clear</button>
         </div>
       </div>
-
       <div className="flex-1 relative">
         <div ref={mountRef} className="absolute inset-0 cursor-crosshair" />
-        <div className="absolute top-2 left-2 pointer-events-none flex gap-1 flex-wrap max-w-[80%]">
-          {path.map((p, i) => (
-            <React.Fragment key={i}>
-              <span className="bg-amber-500 text-black px-1.5 rounded font-bold text-xs">{p}</span>
-              {i < path.length - 1 && <span className="text-gray-500 text-xs">→</span>}
-            </React.Fragment>
-          ))}
+        <div className="absolute top-2 left-2 pointer-events-none flex gap-1 flex-wrap max-w-[85%] items-center">
+          {pathLabelSequence(segments).map((p, i) => p === '|'
+            ? <span key={i} className="text-gray-500 text-xs px-0.5">|</span>
+            : <span key={i} className="bg-amber-500 text-black px-1.5 rounded font-bold text-xs">{bzModel.points[p]?.display || p}</span>)}
         </div>
-        {path.length === 0 && (
-          <div className="absolute bottom-2 left-0 right-0 text-center text-gray-500 text-xs pointer-events-none">
-            Click spheres to build a k-path
-          </div>
-        )}
       </div>
     </div>
   );
+}
+
+function pathLabelSequence(segments) {
+  const out = [];
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    if (i === 0) out.push(s.from);
+    else if (segments[i - 1].to !== s.from) out.push('|', s.from);
+    out.push(s.to);
+  }
+  return out;
+}
+
+function makeLabel(text, size) {
+  const cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 80px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 64, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  spr.scale.set(size, size, size);
+  return spr;
 }

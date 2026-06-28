@@ -84,16 +84,17 @@ export async function readBaseStructure(fileHandle) {
   
   let dim = null;
   let v1, v2, v3;
-  let atomDic = {};
-  
+  const rnSets = {};            // element -> Set of unique reference numbers
+  const rnInfo = new Map();     // rn -> { el, frac:[within-cell xyz] } (first occurrence)
+
   let inAtomsBlock = false;
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    
+
     const parts = line.split(/\s+/);
-    
+
     if (parts[0] === 'Supercell') {
       dim = parts.slice(-3).map(Number);
     } else if (parts[0] === 'Lattice') {
@@ -104,23 +105,26 @@ export async function readBaseStructure(fileHandle) {
       inAtomsBlock = true;
       continue;
     }
-    
-    if (inAtomsBlock && parts.length >= 5) {
-      const atom = parts[1];
+
+    if (inAtomsBlock && parts.length >= 7) {
+      const el = parts[1];
       const rn = parseInt(parts[parts.length - 4]);
-      if (!isNaN(rn)) {
-        if (!atomDic[atom]) atomDic[atom] = [];
-        atomDic[atom].push(rn);
+      if (isNaN(rn)) continue;
+      (rnSets[el] || (rnSets[el] = new Set())).add(rn);
+      if (!rnInfo.has(rn)) {
+        // within-cell fractional coordinate = mod(global_frac * dim, 1)
+        const gf = [parseFloat(parts[parts.length - 7]), parseFloat(parts[parts.length - 6]), parseFloat(parts[parts.length - 5])];
+        const frac = gf.map((g, k) => { let w = (g * dim[k]) % 1; if (w < 0) w += 1; return w; });
+        rnInfo.set(rn, { el, frac });
       }
     }
   }
-  
-  for (let atom in atomDic) {
-    atomDic[atom].sort((a, b) => a - b);
-  }
-  
-  return {
-    v1, v2, v3, dim, atomDic,
-    v_super: [v1, v2, v3]
-  };
+
+  const atomDic = {};
+  for (const el in rnSets) atomDic[el] = Array.from(rnSets[el]).sort((a, b) => a - b);
+
+  // One representative basis site per reference number (for symmetry analysis).
+  const basis = [...rnInfo.entries()].sort((a, b) => a[0] - b[0]).map(([rn, info]) => ({ rn, el: info.el, frac: info.frac }));
+
+  return { v1, v2, v3, dim, atomDic, basis, v_super: [v1, v2, v3] };
 }

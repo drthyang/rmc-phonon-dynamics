@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { FolderOpen, Play, Settings, Database, Network } from 'lucide-react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
-import { detectSystem, highSymmetryPoints, buildKPathFromSegments } from '../math/reciprocal';
+import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
+import { analyzeBravais } from '../math/bravais';
+import { buildBZModel, displayLabel } from '../math/highsym';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import DatasetInspector from '../components/DatasetInspector';
 
@@ -25,16 +27,19 @@ export default function RunnerPage({ pipeline, onResults }) {
   const [degenerateTol, setDegenerateTol] = useState(5e-3);
   const [density, setDensity] = useState(20);            // default points/segment
 
-  const [selectedPath, setSelectedPath] = useState([]);
-  const [bzPoints, setBzPoints] = useState({});
+  const [bzSegments, setBzSegments] = useState([]);      // [{from,to}] label pairs
+  const [pointsConv, setPointsConv] = useState({});      // label -> conventional fractional
   const [segNpoints, setSegNpoints] = useState({});      // {segIndex: npoints} overrides
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
 
-  const crystalInfo = baseStructure?.v1 ? detectSystem(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim) : null;
-  const symSet = crystalInfo ? highSymmetryPoints(crystalInfo.system) : null;
+  // Bravais analysis (seekpath-style): primitive cell + BZ + standard points.
+  const bravais = baseStructure?.v1 && baseStructure.basis
+    ? analyzeBravais(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim), baseStructure.basis)
+    : null;
+  const bzModel = bravais ? buildBZModel(bravais) : null;
 
   const loadStructure = async (handle, name) => {
     const info = await readBaseStructure(handle);
@@ -66,11 +71,8 @@ export default function RunnerPage({ pipeline, onResults }) {
     if (item) await loadStructure(item.handle, name);
   };
 
-  // Segments derived from the clicked path, with optional per-segment overrides.
-  const segments = [];
-  for (let i = 0; i < selectedPath.length - 1; i++) {
-    segments.push({ from: selectedPath[i], to: selectedPath[i + 1], npoints: segNpoints[i] ?? density });
-  }
+  // Segments from the BZ path, with optional per-segment npoints overrides.
+  const segments = bzSegments.map((s, i) => ({ from: s.from, to: s.to, npoints: segNpoints[i] ?? density }));
   const totalK = segments.reduce((a, s) => a + Math.max(2, s.npoints), 0);
 
   const run = async () => {
@@ -79,8 +81,13 @@ export default function RunnerPage({ pipeline, onResults }) {
     if (segments.length < 1) { setProgressText('Build a k-path first (click ≥2 high-symmetry points).'); return; }
     setIsProcessing(true); setProgress(0); setProgressText('Starting…');
     try {
-      const { qFrac, segSizes, hsymIndex } = buildKPathFromSegments(bzPoints, segments);
-      const kpathMeta = { qFrac, segSizes, hsymIndex, pathLabels: selectedPath };
+      // pointsConv maps labels -> CONVENTIONAL fractional reciprocal coords, which
+      // is what the calculation needs (the supercell tiles the conventional cell).
+      const { qFrac, segSizes, hsymIndex } = buildKPathFromSegments(pointsConv, segments);
+      // Convert internal labels (GAMMA, …) to display (Γ) for plot axis labels.
+      const hsymDisplay = {};
+      for (const [k, v] of Object.entries(hsymIndex)) hsymDisplay[k] = displayLabel(v);
+      const kpathMeta = { qFrac, segSizes, hsymIndex: hsymDisplay };
 
       let referenceHandle = null;
       if (refMode === 'file') {
@@ -145,7 +152,7 @@ export default function RunnerPage({ pipeline, onResults }) {
         {/* Run settings */}
         <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
           <div className="flex items-center gap-3 mb-4 text-gray-200"><Play className="w-5 h-5 text-indigo-400" /><h2 className="text-lg font-medium">4 · Run</h2></div>
-          {crystalInfo && <div className="text-xs text-gray-400 mb-3">System: <span className="text-indigo-300 font-mono">{crystalInfo.system}</span> · a,b,c = {crystalInfo.a.toFixed(2)}, {crystalInfo.b.toFixed(2)}, {crystalInfo.c.toFixed(2)} Å</div>}
+          {bravais && <div className="text-xs text-gray-400 mb-3">Bravais: <span className="text-indigo-300 font-mono">{bravais.code}</span> ({bravais.system}, {bravais.centering}-centered)</div>}
           <div className="grid grid-cols-3 gap-2 mb-4">
             <Num label="T (K)" value={temperature} step={1} onChange={setTemperature} />
             <Num label="degen tol" value={degenerateTol} step={0.001} onChange={setDegenerateTol} />
@@ -168,8 +175,8 @@ export default function RunnerPage({ pipeline, onResults }) {
       {/* Right: BZ + k-path editor */}
       <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
         <div className={`glass-panel rounded-2xl h-[420px] ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-          <BrillouinZoneViewer symSet={symSet} system={crystalInfo?.system}
-            onPathChange={(path, points) => { setSelectedPath(path); setBzPoints(points); setSegNpoints({}); }} />
+          <BrillouinZoneViewer bzModel={bzModel} system={bravais?.system}
+            onPathChange={(segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); }} />
         </div>
 
         <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
@@ -180,7 +187,7 @@ export default function RunnerPage({ pipeline, onResults }) {
             <div className="space-y-2">
               {segments.map((s, i) => (
                 <div key={i} className="flex items-center gap-3 text-sm">
-                  <span className="font-mono w-20">{s.from} → {s.to}</span>
+                  <span className="font-mono w-20">{displayLabel(s.from)} → {displayLabel(s.to)}</span>
                   <span className="text-gray-500 text-xs">npoints</span>
                   <input type="number" min={2} value={s.npoints}
                     onChange={e => setSegNpoints(m => ({ ...m, [i]: Math.max(2, parseInt(e.target.value) || 2) }))}
