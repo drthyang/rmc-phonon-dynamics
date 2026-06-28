@@ -4,11 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { listConfigs, readBaseStructure, findStructureFile } from './io/readers'
 import { PhononPipeline } from './compute/pipeline'
 import { detectSystem, highSymmetryPoints, buildKPath } from './math/reciprocal'
-import BandChart from './components/BandChart'
+import BandStructurePlot from './components/BandStructurePlot'
 import CrystalViewer from './components/CrystalViewer'
 import DatasetInspector from './components/DatasetInspector'
 import BrillouinZoneViewer from './components/BrillouinZoneViewer'
 import InsPanel from './components/InsPanel'
+import ModeInspector from './components/ModeInspector'
 import { generatePhonopyBandYaml, downloadString } from './io/writers'
 
 export default function App() {
@@ -127,7 +128,16 @@ export default function App() {
           </div>
           <h1 className="text-xl font-semibold tracking-tight">RMC Phonon Dynamics</h1>
         </div>
-        <div className="flex items-center gap-4 text-sm font-medium text-gray-400">
+        <div className="flex items-center gap-3 text-sm font-medium text-gray-400">
+          {results && (
+            <div className="hidden md:flex items-center gap-2 text-xs font-mono">
+              <span className="bg-white/5 px-2 py-1 rounded border border-white/10">{results.bands[0].length} bands</span>
+              <span className="bg-white/5 px-2 py-1 rounded border border-white/10">{results.qPoints.length} k-pts</span>
+              <span className="bg-white/5 px-2 py-1 rounded border border-white/10">
+                {Math.min(...results.bands.flatMap(r => r.filter(isFinite))).toFixed(1)}…{Math.max(...results.bands.flatMap(r => r.filter(isFinite))).toFixed(1)} meV
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-2 bg-blue-500/10 text-blue-400 px-3 py-1 rounded-full border border-blue-500/20">
             <Cpu className="w-4 h-4" />
             <span>WebGPU Ready</span>
@@ -242,7 +252,13 @@ export default function App() {
                 </>
               )}
             </button>
-            
+
+            {!isProcessing && progressText && (progressText.startsWith('Error') || progressText.includes('no .rmc6f') || progressText.startsWith('Please')) && (
+              <div className="mt-4 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                {progressText}
+              </div>
+            )}
+
             <AnimatePresence>
               {(isProcessing || progressText === "Calculation Complete!") && (
                 <motion.div 
@@ -289,10 +305,13 @@ export default function App() {
               >
                 Export band.yaml
               </button>
-              <BandChart
+              <BandStructurePlot
                 bands={results.bands}
+                qPoints={results.qPoints}
+                baseStructure={results.baseStructure}
                 kpathMeta={kpathMeta}
-                onPointClick={(kIndex, modeIndex) => {
+                selected={{ k: selectedKIndex, m: selectedModeIndex }}
+                onPick={(kIndex, modeIndex) => {
                   setSelectedKIndex(kIndex);
                   setSelectedModeIndex(modeIndex);
                 }}
@@ -326,8 +345,8 @@ export default function App() {
                   isPlaying={true}
                   amplitude={3.0}
                 />
-                <div className="absolute bottom-4 left-4 glass-panel px-4 py-2 rounded-lg text-sm font-mono text-gray-300 pointer-events-none">
-                  Mode: {selectedModeIndex + 1} | Energy: {results.bands[selectedKIndex][selectedModeIndex].toFixed(2)} meV | k-point: {selectedKIndex + 1}
+                <div className="absolute bottom-4 left-4">
+                  <ModeInspector results={results} selectedK={selectedKIndex} selectedMode={selectedModeIndex} />
                 </div>
               </>
             ) : (

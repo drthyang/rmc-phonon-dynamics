@@ -16,10 +16,8 @@
     "lucide-react": "^1.21.0",
     "ml-matrix": "^6.13.0",
     "munkres-js": "^1.2.2",
-    "pyodide": "^314.0.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "recharts": "^3.9.0",
     "three": "^0.185.0"
   },
   "devDependencies": {

@@ -180,3 +180,26 @@ export function buildKPath(sym_pnts, pathLabels, kstep = 20) {
   if (qFrac.length > 0) hsymIndex[qFrac.length - 1] = pathLabels[pathLabels.length - 1];
   return { qFrac, segSizes, hsymIndex };
 }
+
+/**
+ * Cumulative physical path distance (Å^-1, no 2*pi) for each q-point, with the
+ * increment zeroed at segment starts (matches src_gpu/Writers distances). Used
+ * by the band-structure plot x-axis.
+ *   qFrac : fractional q-points; recip : reciprocal lattice rows; segSizes.
+ */
+export function pathDistances(qFrac, recip, segSizes) {
+  const n = qFrac.length;
+  const segStarts = new Set();
+  let off = 0;
+  for (const sz of (segSizes || [n])) { segStarts.add(off); off += sz; }
+  const d = [0];
+  for (let i = 1; i < n; i++) {
+    if (segStarts.has(i)) { d.push(d[i - 1]); continue; }
+    const dq = [qFrac[i][0] - qFrac[i - 1][0], qFrac[i][1] - qFrac[i - 1][1], qFrac[i][2] - qFrac[i - 1][2]];
+    const cx = dq[0] * recip[0][0] + dq[1] * recip[1][0] + dq[2] * recip[2][0];
+    const cy = dq[0] * recip[0][1] + dq[1] * recip[1][1] + dq[2] * recip[2][1];
+    const cz = dq[0] * recip[0][2] + dq[1] * recip[1][2] + dq[2] * recip[2][2];
+    d.push(d[i - 1] + Math.sqrt(cx * cx + cy * cy + cz * cz));
+  }
+  return d;
+}

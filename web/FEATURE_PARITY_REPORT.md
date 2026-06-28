@@ -212,12 +212,27 @@ All items below are committed and validated by `npm run validate` (passes):
   validation step.
 - **Float32 on-GPU accumulation** (matching the legacy Metal strategy) recombined
   in Float64 — fine, but worth a tolerance check on large ensembles.
-- **`pyodide` dependency is now unused** (k-path done in JS) and can be removed.
 
-## Known UI limitations (deferred to next stage, by design)
+## Frontend stage (Stage 2) — done on this branch
 
-- Single hardcoded cubic BZ; no lattice‑aware path UI.
-- Band x‑axis uses point index, not physical reciprocal distance.
-- No export buttons wired (band.yaml/CSV).
-- "Total Atoms" in `DatasetInspector` actually counts basis sites, mislabeled.
-- Frac selection has no cell‑vector source UI (needs an `.rmc6f`/CIF for cell).
+The minimal validation UI from Stage 1 was upgraded to a usable scientific UI:
+
+- **Band-structure plot** (`BandStructurePlot.jsx`): custom SVG with a physical
+  cumulative reciprocal-distance x-axis, high-symmetry tick labels + segment
+  dividers, energy y-axis, 0 line, hover readout, and click-to-select with a
+  marker. Replaces the recharts point-index chart.
+- **INS panel** (`InsPanel.jsx`): S(|Q|,E) heatmap with real Q/E axes, a
+  matching 4-stop colormap + colorbar, and an axed DOS plot.
+- **Mode inspector** (`ModeInspector.jsx`): selected mode energy, k (frac),
+  index, and **per-element band character** (eigenvector weights — also fills the
+  legacy `_archive_get_ph_weights` gap).
+- Results summary chips in the header (bands / k-points / energy range);
+  error/empty states; lattice-aware BZ path picker; `DatasetInspector` label
+  corrected to "basis sites"; Frac selection reads the companion `.rmc6f`.
+- Removed now-unused `recharts` and `pyodide` dependencies (bundle 1.32 MB → 0.97 MB).
+
+## Remaining UI limitations (future polish)
+
+- BZ geometry is a schematic reference box, not the exact polyhedron.
+- No zoom/pan or per-mode highlight on the band plot; no responsive/mobile layout pass.
+- INS heatmap aspect is fixed; no interactive cursor readout on S(Q,E).

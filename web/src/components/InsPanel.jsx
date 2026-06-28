@@ -65,12 +65,9 @@ export default function InsPanel({ results, temperature }) {
     for (let qi = 0; qi < nX; qi++) {
       for (let ei = 0; ei < nE; ei++) {
         const v = Math.sqrt(Math.max(0, S[qi * nE + ei] * inv)); // sqrt for contrast
-        // Energy increases upward => flip row.
-        const px = ((nE - 1 - ei) * nX + qi) * 4;
-        img.data[px] = Math.min(255, 30 + v * 80);
-        img.data[px + 1] = Math.min(255, v * 200);
-        img.data[px + 2] = Math.min(255, 60 + v * 195);
-        img.data[px + 3] = 255;
+        const [r, g, b] = colormap(v);                            // matches colorbar
+        const px = ((nE - 1 - ei) * nX + qi) * 4;                 // energy increases upward
+        img.data[px] = r; img.data[px + 1] = g; img.data[px + 2] = b; img.data[px + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
@@ -127,15 +124,40 @@ export default function InsPanel({ results, temperature }) {
       {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
 
       {out?.powResult && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <div className="text-xs text-gray-400 mb-1">S(|Q|,E) — x: |Q| (0–{out.powResult.xMax.toFixed(2)} Å⁻¹), y: E (0–{params.Emax} meV)</div>
-            <canvas ref={canvasRef} className="w-full rounded-lg border border-white/10"
-              style={{ imageRendering: 'pixelated', aspectRatio: '1.4', background: '#06070a' }} />
+            <div className="text-xs text-gray-400 mb-2">S(|Q|,E) — powder-averaged simulated INS</div>
+            <div className="flex gap-2">
+              {/* E axis (left) */}
+              <div className="relative w-9 shrink-0" style={{ aspectRatio: '0.07' }}>
+                {ticks(0, params.Emax, 5).map((t, i) => (
+                  <span key={i} className="absolute right-1 text-[10px] text-gray-400 -translate-y-1/2"
+                    style={{ top: `${(1 - t.frac) * 100}%` }}>{t.v.toFixed(0)}</span>
+                ))}
+                <span className="absolute -left-1 top-1/2 -rotate-90 origin-center text-[10px] text-gray-500 whitespace-nowrap">E (meV)</span>
+              </div>
+              {/* heatmap */}
+              <div className="flex-1">
+                <canvas ref={canvasRef} className="w-full rounded-lg border border-white/10 block"
+                  style={{ imageRendering: 'pixelated', aspectRatio: '1.5', background: '#06070a' }} />
+                <div className="relative h-4 mt-1">
+                  {ticks(0, out.powResult.xMax, 5).map((t, i) => (
+                    <span key={i} className="absolute text-[10px] text-gray-400 -translate-x-1/2"
+                      style={{ left: `${t.frac * 100}%` }}>{t.v.toFixed(1)}</span>
+                  ))}
+                </div>
+                <div className="text-center text-[10px] text-gray-500">|Q| (Å⁻¹)</div>
+              </div>
+              {/* colorbar */}
+              <div className="flex flex-col items-center shrink-0">
+                <div className="w-3 rounded" style={{ aspectRatio: '0.18', background: 'linear-gradient(to top, #06070a, #1e3a8a, #22d3ee, #fef9c3)' }} />
+                <span className="text-[9px] text-gray-500 mt-1">S↑</span>
+              </div>
+            </div>
           </div>
           <div>
-            <div className="text-xs text-gray-400 mb-1">Phonon DOS</div>
-            <DosPlot dosResult={out.dosResult} />
+            <div className="text-xs text-gray-400 mb-2">Phonon DOS</div>
+            <DosPlot dosResult={out.dosResult} Emin={params.Emin} Emax={params.Emax} />
           </div>
         </div>
       )}
@@ -143,25 +165,53 @@ export default function InsPanel({ results, temperature }) {
   );
 }
 
-function DosPlot({ dosResult }) {
+function ticks(min, max, n) {
+  const arr = [];
+  for (let i = 0; i <= n; i++) { const frac = i / n; arr.push({ frac, v: min + frac * (max - min) }); }
+  return arr;
+}
+
+// 4-stop colormap (dark -> blue -> cyan -> pale yellow), matching the colorbar.
+function colormap(t) {
+  const stops = [[6, 7, 10], [30, 58, 138], [34, 211, 238], [254, 249, 195]];
+  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  const f = x - i;
+  const a = stops[i], b = stops[i + 1];
+  return [Math.round(a[0] + f * (b[0] - a[0])), Math.round(a[1] + f * (b[1] - a[1])), Math.round(a[2] + f * (b[2] - a[2]))];
+}
+
+function DosPlot({ dosResult, Emin = 0, Emax = 1 }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!dosResult || !ref.current) return;
     const { dos, nE, dosMax } = dosResult;
     const cv = ref.current;
-    const W = 260, H = 200;
+    const PL = 30, PB = 4;
+    const W = 260, H = 220;
     cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, W, H);
-    ctx.strokeStyle = '#22d3ee';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
+    const plotW = W - PL - 6, plotH = H - PB - 4;
+    // E-axis ticks (vertical)
+    ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    for (let i = 0; i <= 4; i++) {
+      const e = Emin + (i / 4) * (Emax - Emin);
+      const y = H - PB - (i / 4) * plotH;
+      ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - 6, y); ctx.stroke();
+      ctx.fillText(e.toFixed(0), PL - 4, y + 3);
+    }
+    // DOS curve (DOS horizontal, energy vertical)
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1.5; ctx.beginPath();
     for (let i = 0; i < nE; i++) {
-      const x = 4 + (dos[i] / (dosMax || 1)) * (W - 8);  // DOS horizontal
-      const y = H - (i / (nE - 1)) * (H - 4) - 2;         // energy vertical
+      const x = PL + (dos[i] / (dosMax || 1)) * plotW;
+      const y = H - PB - (i / (nE - 1)) * plotH;
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
-  }, [dosResult]);
+    ctx.fillStyle = '#6b7280'; ctx.textAlign = 'left';
+    ctx.fillText('g(E) →', PL + 4, 12);
+  }, [dosResult, Emin, Emax]);
   return <canvas ref={ref} className="w-full rounded-lg border border-white/10" style={{ background: '#06070a' }} />;
 }
