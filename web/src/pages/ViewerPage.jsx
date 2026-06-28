@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, Download, BarChart3, Box, Waves, Play, Pause, Circle } from 'lucide-react';
+import { Upload, Download, Box, Waves, Play, Pause, Circle } from 'lucide-react';
 import BandStructurePlot from '../components/BandStructurePlot';
 import CrystalViewer from '../components/CrystalViewer';
 import { DEFAULT_COLORS, COVALENT_R } from '../constants';
@@ -14,7 +14,7 @@ import { fromBandText } from '../io/viewermodel';
  * either from the runner hand-off or a loaded band.yaml/.json.
  */
 export default function ViewerPage({ model, onLoadModel }) {
-  const [tab, setTab] = useState('band');
+  const [tab, setTab] = useState('modes');
   const [selK, setSelK] = useState(0);
   const [selM, setSelM] = useState(0);
 
@@ -76,18 +76,15 @@ export default function ViewerPage({ model, onLoadModel }) {
   const nK = model.bands.length;
   const energy = model.bands[selK]?.[selM];
 
-  const exportYaml = () => {
-    const y = generatePhonopyBandYaml(model.baseStructure, model.qPoints, model.bands, model.eigvecs, model.kpathMeta);
-    downloadString(y, 'band_gpu.yaml');
-  };
+  const exportYaml = () => downloadString(generatePhonopyBandYaml(model.baseStructure, model.qPoints, model.bands, model.eigvecs, model.kpathMeta), 'band_gpu.yaml', 'text/yaml');
+  const exportJson = () => downloadString(generateBandJson(model.baseStructure, model.qPoints, model.bands, model.eigvecs, model.kpathMeta), 'band_gpu.json', 'application/json');
 
   return (
     <div className="flex flex-col gap-4">
       {/* Toolbar */}
       <div className="glass-panel rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3">
         <div className="flex rounded-lg overflow-hidden border border-white/10">
-          <TabBtn icon={<BarChart3 className="w-4 h-4" />} label="Band" active={tab === 'band'} onClick={() => setTab('band')} />
-          <TabBtn icon={<Box className="w-4 h-4" />} label="3D mode" active={tab === '3d'} onClick={() => setTab('3d')} />
+          <TabBtn icon={<Box className="w-4 h-4" />} label="Bands + Mode" active={tab === 'modes'} onClick={() => setTab('modes')} />
           <TabBtn icon={<Waves className="w-4 h-4" />} label="S(Q,E)" active={tab === 'sqe'} onClick={() => setTab('sqe')} />
         </div>
         <div className="flex items-center gap-2 text-xs font-mono text-gray-300">
@@ -99,61 +96,84 @@ export default function ViewerPage({ model, onLoadModel }) {
         <div className="flex-1" />
         <FileLoad onLoad={loadFile} thz={thz} setThz={setThz} compact />
         {model.eigvecs && (
-          <button onClick={exportYaml} className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />band.yaml</button>
+          <>
+            <button onClick={exportYaml} className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />band.yaml</button>
+            <button onClick={exportJson} className="flex items-center gap-1 text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10"><Download className="w-3.5 h-3.5" />band.json</button>
+          </>
         )}
       </div>
 
       {loadErr && <div className="text-red-400 text-sm">{loadErr}</div>}
 
-      {/* Band tab */}
-      {tab === 'band' && (
-        <div className="glass-panel rounded-2xl h-[460px] relative">
-          <div className="absolute top-3 right-3 z-20 flex items-center gap-2 text-xs text-gray-400">
-            E-range
-            <input type="number" placeholder="min" value={eMin} onChange={e => setEMin(e.target.value)} className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" />
-            <input type="number" placeholder="max" value={eMax} onChange={e => setEMax(e.target.value)} className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" />
+      {/* Bands + Mode — side by side; click a band point to see the mode */}
+      {tab === 'modes' && (
+        <>
+          <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 xl:col-span-6 glass-panel rounded-2xl h-[520px] relative">
+              <div className="absolute top-3 right-3 z-20 flex items-center gap-2 text-xs text-gray-400">
+                E-range
+                <input type="number" placeholder="min" value={eMin} onChange={e => setEMin(e.target.value)} className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" />
+                <input type="number" placeholder="max" value={eMax} onChange={e => setEMax(e.target.value)} className="w-16 bg-white/5 border border-white/10 rounded px-1 py-0.5" />
+              </div>
+              <BandStructurePlot bands={model.bands} qPoints={model.qPoints} baseStructure={model.baseStructure}
+                kpathMeta={model.kpathMeta} selected={{ k: selK, m: selM }}
+                eMin={eMin === '' ? undefined : parseFloat(eMin)} eMax={eMax === '' ? undefined : parseFloat(eMax)}
+                onPick={(k, m) => { setSelK(k); setSelM(m); }} />
+            </div>
+            <div className="col-span-12 xl:col-span-6 glass-panel rounded-2xl h-[520px] relative">
+              {model.eigvecs ? (
+                <>
+                  <CrystalViewer baseStructure={model.baseStructure} eigenvector={eig} qPoint={qPoint}
+                    isPlaying={playing} amplitude={amplitude} speed={speed}
+                    supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
+                    cameraAxis={camNonce ? camNonce[0] : null}
+                    elementColors={elementColors} elementRadii={elementRadii} displayStyle={displayStyle}
+                    showBonds={showBonds} bondScale={bondScale} shading={shading} recording={recording} />
+                  <div className="absolute bottom-3 left-3"><ModeInspector results={model} selectedK={selK} selectedMode={selM} /></div>
+                </>
+              ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
+            </div>
           </div>
-          <BandStructurePlot bands={model.bands} qPoints={model.qPoints} baseStructure={model.baseStructure}
-            kpathMeta={model.kpathMeta} selected={{ k: selK, m: selM }}
-            eMin={eMin === '' ? undefined : parseFloat(eMin)} eMax={eMax === '' ? undefined : parseFloat(eMax)}
-            onPick={(k, m) => { setSelK(k); setSelM(m); }} />
-        </div>
-      )}
 
-      {/* 3D tab */}
-      {tab === '3d' && (
-        <div className="grid grid-cols-12 gap-4">
-          <div className="col-span-12 lg:col-span-3 glass-panel rounded-2xl p-4 space-y-4 text-sm max-h-[640px] overflow-y-auto custom-scrollbar">
-            <div>
-              <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Supercell</div>
-              <div className="flex gap-2">
-                {[['nx', nx, setNx], ['ny', ny, setNy], ['nz', nz, setNz]].map(([l, v, set]) => (
-                  <input key={l} type="number" min={1} max={6} value={v} onChange={e => set(Math.max(1, Math.min(6, parseInt(e.target.value) || 1)))} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1" title={l} />
-                ))}
+          {/* Controls */}
+          <div className="glass-panel rounded-2xl p-4 grid grid-cols-1 md:grid-cols-4 gap-5 text-sm">
+            <div className="space-y-3">
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Supercell</div>
+                <div className="flex gap-2">
+                  {[['nx', nx, setNx], ['ny', ny, setNy], ['nz', nz, setNz]].map(([l, v, set]) => (
+                    <input key={l} type="number" min={1} max={6} value={v} onChange={e => set(Math.max(1, Math.min(6, parseInt(e.target.value) || 1)))} className="w-full bg-white/5 border border-white/10 rounded px-2 py-1" title={l} />
+                  ))}
+                </div>
+              </div>
+              <Slider label={`Amplitude ${amplitude.toFixed(1)}`} min={0} max={10} step={0.1} value={amplitude} onChange={setAmplitude} />
+              <Slider label={`Speed ${speed.toFixed(2)}`} min={0.01} max={0.3} step={0.01} value={speed} onChange={setSpeed} />
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPlaying(p => !p)} className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10 text-xs">
+                  {playing ? <><Pause className="w-3.5 h-3.5" />Pause</> : <><Play className="w-3.5 h-3.5" />Play</>}
+                </button>
+                <button onClick={() => setRecording(r => !r)} className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${recording ? 'bg-red-600 border-red-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}>
+                  <Circle className="w-3 h-3" />{recording ? 'Stop' : 'WebM'}
+                </button>
+              </div>
+              <div>
+                <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Camera</div>
+                <div className="flex gap-2">
+                  {['x', 'y', 'z'].map(ax => <button key={ax} onClick={() => setCamNonce(ax + Math.random())} className="flex-1 bg-white/10 hover:bg-white/20 rounded py-1 text-xs uppercase">{ax}</button>)}
+                </div>
               </div>
             </div>
-            <Slider label={`Amplitude ${amplitude.toFixed(1)}`} min={0} max={10} step={0.1} value={amplitude} onChange={setAmplitude} />
-            <Slider label={`Speed ${speed.toFixed(2)}`} min={0.01} max={0.3} step={0.01} value={speed} onChange={setSpeed} />
-            <div className="flex items-center gap-2">
-              <button onClick={() => setPlaying(p => !p)} className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded border border-white/10 text-xs">
-                {playing ? <><Pause className="w-3.5 h-3.5" />Pause</> : <><Play className="w-3.5 h-3.5" />Play</>}
-              </button>
-              <button onClick={() => setRecording(r => !r)} className={`flex items-center gap-1 px-3 py-1.5 rounded border text-xs ${recording ? 'bg-red-600 border-red-500' : 'bg-white/10 hover:bg-white/20 border-white/10'}`}>
-                <Circle className="w-3 h-3" />{recording ? 'Stop' : 'WebM'}
-              </button>
-            </div>
 
-            {/* Appearance */}
-            <div className="border-t border-white/10 pt-3">
-              <div className="text-xs text-gray-400 uppercase tracking-wider mb-2">Appearance</div>
-              <label className="block text-xs mb-2">style
+            <div className="space-y-2">
+              <div className="text-xs text-gray-400 uppercase tracking-wider">Appearance</div>
+              <label className="block text-xs">style
                 <select value={displayStyle} onChange={e => setDisplayStyle(e.target.value)} className="w-full mt-1 bg-white/5 border border-white/10 rounded px-2 py-1">
                   <option value="ballstick">ball &amp; stick</option>
                   <option value="spacefill">spacefill</option>
                   <option value="wireframe">wireframe</option>
                 </select>
               </label>
-              <label className="flex items-center gap-2 text-xs mb-1"><input type="checkbox" checked={showBonds} onChange={e => setShowBonds(e.target.checked)} /> bonds</label>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showBonds} onChange={e => setShowBonds(e.target.checked)} /> bonds</label>
               <Slider label={`bond cutoff ×${bondScale.toFixed(2)}`} min={0.6} max={1.8} step={0.05} value={bondScale} onChange={setBondScale} />
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={shading} onChange={e => setShading(e.target.checked)} /> shading</label>
               <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={showVectors} onChange={e => setShowVectors(e.target.checked)} /> displacement vectors</label>
@@ -161,8 +181,7 @@ export default function ViewerPage({ model, onLoadModel }) {
               <Slider label={`atom size ×${atomScale.toFixed(1)}`} min={0.3} max={3} step={0.1} value={atomScale} onChange={setAtomScale} />
             </div>
 
-            {/* Per-element color + radius */}
-            <div className="border-t border-white/10 pt-3">
+            <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
               <div className="text-xs text-gray-400 uppercase tracking-wider mb-2">Atom types</div>
               {elements.map(el => (
                 <div key={el} className="flex items-center gap-2 mb-1.5 text-xs">
@@ -176,27 +195,11 @@ export default function ViewerPage({ model, onLoadModel }) {
               <button onClick={() => { setElementColors({}); setElementRadii({}); }} className="text-xs text-gray-400 hover:text-gray-200 mt-1">reset types</button>
             </div>
 
-            <div>
-              <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">Camera</div>
-              <div className="flex gap-2">
-                {['x', 'y', 'z'].map(ax => <button key={ax} onClick={() => setCamNonce(ax + Math.random())} className="flex-1 bg-white/10 hover:bg-white/20 rounded py-1 text-xs uppercase">{ax}</button>)}
-              </div>
+            <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+              <StructureTables model={model} />
             </div>
-
-            <ModeInspector results={model} selectedK={selK} selectedMode={selM} />
-            <StructureTables model={model} />
           </div>
-          <div className="col-span-12 lg:col-span-9 glass-panel rounded-2xl h-[640px]">
-            {model.eigvecs ? (
-              <CrystalViewer baseStructure={model.baseStructure} eigenvector={eig} qPoint={qPoint}
-                isPlaying={playing} amplitude={amplitude} speed={speed}
-                supercell={supercell} showVectors={showVectors} showCell={showCell} atomScale={atomScale}
-                cameraAxis={camNonce ? camNonce[0] : null}
-                elementColors={elementColors} elementRadii={elementRadii} displayStyle={displayStyle}
-                showBonds={showBonds} bondScale={bondScale} shading={shading} recording={recording} />
-            ) : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Loaded file has no eigenvectors — 3D modes unavailable.</div>}
-          </div>
-        </div>
+        </>
       )}
 
       {/* S(Q,E) tab */}

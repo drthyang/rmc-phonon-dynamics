@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Activity, Cpu, Cog, Eye } from 'lucide-react';
 import { PhononPipeline } from './compute/pipeline';
 import { fromResults } from './io/viewermodel';
+import { generatePhonopyBandYaml, downloadString } from './io/writers';
 import RunnerPage from './pages/RunnerPage';
 import ViewerPage from './pages/ViewerPage';
 
@@ -18,9 +19,17 @@ export default function App() {
   }, []);
 
   const onResults = (results, kpathMeta) => {
-    setModel(fromResults(results, kpathMeta));
+    const m = fromResults(results, kpathMeta);
+    setModel(m);
     setPage('viewer');
+    // Auto-save the band.yaml after a successful run.
+    try {
+      const yaml = generatePhonopyBandYaml(m.baseStructure, m.qPoints, m.bands, m.eigvecs, m.kpathMeta);
+      downloadString(yaml, 'band_gpu.yaml', 'text/yaml');
+    } catch (e) { console.error('band.yaml auto-save failed:', e); }
   };
+
+  const loadModel = (m) => { setModel(m); setPage('viewer'); };
 
   return (
     <div className="min-h-screen bg-black text-gray-100 flex flex-col font-sans selection:bg-blue-500/30">
@@ -47,7 +56,7 @@ export default function App() {
 
       <main className="flex-1 max-w-[1400px] w-full mx-auto p-6">
         {page === 'runner'
-          ? <RunnerPage pipeline={pipelineRef.current} onResults={onResults} />
+          ? <RunnerPage pipeline={pipelineRef.current} onResults={onResults} onLoadResult={loadModel} />
           : <ViewerPage model={model} onLoadModel={setModel} />}
       </main>
     </div>

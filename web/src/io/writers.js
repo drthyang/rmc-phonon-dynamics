@@ -2,39 +2,25 @@ import { ATOMIC_MASS } from '../constants';
 import { conventionalLattice, reciprocalLattice } from '../math/reciprocal';
 
 /**
- * Full phonopy-style band.yaml writer (port of Writers._write_band_yaml).
- *
- * Atoms in band.yaml are crystallographic BASIS SITES (one per RMC reference
- * number), element-grouped. Eigenvector rows are ordered by sorted reference
- * number (uniqueRN) — the same ordering produced by the diagonalizer — so each
- * site's 3-vector is row `rank[rn]`.
- *
- * @param {Object} baseStructure - enriched: {atomDic, dim, v1,v2,v3, hsym_xyz, atomType, uniqueRN}
- * @param {Array}  qPoints       - fractional q (NOT scaled by 2*pi), ph_band order
- * @param {Array<Float64Array>} bands    - frequency [meV] per q per mode
- * @param {Array<Array<{real,imag}>>} eigvecs - eigenvectors per q per mode
- * @param {Object} kpathMeta     - {segSizes, hsymIndex}
+ * Build the phonopy band-data object (the common structure that both band.yaml
+ * and the fast band.json serialize). Atoms are basis sites (one per RMC
+ * reference number), element-grouped; eigenvector rows are ordered by sorted
+ * reference number (uniqueRN) — so each site's 3-vector is row `rank[rn]`.
  */
-export function generatePhonopyBandYaml(baseStructure, qPoints, bands, eigvecs, kpathMeta) {
+export function buildBandData(baseStructure, qPoints, bands, eigvecs, kpathMeta) {
   const { atomDic, dim, v1, v2, v3, hsym_xyz, atomType, uniqueRN } = baseStructure;
-  const A = conventionalLattice(v1, v2, v3, dim);   // unit-cell lattice (rows a,b,c)
-  const recip = reciprocalLattice(A);                // inv(A).T, no 2*pi
+  const A = conventionalLattice(v1, v2, v3, dim);
+  const recip = reciprocalLattice(A);
 
-  const elements = Object.keys(atomDic);
-  // Basis-site list (element-grouped) and equilibrium fractional positions.
-  const rnToRow = new Map();
-  (uniqueRN || []).forEach((rn, r) => rnToRow.set(rn, r));
+  const rnToRow = new Map((uniqueRN || []).map((rn, r) => [rn, r]));
   const rnToFirstAtom = new Map();
-  if (atomType) for (let i = 0; i < atomType.length; i++) {
-    if (!rnToFirstAtom.has(atomType[i])) rnToFirstAtom.set(atomType[i], i);
-  }
+  if (atomType) for (let i = 0; i < atomType.length; i++) if (!rnToFirstAtom.has(atomType[i])) rnToFirstAtom.set(atomType[i], i);
+
   const atomList = [];
-  for (const el of elements) for (const rn of atomDic[el]) {
+  for (const el of Object.keys(atomDic)) for (const rn of atomDic[el]) {
     let pos = [0, 0, 0];
     const ai = rnToFirstAtom.get(rn);
-    if (ai !== undefined && hsym_xyz) {
-      pos = [hsym_xyz[ai * 3] % 1.0, hsym_xyz[ai * 3 + 1] % 1.0, hsym_xyz[ai * 3 + 2] % 1.0];
-    }
+    if (ai !== undefined && hsym_xyz) pos = [hsym_xyz[ai * 3] % 1, hsym_xyz[ai * 3 + 1] % 1, hsym_xyz[ai * 3 + 2] % 1];
     atomList.push({ el, rn, pos });
   }
 
@@ -43,11 +29,8 @@ export function generatePhonopyBandYaml(baseStructure, qPoints, bands, eigvecs, 
   const segSizes = kpathMeta?.segSizes || [nQ];
   const hsymIndex = kpathMeta?.hsymIndex || {};
 
-  // Segment-start flat indices (zero the distance increment there).
   const segStarts = new Set();
   { let off = 0; for (const sz of segSizes) { segStarts.add(off); off += sz; } }
-
-  // Cumulative path distance in A^-1 (no 2*pi).
   const distances = [0];
   for (let i = 1; i < nQ; i++) {
     if (segStarts.has(i)) { distances.push(distances[i - 1]); continue; }
@@ -58,58 +41,79 @@ export function generatePhonopyBandYaml(baseStructure, qPoints, bands, eigvecs, 
     distances.push(distances[i - 1] + Math.sqrt(cx * cx + cy * cy + cz * cz));
   }
 
-  const f = (x) => Number(x).toFixed(10);
-  const lines = [];
-  lines.push(`nqpoint: ${nQ}`);
-  lines.push(`npath: ${segSizes.length}`);
-  lines.push('segment_nqpoint:');
-  for (const sz of segSizes) lines.push(`- ${sz}`);
-  lines.push('reciprocal_lattice:');
-  for (let r = 0; r < 3; r++) lines.push(`- [ ${f(recip[r][0])}, ${f(recip[r][1])}, ${f(recip[r][2])} ] # ${['a*', 'b*', 'c*'][r]}`);
-  lines.push(`natom: ${atomList.length}`);
-  lines.push('lattice:');
-  for (let r = 0; r < 3; r++) lines.push(`- [ ${f(A[r][0])}, ${f(A[r][1])}, ${f(A[r][2])} ] # ${['a', 'b', 'c'][r]}`);
-  lines.push('points:');
-  for (const a of atomList) {
-    lines.push(`- symbol: ${a.el}`);
-    lines.push(`  coordinates: [ ${f(a.pos[0])}, ${f(a.pos[1])}, ${f(a.pos[2])} ]`);
-    lines.push(`  mass: ${(ATOMIC_MASS[a.el] || 0).toFixed(5)}`);
-  }
-  lines.push('phonon:');
+  const points = atomList.map(a => ({ symbol: a.el, coordinates: a.pos, mass: ATOMIC_MASS[a.el] || 0 }));
+  const phonon = [];
   for (let qi = 0; qi < nQ; qi++) {
-    const q = qPoints[qi];
-    lines.push(`- q-position: [ ${q[0].toFixed(8)}, ${q[1].toFixed(8)}, ${q[2].toFixed(8)} ]`);
-    lines.push(`  distance: ${distances[qi].toFixed(8)}`);
-    if (hsymIndex[qi] !== undefined) lines.push(`  label: '${hsymIndex[qi]}'`);
-    lines.push('  band:');
+    const band = [];
     for (let m = 0; m < nModes; m++) {
-      lines.push(`  - # ${m + 1}`);
-      lines.push(`    frequency: ${Number(bands[qi][m]).toFixed(10)}`);
+      const rec = { frequency: bands[qi][m] };
       const ev = eigvecs?.[qi]?.[m];
+      if (ev) rec.eigenvector = atomList.map(a => {
+        const r = rnToRow.get(a.rn);
+        return [[ev.real[r * 3], ev.imag[r * 3]], [ev.real[r * 3 + 1], ev.imag[r * 3 + 1]], [ev.real[r * 3 + 2], ev.imag[r * 3 + 2]]];
+      });
+      band.push(rec);
+    }
+    const p = { 'q-position': qPoints[qi], distance: distances[qi], band };
+    if (hsymIndex[qi] !== undefined) p.label = hsymIndex[qi];
+    phonon.push(p);
+  }
+
+  return { nqpoint: nQ, npath: segSizes.length, segment_nqpoint: segSizes, reciprocal_lattice: recip, natom: atomList.length, lattice: A, points, phonon };
+}
+
+/** Serialize band-data to a phonopy-style band.yaml string. */
+export function generatePhonopyBandYaml(baseStructure, qPoints, bands, eigvecs, kpathMeta) {
+  const d = buildBandData(baseStructure, qPoints, bands, eigvecs, kpathMeta);
+  const f = (x) => Number(x).toFixed(10);
+  const L = [];
+  L.push(`nqpoint: ${d.nqpoint}`);
+  L.push(`npath: ${d.npath}`);
+  L.push('segment_nqpoint:');
+  for (const sz of d.segment_nqpoint) L.push(`- ${sz}`);
+  L.push('reciprocal_lattice:');
+  for (let r = 0; r < 3; r++) L.push(`- [ ${f(d.reciprocal_lattice[r][0])}, ${f(d.reciprocal_lattice[r][1])}, ${f(d.reciprocal_lattice[r][2])} ] # ${['a*', 'b*', 'c*'][r]}`);
+  L.push(`natom: ${d.natom}`);
+  L.push('lattice:');
+  for (let r = 0; r < 3; r++) L.push(`- [ ${f(d.lattice[r][0])}, ${f(d.lattice[r][1])}, ${f(d.lattice[r][2])} ] # ${['a', 'b', 'c'][r]}`);
+  L.push('points:');
+  for (const p of d.points) {
+    L.push(`- symbol: ${p.symbol}`);
+    L.push(`  coordinates: [ ${f(p.coordinates[0])}, ${f(p.coordinates[1])}, ${f(p.coordinates[2])} ]`);
+    L.push(`  mass: ${p.mass.toFixed(5)}`);
+  }
+  L.push('phonon:');
+  for (const q of d.phonon) {
+    L.push(`- q-position: [ ${q['q-position'][0].toFixed(8)}, ${q['q-position'][1].toFixed(8)}, ${q['q-position'][2].toFixed(8)} ]`);
+    L.push(`  distance: ${q.distance.toFixed(8)}`);
+    if (q.label !== undefined) L.push(`  label: '${q.label}'`);
+    L.push('  band:');
+    for (let m = 0; m < q.band.length; m++) {
+      L.push(`  - # ${m + 1}`);
+      L.push(`    frequency: ${Number(q.band[m].frequency).toFixed(10)}`);
+      const ev = q.band[m].eigenvector;
       if (ev) {
-        lines.push('    eigenvector:');
-        for (let j = 0; j < atomList.length; j++) {
-          const r = rnToRow.get(atomList[j].rn);
-          lines.push(`    - # atom ${j + 1}`);
-          for (let c = 0; c < 3; c++) {
-            const idx = r * 3 + c;
-            lines.push(`      - [ ${f(ev.real[idx])}, ${f(ev.imag[idx])} ]`);
-          }
+        L.push('    eigenvector:');
+        for (let a = 0; a < ev.length; a++) {
+          L.push(`    - # atom ${a + 1}`);
+          for (let c = 0; c < 3; c++) L.push(`      - [ ${f(ev[a][c][0])}, ${f(ev[a][c][1])} ]`);
         }
       }
     }
   }
-  return lines.join('\n') + '\n';
+  return L.join('\n') + '\n';
 }
 
-export function downloadString(text, filename) {
-  const blob = new Blob([text], { type: 'text/yaml' });
+/** Serialize band-data to a compact JSON (≈10× faster to reload than YAML). */
+export function generateBandJson(baseStructure, qPoints, bands, eigvecs, kpathMeta) {
+  return JSON.stringify(buildBandData(baseStructure, qPoints, bands, eigvecs, kpathMeta));
+}
+
+export function downloadString(text, filename, type = 'text/plain') {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

@@ -4,15 +4,17 @@ import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '..
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { buildBZModel, displayLabel } from '../math/highsym';
+import { fromBandText } from '../io/viewermodel';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import DatasetInspector from '../components/DatasetInspector';
+import { Upload } from 'lucide-react';
 
 /**
  * Runner page — the full data → structure → k-path → run workflow, mirroring the
  * legacy rmcph_gui 4-step runner (folder, structure override, displacement
  * reference, editable k-path segments, T, degenerate tolerance).
  */
-export default function RunnerPage({ pipeline, onResults }) {
+export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
   const [dirHandle, setDirHandle] = useState(null);
   const [filesList, setFilesList] = useState([]);
   const [configFamily, setConfigFamily] = useState(null);
@@ -123,6 +125,15 @@ export default function RunnerPage({ pipeline, onResults }) {
           <button onClick={handleSelectFolder} className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 py-3 px-4 rounded-xl font-medium">
             <FolderOpen className="w-5 h-5" />{dirHandle ? 'Change Directory' : 'Select Directory'}
           </button>
+
+          <label className="mt-2 w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 py-2 px-4 rounded-xl text-sm cursor-pointer">
+            <Upload className="w-4 h-4" />Load saved result (.yaml/.json)
+            <input type="file" accept=".yaml,.yml,.json" className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return;
+              try { const m = fromBandText(await file.text()); onLoadResult(m); }
+              catch (err) { setProgressText('Load failed: ' + err.message); }
+            }} />
+          </label>
 
           {rmc6fList.length > 1 && (
             <div className="mt-4">
