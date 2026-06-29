@@ -64,9 +64,11 @@ every push to `main` (Vite `base` set to the project subpath via `VITE_BASE`).
 
 ## References and acknowledgments
 
-The data-processing pipeline (RMCProfile → phonopy YAML), INS simulation, and DOS
-calculations were developed for this project by Tsung-Han Yang. The 3D
-visualization concepts are adapted from the **phononwebsite** project [4].
+The data-processing pipeline (RMCProfile → phonopy YAML), INS simulation, DOS
+calculations, and the WebGPU 3D mode viewer were developed for this project by
+Tsung-Han Yang. The viewer follows the phonon-mode display convention of the
+**phononwebsite** project [4], which also underpins the original viewer kept in
+`archive/viz/`.
 
 1. Dove, M. T. (1993). *Introduction to Lattice Dynamics*. Cambridge University Press.
 2. Goodwin, A. L., Tucker, M. G., Dove, M. T., & Keen, D. A. (2004). Phonons from powder diffraction: A quantitative model-independent evaluation. *Physical Review Letters*, **93**, 075502. https://doi.org/10.1103/PhysRevLett.93.075502
