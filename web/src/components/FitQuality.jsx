@@ -39,7 +39,7 @@ async function computeBars(ents, onProgress, isCancelled) {
  */
 const DIM = 'var(--dim)', FAINT = 'var(--faint)', INK = 'var(--ink)', ACCENT = 'var(--accent)', ACCENTINK = 'var(--accentInk)';
 
-export default function FitQuality({ dirHandle }) {
+export default function FitQuality({ dirHandle, onFlagged }) {
   const [fitDir, setFitDir] = useState(null);    // folder scanned for RMCProfile fit CSVs
   const [entries, setEntries] = useState([]);
   const [bars, setBars] = useState([]);          // [{ rw }] aligned to entries
@@ -47,6 +47,7 @@ export default function FitQuality({ dirHandle }) {
   const [detail, setDetail] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
+  const [sigma, setSigma] = useState(2);         // flag configs worse than mean + sigma·std
 
   // Adopt the dataset folder by default; the user can point elsewhere (the
   // RMCProfile *_XFQ1.csv outputs sometimes live in a separate folder).
@@ -92,20 +93,28 @@ export default function FitQuality({ dirHandle }) {
   const nConfigs = entries.length;
   const maxRw = bars.reduce((m, b) => Math.max(m, b.rw), 0) || 1;
   const meanRw = bars.length ? bars.reduce((s, b) => s + b.rw, 0) / bars.length : 0;
-  const worseCount = bars.reduce((n, b) => n + (b.rw > meanRw ? 1 : 0), 0);
+  const stdRw = bars.length ? Math.sqrt(bars.reduce((s, b) => s + (b.rw - meanRw) ** 2, 0) / bars.length) : 0;
+  const threshold = meanRw + sigma * stdRw;   // configs with Rw above this are flagged "bad"
+  const worseCount = bars.reduce((n, b) => n + (b.rw > threshold ? 1 : 0), 0);
   const selBar = bars[sel];
   const selRw = selBar?.rw;
-  // Emphasise fit quality *relative to the average*: configs at/below the mean
-  // Rw read as a calm teal, configs worse than average ramp toward red by how
-  // far above the mean they sit. Fills are translucent so a few hundred bars
-  // read as a distribution instead of one solid block.
+  // Configs above the mean + sigma·std threshold are flagged red; the rest teal.
   const rwColor = (rw) => {
-    if (rw <= meanRw) return 'hsla(168, 52%, 48%, 0.5)';
-    const t = Math.max(0, Math.min(1, (rw - meanRw) / ((maxRw - meanRw) || 1)));
-    return `hsla(${Math.round(30 * (1 - t) + 6 * t)}, 78%, ${Math.round(56 - t * 8)}%, ${0.5 + t * 0.4})`;
+    if (rw <= threshold) return 'hsla(168, 52%, 48%, 0.5)';
+    const t = Math.max(0, Math.min(1, (rw - threshold) / ((maxRw - threshold) || 1)));
+    return `hsla(${Math.round(22 * (1 - t) + 6 * t)}, 82%, ${Math.round(56 - t * 10)}%, ${0.7 + t * 0.3})`;
   };
-  // Pixel height of a bar (and the average guide line) within the 104px body.
+  // Pixel height of a bar (and the threshold guide line) within the 104px body.
   const barH = (rw) => Math.max(2, Math.round(6 + (rw / maxRw) * 92));
+
+  // Report the flagged config numbers (+ sigma) up so the Run step can exclude them.
+  useEffect(() => {
+    if (!onFlagged) return;
+    const cfgs = [];
+    for (let i = 0; i < bars.length; i++) if (bars[i].rw > threshold) cfgs.push(entries[i].config);
+    onFlagged(cfgs, sigma);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bars, sigma]);
 
   const title = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -167,9 +176,15 @@ export default function FitQuality({ dirHandle }) {
       {/* R-value overview */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, gap: 12 }}>
-          <span style={{ font: "11px 'Space Mono'", color: DIM, whiteSpace: 'nowrap' }}>
-            R-value per configuration <span style={{ color: FAINT }}>(click a bar to inspect)</span>
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, font: "11px 'Space Mono'", color: DIM, whiteSpace: 'nowrap' }}>
+            <span>R-value per configuration <span style={{ color: FAINT }}>(click a bar to inspect)</span></span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>flag &gt;
+              <select value={sigma} onChange={e => setSigma(+e.target.value)} title="flag configs whose Rw exceeds mean + Nσ"
+                style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 4px', font: "12px 'Space Mono'", color: ACCENTINK, cursor: 'pointer' }}>
+                {[1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
+              </select>σ
+            </span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
             <span>config</span>
             <input type="number" min={1} max={nConfigs} value={sel + 1}
@@ -188,12 +203,12 @@ export default function FitQuality({ dirHandle }) {
         <div style={{ position: 'relative', background: 'var(--inset)', border: `1px solid var(--border)`, borderRadius: 9, padding: '12px 12px 0' }}>
           <span style={{ position: 'absolute', top: 7, left: 12, font: "10px 'Space Mono'", color: FAINT }}>Rw {maxRw.toFixed(1)}%</span>
           <span style={{ position: 'absolute', top: 7, right: 12, font: "10px 'Space Mono'", color: FAINT }}>
-            <span style={{ color: 'hsl(12,78%,52%)' }}>●</span> {worseCount} of {nConfigs} worse than average
+            <span style={{ color: 'hsl(12,82%,50%)' }}>●</span> {worseCount} of {nConfigs} &gt; {sigma}σ
           </span>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 1 : nConfigs > 60 ? 2 : 3, height: 104, overflow: 'hidden', borderBottom: `1.5px solid var(--dim)` }}>
-            {/* average-Rw guide: bars rising above this line fit worse than the mean */}
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: barH(meanRw), borderTop: '1px dashed var(--faint)', pointerEvents: 'none', zIndex: 2 }}>
-              <span style={{ position: 'absolute', right: 0, top: -12, font: "9px 'Space Mono'", color: FAINT }}>avg {meanRw.toFixed(1)}%</span>
+            {/* threshold guide (mean + Nσ): bars rising above it are flagged */}
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: Math.min(barH(threshold), 101), borderTop: '1px dashed var(--warnInk)', pointerEvents: 'none', zIndex: 2 }}>
+              <span style={{ position: 'absolute', right: 0, top: -12, font: "9px 'Space Mono'", color: 'var(--warnInk)' }}>{sigma}σ · {threshold.toFixed(1)}%</span>
             </div>
             {bars.map((b, i) => {
               const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);

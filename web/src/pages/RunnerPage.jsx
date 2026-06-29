@@ -51,6 +51,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
   const [runDos, setRunDos] = useState(true);
   const [dosN, setDosN] = useState(10);                 // q-grid is N × N × N
+  const [flaggedConfigs, setFlaggedConfigs] = useState([]); // config #s flagged by fit quality
+  const [flagSigma, setFlagSigma] = useState(2);
+  const [excludeBad, setExcludeBad] = useState(false);  // drop flagged configs from the run
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -142,13 +145,24 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const setSegN = (i, n) => setSegNpoints(m => ({ ...m, [i]: Math.max(2, n) }));
   const onPathChange = (segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); };
 
+  // Map a structure-file handle → its config number (…_N.rmc6f / …N.txt), so the
+  // fit-quality-flagged configs can be excluded from the run.
+  const configNumOf = (h) => { const m = (h?.name || '').match(/(\d+)\.(?:rmc6f|txt)$/i); return m ? +m[1] : null; };
+  const flaggedSet = useMemo(() => new Set(flaggedConfigs), [flaggedConfigs]);
+  const flaggedInRun = flaggedSet.size ? filesList.filter(f => flaggedSet.has(configNumOf(f))).length : 0;
+
   const run = async () => {
     if (!filesList.length || !baseStructure) return;
     if (!pipeline) { setProgressText('Compute engine still initializing — try again in a moment.'); return; }
     if (segments.length < 1) { setProgressText('Build a k-path first (click ≥2 high-symmetry points).'); return; }
+    const runFiles = (excludeBad && flaggedSet.size)
+      ? filesList.filter(f => !flaggedSet.has(configNumOf(f))) : filesList;
+    if (!runFiles.length) { setProgressText('Every configuration is flagged/excluded — raise the σ threshold or turn off exclusion.'); return; }
     setIsProcessing(true); setProgress(0); setDosEnergies(null);
     lastMsg.current = '';
-    setLogLines([`▶ Run started · T = ${temperature} K · degen tol ${degenerateTol}`]);
+    const excluded = filesList.length - runFiles.length;
+    setLogLines([`▶ Run started · T = ${temperature} K · degen tol ${degenerateTol}`
+      + (excluded ? ` · excluding ${excluded} configs flagged > ${flagSigma}σ (${runFiles.length} used)` : '')]);
     setProgressText('Starting…');
     try {
       const { qFrac, segSizes, hsymIndex } = buildKPathFromSegments(pointsConv, segments);
@@ -164,13 +178,13 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       }
 
       pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); pushLog(t); };
-      const res = await pipeline.runCalculation(filesList, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol });
+      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol });
 
       let dos = null;
       if (runDos) {
         pushLog(`Computing phonon DOS · q-grid ${dosN}³…`);
         try {
-          const d = await pipeline.computeDOSGrid(filesList, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle });
+          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle });
           setDosEnergies(d.energies);
           dos = { energies: d.energies, gridN: d.gridN };
           pushLog(`Phonon DOS · ${d.nq} q-points × ${d.nModes} modes`);
@@ -261,7 +275,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
         </div>
 
         {/* fit quality */}
-        <FitQuality dirHandle={dirHandle} />
+        <FitQuality dirHandle={dirHandle} onFlagged={(cfgs, sig) => { setFlaggedConfigs(cfgs); setFlagSigma(sig); }} />
       </section>
 
       {/* ════════ GROUP 2 · RECIPROCAL SPACE & k-PATH ════════ */}
@@ -351,6 +365,19 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 <span style={{ font: "12.5px 'Space Mono'", color: FAINT }}>³ = {dosN ** 3} pts</span>
               </span>
             </label>
+
+            {flaggedConfigs.length > 0 && (
+              <label onClick={() => setExcludeBad(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '11px 13px', cursor: 'pointer', marginBottom: 16 }}>
+                <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: excludeBad ? ACCENT : 'transparent', border: `2px solid ${excludeBad ? ACCENT : 'var(--bar)'}` }}>
+                  {excludeBad && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
+                </span>
+                <span style={{ font: "13px 'Spline Sans'", color: INK }}>Exclude flagged configurations</span>
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: excludeBad ? ACCENTINK : FAINT }}>
+                  {flaggedInRun} configs · &gt; {flagSigma}σ
+                </span>
+              </label>
+            )}
 
             {/* launch */}
             <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 15 }}>
