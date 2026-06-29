@@ -1,7 +1,8 @@
 # Computation-cell framework — implementation plan
 
-Status: **Phase 0 in progress.** This is the reference plan; build piece by piece
-and check work against it.
+Status: **Phase 0 complete** (`math/cells.js` + `test/cells_test.mjs`, in
+`npm run validate`; pure, not yet wired). **Phase 1 is next.** This is the
+reference plan; build piece by piece and check work against it.
 
 ## Problem
 
@@ -48,16 +49,48 @@ The one substantive science change: S(k) is indexed by **basis site τ**
 fine), band connection, and the viewer model (`baseStructure` must carry the
 basis; eigvecs length `3·N_basis`).
 
+## Reference construction is cell-aware
+
+The displacement reference is **not** independent of the cell. RMC is solved in a
+**P1 supercell**, so the assumption-free reference is the **per-site ensemble
+mean** — each physical site is its own average, nothing symmetrized (this is
+what the app does today, and it's correct for P1). Choosing a *smaller* cell
+folds symmetry-equivalent sites onto one basis site τ, which introduces an
+**additional averaging** — and that is exactly where the symmetry is imposed.
+It is twofold:
+
+1. **Reference positions** — `bf_τ` = mean of the equivalent sites' average
+   positions → a *symmetrized* equilibrium (`relabelAtoms` already returns this).
+2. **Statistics** — pooling those sites' displacement covariances into one per-τ
+   block (more samples per site, on the assumption they're equivalent).
+
+So **picking the cell sets how much the equilibrium is symmetrized.** Expose a
+**reference mode**:
+
+| Mode | u = | Meaning |
+|---|---|---|
+| symmetrized-site (default, cell-consistent) | `r − (R_n + bf_τ)` | equilibrium has the chosen cell's symmetry; `u` includes each atom's *static* offset from the symmetrized site. More samples per site. |
+| per-atom | `r − r̄_atom` | each atom about its own ensemble mean; pure dynamic fluctuation; the cell only regroups (P1 extreme = the whole supercell). |
+
+They converge for a truly symmetric, well-sampled crystal and diverge when the
+RMC average is genuinely distorted (the "symmetry lower than FCC" case).
+**Phase 0 only computes the labels + `bf_τ` (no displacement change); applying
+the reference and pooling the statistics is Phase 1.**
+
 ## Phases
 
-- **Phase 0 — data model + re-labeling (pure, no behavior change).**
+- **Phase 0 — data model + re-labeling (pure, no behavior change). ✅ DONE.**
   `math/cells.js` (`det3/inv3/matMul3/vecMat3`, `cellVectors`, `tilesSupercell`,
-  `relabelAtoms`) + Node tests. Every atom → exactly one (n,τ); basis consistent
-  across cells; positions reconstruct. *← current.*
-- **Phase 1 — generalize S(k) to per-basis-site over arbitrary P.** Reuse the
-  WGSL phase kernel; group by basis site instead of element; feed `n` in L
-  units. Default `P = I` with the **conventional BZ path** (X at ½) → fixes the
-  Γ→X symmetry self-consistently.
+  `relabelAtoms`) + Node tests (`test/cells_test.mjs`, in `npm run validate`).
+  Every atom → exactly one (n,τ); basis consistent across cells; circular-mean
+  `bf_τ` with boundary-snap so cell origins stay shared.
+- **Phase 1 — generalize S(k) to per-basis-site over arbitrary P. ← next.**
+  Reuse the WGSL phase kernel; group by basis site instead of element; feed `n`
+  in L units. Build the **cell-aware reference** (per-basis-site mean; expose the
+  symmetrized-site vs per-atom **reference mode** above) and compute `u` from it.
+  Default `P = I` with the **conventional BZ path** (X at ½) → fixes the Γ→X
+  symmetry self-consistently. *This is the first real behavior change* (S(k) dim
+  → `3·N_basis`; viewer-model `baseStructure` grows a basis).
 - **Phase 2 — UI cell selector + custom supercell** (`Conventional | Custom
   n₁×n₂×n₃`).
 - **Phase 3 — primitive cell via symmetry.** Derive primitive `P` from

@@ -13,6 +13,22 @@ hosted on GitHub Pages._
 - [x] **GitHub Pages hosting** via a CI build of `web/`.
 - [x] **band.yaml / band.json** export and load.
 
+## In progress — computation-cell framework
+
+Choose the unit cell S(k) is computed over (conventional / primitive / custom
+supercell). Fixes the spurious Γ→X mirror symmetry (a cell-convention mismatch,
+not the `2π`). Full plan + reference-mode discussion in
+[`web/docs/cell-framework-plan.md`](web/docs/cell-framework-plan.md).
+
+- [x] **Phase 0** — `math/cells.js` re-labeling (atom → cell n, basis τ) + tests.
+- [ ] **Phase 1** — per-basis-site S(k) over an arbitrary cell + cell-aware
+      reference (symmetrized-site vs per-atom mode); default conventional cell
+      with a self-consistent conventional BZ path. *(first behavior change)*
+- [ ] **Phase 2** — UI cell selector + custom supercell.
+- [ ] **Phase 3** — primitive cell via symmetry (the unfolded dispersion).
+- [ ] **Phase 4** — polish (per-cell high-sym path, lower-symmetry averages,
+      mixed-occupancy policy).
+
 ## Near-term
 
 - [ ] **CIF equilibrium-reference** — accept a `.cif` for the displacement
