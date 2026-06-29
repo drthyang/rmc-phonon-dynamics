@@ -11,6 +11,14 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const pipelineRef = useRef(null);
 
+  // The app requires WebGPU + the File System Access API, which today only
+  // ship together in Chromium browsers. Detect what's missing so we can tell
+  // non-Chromium users (Safari/Firefox) to switch rather than hit a broken app.
+  const missingFeatures = [
+    typeof navigator !== 'undefined' && navigator.gpu ? null : 'WebGPU',
+    typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function' ? null : 'folder access (File System Access API)',
+  ].filter(Boolean);
+
   useEffect(() => {
     const p = new PhononPipeline(() => {});
     pipelineRef.current = p;
@@ -77,6 +85,20 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Unsupported-browser notice (Safari/Firefox lack WebGPU and/or folder access). */}
+      {missingFeatures.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 24px', background: 'rgba(240,102,59,0.10)', borderBottom: '1px solid rgba(240,102,59,0.30)', color: 'var(--warnInk)' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none', marginTop: 1 }}>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4" /><path d="M12 17h.01" />
+          </svg>
+          <div style={{ font: "13px/1.55 'Spline Sans'" }}>
+            <span style={{ fontWeight: 600 }}>This browser isn't supported.</span>{' '}
+            It lacks {missingFeatures.join(' and ')}, which the app needs to compute and load data.
+            Please open this page in a <b>Chromium-based browser</b> (Google Chrome or Microsoft Edge), over HTTPS or localhost.
+          </div>
+        </div>
+      )}
 
       {/* Both pages stay mounted; we toggle visibility so switching tabs never
           remounts a page (Runner keeps its loaded dataset, k-path, run state, and
