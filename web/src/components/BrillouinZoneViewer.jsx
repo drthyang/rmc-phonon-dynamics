@@ -103,9 +103,11 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const onClick = (ev) => {
+      // Normalise by the canvas's actual on-screen rect (not the captured layout
+      // w/h) so picking is correct under CSS zoom and after resizes.
       const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((ev.clientX - rect.left) / w) * 2 - 1;
-      mouse.y = -((ev.clientY - rect.top) / h) * 2 + 1;
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
       const hit = raycaster.intersectObjects(pointsGroup.children)[0];
       if (!hit) return;
