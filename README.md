@@ -1,8 +1,9 @@
 # Phonon Calculation Code for RMCProfile
 
 > **The current application is in [`web/`](web/)** — a browser-based React + WebGPU
-> app (static / GitHub-Pages hostable). `src/`, `src_gpu/`, `rmcph_gui/`, and
-> `viz/` are the **legacy** Python runner + viewer, kept for reference only.
+> app (static / GitHub-Pages hostable). The earlier Python runner + viewer
+> (`src/`, `src_gpu/`, `rmcph_gui/`, `viz/`) have been moved to
+> [`archive/`](archive/) and are kept for reference only.
 > See [`web/README.md`](web/README.md) and [`web/FEATURE_PARITY_REPORT.md`](web/FEATURE_PARITY_REPORT.md).
 
 ## Overview
@@ -10,16 +11,16 @@
 
 The code is designed to calculate phonon band structures, phonon density of states, neutron-weighted vibrational spectra, and real-space irreducible representations from RMC-derived structural configurations.
 
-A browser-based phonon visualization utility is also available:
+The standalone phonon visualization utility (now archived) is still hosted:
 
-**Phonon Visualization UI:**  
-[https://drthyang.github.io/rmc-phonon-dynamics/viz/rmcph.html](https://drthyang.github.io/rmc-phonon-dynamics/viz/rmcph.html)
+**Phonon Visualization UI (legacy):**  
+[https://drthyang.github.io/rmc-phonon-dynamics/archive/viz/rmcph.html](https://drthyang.github.io/rmc-phonon-dynamics/archive/viz/rmcph.html)
 
-Two local tools document their own usage:
-- **RMC Phonon Runner** — [`rmcph_gui/`](rmcph_gui/README.md): a local web app to
+Two **legacy** local tools (under [`archive/`](archive/)) document their own usage:
+- **RMC Phonon Runner** — [`archive/rmcph_gui/`](archive/rmcph_gui/README.md): a local web app to
   select a data folder, view the structure & Brillouin zone, build a k-path, run
   the `src_gpu` calculation with live progress, and open the result in the viewer.
-- **RMC Phonon Viewer** — [`viz/`](viz/README.md): the browser viewer for the
+- **RMC Phonon Viewer** — [`archive/viz/`](archive/viz/README.md): the browser viewer for the
   resulting band structure, S(Q,E), DOS, and 3D phonon modes.
 
 This utility is a combined effort of custom scientific data processing and adapted open-source visualization tools:
@@ -36,12 +37,15 @@ This utility is a combined effort of custom scientific data processing and adapt
 - **Inelastic Neutron Scattering:** Calculate phonon DOS specifically for INS comparison.
 - **Irreducible Representations (IRs):** Compute and visualize IRs in real-space.
 
-## System Requirements
+## System Requirements (legacy Python engines)
 
-This repository contains both CPU (`src/`) and GPU (`src_gpu/`) implementations.
+> The sections below describe the archived Python engines under
+> [`archive/`](archive/). For the current app see [`web/`](web/).
 
-* **Standard Version (`src/`):** Compatible with **macOS**, **Linux**, and **Windows**. Runs on standard CPUs.
-* **GPU Version (`src_gpu/`):** High-performance implementation using JAX, achieving a 20x speedup over the standard CPU version for massive dataset processing.
+The archive contains both CPU (`archive/src/`) and GPU (`archive/src_gpu/`) implementations.
+
+* **Standard Version (`archive/src/`):** Compatible with **macOS**, **Linux**, and **Windows**. Runs on standard CPUs.
+* **GPU Version (`archive/src_gpu/`):** High-performance implementation using JAX, achieving a 20x speedup over the standard CPU version for massive dataset processing.
 
 ## Prerequisites
 
@@ -73,20 +77,20 @@ Ensure you have the following installed:
 
 The codebase is split between CPU and GPU implementations:
 
-- **`src/`**: Main source code (CPU-based, compatible with all systems)
+- **`archive/src/`**: Main source code (CPU-based, compatible with all systems)
   - `main.py`: Core logic and entry point for standard phonon calculations.
   - `Readers.py`: Handles parsing of RMCProfile output files and structural configuration data.
   - `Calculators.py`: Contains the core physics algorithms for dynamical matrices and DOS computations.
   - `Writers.py`: Manages file output for logs, data tables, and visualization exports.
   - `Visualization.py`: Plotting utilities for band structures and densities of states.
 
-- **`src_gpu/`**: High-performance GPU source code
+- **`archive/src_gpu/`**: High-performance GPU source code
   - `main.py`: Primary script for GPU-accelerated phonon calculations.
 
 - **`data/`**: Input data files and configuration templates.
 - **`results/`**: Directory where output plots and calculation results are saved.
 
-## GPU Computation Pipeline (`src_gpu/`)
+## GPU Computation Pipeline (`archive/src_gpu/`)
 
 ### Stage 1 — Setup
 | Step | Function | Description |
@@ -170,7 +174,7 @@ Create the initial configuration files required for the ensemble calculations.
 **4. Run RMC modelings**
 Create the initial configuration files required for the ensemble calculations.
 ```bash
-python ./src_gpu/main.py
+python ./archive/src_gpu/main.py
 ```
 
 
