@@ -1,23 +1,36 @@
-import React, { useState, useMemo } from 'react';
-import { FolderOpen, Play, Settings, Database, Network } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { buildBZModel, displayLabel } from '../math/highsym';
+import { phononDOS } from '../math/dos';
+import { DEFAULT_COLORS } from '../constants';
 import { fromBandText } from '../io/viewermodel';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import CrystalViewer from '../components/CrystalViewer';
-import DatasetInspector from '../components/DatasetInspector';
 import FitQuality from '../components/FitQuality';
-import PhononDOS from '../components/PhononDOS';
-import { Upload } from 'lucide-react';
+import SciChart from '../components/SciChart';
+
+/* ── style tokens ─────────────────────────────────────────────────────── */
+const INK = 'var(--ink)', DIM = 'var(--dim)', FAINT = 'var(--faint)';
+const ACCENT = 'var(--accent)', ACCENTINK = 'var(--accentInk)', BORDER = 'var(--border)';
+const cardTitle = { font: "600 13px 'Space Grotesk'", letterSpacing: '.01em', color: INK };
+const eyebrow = { font: "10px 'Space Mono'", letterSpacing: '.16em', color: FAINT };
+const stepBtn = { border: 'none', background: 'transparent', cursor: 'pointer', width: 24, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: DIM, fontSize: 9, lineHeight: 1 };
+
+const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
+const sub = (n) => String(n).split('').map(c => SUB[c] || c).join('');
 
 /**
- * Runner page — the full data → structure → k-path → run workflow, mirroring the
- * legacy rmcph_gui 4-step runner (folder, structure override, displacement
- * reference, editable k-path segments, T, degenerate tolerance).
+ * Runner page (Cobalt redesign) — three numbered groups:
+ *   1 · Data & assessment   (folder, crystal preview, fit quality)
+ *   2 · Reciprocal space & k-path   (Brillouin zone, editable segments)
+ *   3 · Run calculation   (displacement reference, parameters, launch + log)
+ *
+ * The compute/io/math layers are untouched; this only reshapes the UI around
+ * the same data shapes and the live PhononPipeline.
  */
-export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
+export default function RunnerPage({ pipeline, ready, onResults, onLoadResult }) {
   const [dirHandle, setDirHandle] = useState(null);
   const [filesList, setFilesList] = useState([]);
   const [configFamily, setConfigFamily] = useState(null);
@@ -25,25 +38,33 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
   const [structureName, setStructureName] = useState(null);
   const [baseStructure, setBaseStructure] = useState(null);
 
-  const [refMode, setRefMode] = useState('average');     // 'average' | 'file'
+  const [refMode, setRefMode] = useState('average');   // 'average' | 'file'
   const [refName, setRefName] = useState('');
 
   const [temperature, setTemperature] = useState(5);
   const [degenerateTol, setDegenerateTol] = useState(5e-3);
-  const [density, setDensity] = useState(20);            // default points/segment
+  const [density, setDensity] = useState(20);           // pts / Å⁻¹
 
-  const [bzSegments, setBzSegments] = useState([]);      // [{from,to}] label pairs
-  const [pointsConv, setPointsConv] = useState({});      // label -> conventional fractional
-  const [segNpoints, setSegNpoints] = useState({});      // {segIndex: npoints} overrides
+  const [bzSegments, setBzSegments] = useState([]);     // [{from,to}]
+  const [pointsConv, setPointsConv] = useState({});     // label -> conventional fractional
+  const [segNpoints, setSegNpoints] = useState({});     // {segIndex: npoints override}
+
+  const [runDos, setRunDos] = useState(true);
+  const [dosN] = useState(20);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
+  const [logLines, setLogLines] = useState([]);
+  const [dosEnergies, setDosEnergies] = useState(null);
 
-  // Bravais analysis (seekpath-style): primitive cell + BZ + standard points.
-  // Memoized so bzModel keeps a STABLE identity across re-renders — otherwise the
-  // BZ viewer's build effect re-runs every render and resets the camera (you
-  // couldn't orbit the zone).
+  const lastMsg = useRef('');
+  const logEl = useRef(null);
+  const cell111 = useMemo(() => [1, 1, 1], []);
+  const pushLog = (t) => { if (t && t !== lastMsg.current) { lastMsg.current = t; setLogLines(l => [...l, t]); } };
+  useEffect(() => { if (logEl.current) logEl.current.scrollTop = logEl.current.scrollHeight; }, [logLines]);
+
+  // Bravais / BZ — memoized for STABLE identity (keeps the three.js cameras).
   const bravais = useMemo(
     () => (baseStructure?.v1 && baseStructure.basis
       ? analyzeBravais(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim), baseStructure.basis)
@@ -52,25 +73,39 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
   );
   const bzModel = useMemo(() => (bravais ? buildBZModel(bravais) : null), [bravais]);
 
-  // Static crystal-structure preview (basis sites of one conventional cell),
-  // available before running. Memoized so CrystalViewer doesn't rebuild/reset.
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;
     const b = baseStructure.basis;
     return {
       v1: baseStructure.v1, v2: baseStructure.v2, v3: baseStructure.v3, dim: baseStructure.dim,
       atomDic: baseStructure.atomDic,
-      uniqueRN: b.map(x => x.rn),
-      atomType: b.map(x => x.rn),
+      uniqueRN: b.map(x => x.rn), atomType: b.map(x => x.rn),
       hsym_xyz: Float64Array.from(b.flatMap(x => x.frac)),
       cellIdx: new Float64Array(b.length * 3),
     };
   }, [baseStructure]);
 
+  // Crystallographic readout (unit cell from supercell vectors / dim).
+  const readout = useMemo(() => {
+    if (!baseStructure?.v1) return null;
+    const { v1, v2, v3, dim, atomDic } = baseStructure;
+    const norm = (v) => Math.hypot(v[0], v[1], v[2]);
+    const ang = (u, v) => Math.acos(Math.max(-1, Math.min(1, (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (norm(u) * norm(v))))) * 180 / Math.PI;
+    const a = norm(v1) / (dim?.[0] || 1), b = norm(v2) / (dim?.[1] || 1), c = norm(v3) / (dim?.[2] || 1);
+    const counts = Object.entries(atomDic).map(([el, arr]) => [el, arr.length]);
+    const sites = counts.reduce((s, [, n]) => s + n, 0);
+    const formula = counts.map(([el, n]) => n > 1 ? `${el}${sub(n)}` : el).join(' ');
+    return {
+      formula, sites,
+      a: a.toFixed(3), b: b.toFixed(3), c: c.toFixed(3),
+      al: ang(v2, v3).toFixed(0), be: ang(v1, v3).toFixed(0), ga: ang(v1, v2).toFixed(0),
+      supercell: dim ? dim.join(' × ') : '—',
+    };
+  }, [baseStructure]);
+
   const loadStructure = async (handle, name) => {
     const info = await readBaseStructure(handle);
-    setBaseStructure(info);
-    setStructureName(name);
+    setBaseStructure(info); setStructureName(name);
   };
 
   const handleSelectFolder = async () => {
@@ -79,16 +114,13 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
       setDirHandle(dh);
       const { files, family } = await listConfigs(dh);
       setFilesList(files); setConfigFamily(family);
-      const rlist = await listRmc6f(dh);
-      setRmc6fList(rlist);
-
-      if (family === 'rmc6f' && files.length > 0) {
-        await loadStructure(files[0], files[0].name);
-      } else if (family === 'frac') {
+      setRmc6fList(await listRmc6f(dh));
+      if (family === 'rmc6f' && files.length > 0) await loadStructure(files[0], files[0].name);
+      else if (family === 'frac') {
         const sh = await findStructureFile(dh);
         if (!sh) { setProgressText('Frac configs found but no .rmc6f structure file in this folder.'); setBaseStructure(null); return; }
         await loadStructure(sh, sh.name);
-      } else { setBaseStructure(null); }
+      } else setBaseStructure(null);
     } catch (err) { console.error(err); }
   };
 
@@ -97,20 +129,29 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
     if (item) await loadStructure(item.handle, name);
   };
 
-  // Segments from the BZ path, with optional per-segment npoints overrides.
-  const segments = bzSegments.map((s, i) => ({ from: s.from, to: s.to, npoints: segNpoints[i] ?? density }));
+  // Per-segment reciprocal-space length (Å⁻¹) → density-driven npoints.
+  const segLen = (s) => {
+    const a = bzModel?.points?.[s.from]?.cart, b = bzModel?.points?.[s.to]?.cart;
+    if (!a || !b) return 1;
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  };
+  const defN = (s) => Math.max(2, Math.round(density * segLen(s)));
+  const segments = bzSegments.map((s, i) => ({ from: s.from, to: s.to, npoints: segNpoints[i] ?? defN(s) }));
   const totalK = segments.reduce((a, s) => a + Math.max(2, s.npoints), 0);
+
+  const setSegN = (i, n) => setSegNpoints(m => ({ ...m, [i]: Math.max(2, n) }));
+  const onPathChange = (segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); };
 
   const run = async () => {
     if (!filesList.length || !baseStructure) return;
     if (!pipeline) { setProgressText('Compute engine still initializing — try again in a moment.'); return; }
     if (segments.length < 1) { setProgressText('Build a k-path first (click ≥2 high-symmetry points).'); return; }
-    setIsProcessing(true); setProgress(0); setProgressText('Starting…');
+    setIsProcessing(true); setProgress(0); setDosEnergies(null);
+    lastMsg.current = '';
+    setLogLines([`▶ Run started · T = ${temperature} K · degen tol ${degenerateTol}`]);
+    setProgressText('Starting…');
     try {
-      // pointsConv maps labels -> CONVENTIONAL fractional reciprocal coords, which
-      // is what the calculation needs (the supercell tiles the conventional cell).
       const { qFrac, segSizes, hsymIndex } = buildKPathFromSegments(pointsConv, segments);
-      // Convert internal labels (GAMMA, …) to display (Γ) for plot axis labels.
       const hsymDisplay = {};
       for (const [k, v] of Object.entries(hsymIndex)) hsymDisplay[k] = displayLabel(v);
       const kpathMeta = { qFrac, segSizes, hsymIndex: hsymDisplay };
@@ -122,163 +163,286 @@ export default function RunnerPage({ pipeline, onResults, onLoadResult }) {
         referenceHandle = item.handle;
       }
 
-      pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); };
-      const res = await pipeline.runCalculation(
-        filesList, configFamily, baseStructure, qFrac, temperature, 50,
-        { referenceHandle, degenerateTol }
-      );
+      pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); pushLog(t); };
+      const res = await pipeline.runCalculation(filesList, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol });
+
+      let dos = null;
+      if (runDos) {
+        pushLog(`Computing phonon DOS · q-grid ${dosN}³…`);
+        try {
+          const d = await pipeline.computeDOSGrid(filesList, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle });
+          setDosEnergies(d.energies);
+          dos = { energies: d.energies, gridN: d.gridN };
+          pushLog(`Phonon DOS · ${d.nq} q-points × ${d.nModes} modes`);
+        } catch (e) { if (e.message === 'cancelled') throw e; pushLog('DOS failed: ' + e.message); }
+      }
+      pushLog('Done — opening viewer…');
       setProgressText('Done — opening viewer…');
-      onResults(res, kpathMeta);
+      onResults(res, kpathMeta, dos);
     } catch (e) {
-      if (e.message === 'cancelled') setProgressText('Cancelled.');
-      else { console.error(e); setProgressText('Error: ' + e.message); }
+      if (e.message === 'cancelled') { setProgressText('Cancelled.'); pushLog('■ Cancelled by user'); }
+      else { console.error(e); setProgressText('Error: ' + e.message); pushLog('Error: ' + e.message); }
       setIsProcessing(false);
     }
   };
 
+  const dosCurve = useMemo(() => {
+    if (!dosEnergies) return null;
+    const v = Array.from(dosEnergies).filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+    const Emax = v.length ? Math.max(5, Math.ceil(v[Math.floor(v.length * 0.99)] * 1.1)) : 50;
+    const d = phononDOS(dosEnergies, { sigma: 1.0, Emin: 0, Emax, nE: 400 });
+    return Array.from(d.E, (e, i) => [e, d.dos[i]]);
+  }, [dosEnergies]);
+
+  const canRun = ready && filesList.length > 0 && baseStructure && segments.length > 0 && !isProcessing;
+
   return (
-    <div className="flex flex-col gap-6">
-    <div className="grid grid-cols-12 gap-6">
-      {/* Left: data + reference + settings */}
-      <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
-        <div className="glass-panel rounded-2xl p-6">
-          <div className="flex items-center gap-3 mb-4 text-gray-200"><Database className="w-5 h-5 text-indigo-400" /><h2 className="text-lg font-medium">1 · Data folder</h2></div>
-          <button onClick={handleSelectFolder} className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 py-3 px-4 rounded-xl font-medium">
-            <FolderOpen className="w-5 h-5" />{dirHandle ? 'Change Directory' : 'Select Directory'}
-          </button>
+    <main style={{ maxWidth: 1320, margin: '0 auto', padding: 22, display: 'flex', flexDirection: 'column', gap: 28 }}>
 
-          <label className="mt-2 w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 py-2 px-4 rounded-xl text-sm cursor-pointer">
-            <Upload className="w-4 h-4" />Load saved result (.yaml/.json)
-            <input type="file" accept=".yaml,.yml,.json" className="hidden" onChange={async (e) => {
-              const file = e.target.files?.[0]; if (!file) return;
-              try { const m = fromBandText(await file.text()); onLoadResult(m); }
-              catch (err) { setProgressText('Load failed: ' + err.message); }
-            }} />
-          </label>
+      {/* ════════ GROUP 1 · DATA & ASSESSMENT ════════ */}
+      <section>
+        <GroupHeader n="1" title="Data & assessment" desc="Inspect the configuration & fit before calculating" />
 
-          {rmc6fList.length > 1 && (
-            <div className="mt-4">
-              <label className="text-xs text-gray-400 uppercase tracking-wider block mb-1">Structure file</label>
-              <select value={structureName || ''} onChange={e => onStructureChange(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+        <div style={{ display: 'flex', gap: 14, marginBottom: 14, alignItems: 'stretch' }}>
+          {/* data folder */}
+          <div className="rnr-card" style={{ width: 340, padding: 18, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ ...cardTitle, marginBottom: 13 }}>Data folder</div>
+            <button onClick={handleSelectFolder} className="rnr-btn"
+              style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 8, padding: 11, font: "600 14px 'Space Grotesk'", cursor: 'pointer' }}>
+              {dirHandle ? 'Change directory' : 'Select directory'}
+            </button>
+            <label className="rnr-btn" style={{ width: '100%', marginTop: 8, background: 'var(--bg)', border: `1px solid ${BORDER}`, color: DIM, borderRadius: 8, padding: 9, font: "500 12px 'Spline Sans'", cursor: 'pointer', textAlign: 'center', boxSizing: 'border-box' }}>
+              Load saved result (.yaml / .json)
+              <input type="file" accept=".yaml,.yml,.json" style={{ display: 'none' }} onChange={async (e) => {
+                const file = e.target.files?.[0]; if (!file) return;
+                try { onLoadResult(fromBandText(await file.text())); }
+                catch (err) { setProgressText('Load failed: ' + err.message); }
+              }} />
+            </label>
+
+            {rmc6fList.length > 1 && (
+              <select value={structureName || ''} onChange={e => onStructureChange(e.target.value)}
+                style={{ marginTop: 8, width: '100%', background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 10px', font: "12px 'Space Mono'", color: INK, cursor: 'pointer' }}>
                 {rmc6fList.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
               </select>
+            )}
+
+            <div style={{ marginTop: 14, background: 'var(--inset)', borderRadius: 8, padding: 12, font: "12px/2.05 'Space Mono'", color: DIM }}>
+              <Row k="dir" v={dirHandle ? dirHandle.name + '/' : '—'} />
+              <Row k="configs" v={filesList.length ? `${filesList.length} · ${configFamily}` : '—'} vColor={ACCENTINK} />
+              <Row k="formula" v={readout ? `${readout.formula} · ${readout.sites} sites` : '—'} />
+              {readout && <>
+                <div style={{ marginTop: 7, paddingTop: 7, borderTop: `1px solid ${BORDER}` }}>
+                  <Row k="a, b, c (Å)" v={`${readout.a}, ${readout.b}, ${readout.c}`} />
+                </div>
+                <Row k="α, β, γ" v={`${readout.al}°, ${readout.be}°, ${readout.ga}°`} />
+                <Row k="supercell" v={readout.supercell} />
+              </>}
             </div>
-          )}
-
-          <DatasetInspector directoryName={dirHandle?.name} filesList={filesList} configFamily={configFamily} baseStructure={baseStructure} />
-        </div>
-
-        {/* Displacement reference */}
-        <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-          <div className="flex items-center gap-3 mb-4 text-gray-200"><Settings className="w-5 h-5 text-indigo-400" /><h2 className="text-lg font-medium">Displacement reference (hsym)</h2></div>
-          <label className="flex items-center gap-2 text-sm mb-2">
-            <input type="radio" name="refmode" checked={refMode === 'average'} onChange={() => setRefMode('average')} />
-            Average of all configurations <span className="text-gray-500 text-xs">(default)</span>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="radio" name="refmode" checked={refMode === 'file'} onChange={() => setRefMode('file')} />
-            Equilibrium .rmc6f file:
-          </label>
-          {refMode === 'file' && (
-            <select value={refName} onChange={e => setRefName(e.target.value)} className="mt-2 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
-              <option value="">(select a file)</option>
-              {rmc6fList.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
-            </select>
-          )}
-        </div>
-
-        {/* Run settings */}
-        <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-          <div className="flex items-center gap-3 mb-4 text-gray-200"><Play className="w-5 h-5 text-indigo-400" /><h2 className="text-lg font-medium">4 · Run</h2></div>
-          {bravais && <div className="text-xs text-gray-400 mb-3">Bravais: <span className="text-indigo-300 font-mono">{bravais.code}</span> ({bravais.system}, {bravais.centering}-centered)</div>}
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <Num label="T (K)" value={temperature} step={1} onChange={setTemperature} />
-            <Num label="degen tol" value={degenerateTol} step={0.001} onChange={setDegenerateTol} />
-            <Num label="pts/seg" value={density} step={1} onChange={v => setDensity(Math.max(2, Math.round(v)))} />
           </div>
-          <div className="text-xs text-gray-500 mb-3">{segments.length} segment(s) · {totalK} k-points</div>
-          {isProcessing ? (
-            <div className="flex gap-2">
-              <button disabled className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium bg-blue-600/50">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Processing…
-              </button>
-              <button onClick={() => { pipeline?.cancel(); setProgressText('Cancelling…'); }}
-                className="px-4 py-3 rounded-xl font-medium bg-red-600/80 hover:bg-red-600">Cancel</button>
-            </div>
-          ) : (
-            <button onClick={run}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-500/25">
-              <Play className="w-5 h-5" />Run phonon bands
-            </button>
-          )}
-          {progressText && (
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-gray-400 mb-1"><span className="truncate mr-3">{progressText}</span><span>{Math.round(progress)}%</span></div>
-              <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${progress}%` }} /></div>
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Right: BZ + k-path editor */}
-      <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <div className={`glass-panel rounded-2xl h-[420px] relative ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-            <div className="absolute top-2 left-3 z-10 text-xs text-gray-400 pointer-events-none">2 · Crystal structure</div>
-            {previewStruct
-              ? <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={[1, 1, 1]} showCell={true} showBonds={true} />
-              : <div className="h-full flex items-center justify-center text-gray-500 text-sm">Select a dataset to preview the structure.</div>}
-          </div>
-          <div className={`glass-panel rounded-2xl h-[420px] ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-            <BrillouinZoneViewer bzModel={bzModel} system={bravais?.system}
-              onPathChange={(segs, conv) => { setBzSegments(segs); setPointsConv(conv); setSegNpoints({}); }} />
+          {/* crystal structure */}
+          <div className="rnr-card" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 14, left: 16, zIndex: 2, ...cardTitle }}>Crystal structure</div>
+            <span style={{ position: 'absolute', top: 17, right: 16, zIndex: 2, font: "10px 'Space Mono'", color: FAINT }}>1×1×1 cell</span>
+            <div style={{ flex: 1, minHeight: 236, background: 'var(--inset)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {previewStruct
+                ? <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={cell111} showCell showBonds />
+                : <span style={{ color: FAINT, font: "12px 'Spline Sans'" }}>Select a dataset to preview the structure.</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 16, padding: '10px 16px', borderTop: `1px solid ${BORDER}`, font: "11px 'Space Mono'", color: DIM, flexWrap: 'wrap' }}>
+              {previewStruct
+                ? Object.keys(baseStructure.atomDic).map(el => (
+                    <span key={el}><span style={{ color: DEFAULT_COLORS[el] || '#cccccc' }}>●</span> {el}</span>
+                  ))
+                : <span style={{ color: FAINT }}>elements appear once a dataset is loaded</span>}
+            </div>
           </div>
         </div>
 
-        <div className={`glass-panel rounded-2xl p-6 ${baseStructure ? '' : 'opacity-50 pointer-events-none'}`}>
-          <div className="flex items-center gap-3 mb-4 text-gray-200"><Network className="w-5 h-5 text-amber-500" /><h2 className="text-lg font-medium">3 · k-path segments</h2></div>
-          {segments.length === 0 ? (
-            <p className="text-gray-500 text-sm">Click high-symmetry points above to build a path.</p>
-          ) : (
-            <div className="space-y-2">
-              {segments.map((s, i) => (
-                <div key={i} className="flex items-center gap-3 text-sm">
-                  <span className="font-mono w-20">{displayLabel(s.from)} → {displayLabel(s.to)}</span>
-                  <span className="text-gray-500 text-xs">npoints</span>
-                  <input type="number" min={2} value={s.npoints}
-                    onChange={e => setSegNpoints(m => ({ ...m, [i]: Math.max(2, parseInt(e.target.value) || 2) }))}
-                    className="w-20 bg-white/5 border border-white/10 rounded px-2 py-1 text-sm" />
+        {/* fit quality */}
+        <FitQuality dirHandle={dirHandle} />
+      </section>
+
+      {/* ════════ GROUP 2 · RECIPROCAL SPACE & k-PATH ════════ */}
+      <section>
+        <GroupHeader n="2" title="Reciprocal space & k-path" desc="Click high-symmetry points to build the path" />
+        <div style={{ display: 'flex', gap: 14, height: 420 }}>
+          {/* k-path segments (left, 340 — aligns with the other left-column cards) */}
+          <div className="rnr-card" style={{ width: 340, padding: 18, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ ...cardTitle, marginBottom: 14 }}>k-path segments</div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4 }}>
+              {segments.length === 0 ? (
+                <div style={{ padding: '16px 8px', textAlign: 'center', color: FAINT, font: "12px 'Spline Sans'" }}>
+                  No path defined — press <b style={{ color: ACCENTINK, fontWeight: 600 }}>Default path</b> or click points on the zone.
+                </div>
+              ) : segments.map((s, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--inset)', borderRadius: 8, padding: '8px 12px', flex: 'none' }}>
+                  <span style={{ flex: 1, color: INK, font: "700 14px 'Noto Sans', sans-serif", letterSpacing: '.02em' }}>{displayLabel(s.from)} → {displayLabel(s.to)}</span>
+                  <span style={{ color: FAINT, font: "11px 'Space Mono'" }}>npoints</span>
+                  <Stepper value={s.npoints} onInc={() => setSegN(i, s.npoints + 1)} onDec={() => setSegN(i, s.npoints - 1)} />
                 </div>
               ))}
             </div>
-          )}
+            <div style={{ paddingTop: 14, marginTop: 14, borderTop: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 8 }}>
+              <span style={{ font: "11px 'Space Mono'", color: FAINT }}>density</span>
+              <Stepper width={38} value={density} onInc={() => { setDensity(d => d + 1); setSegNpoints({}); }} onDec={() => { setDensity(d => Math.max(1, d - 1)); setSegNpoints({}); }} />
+              <span style={{ font: "11px 'Space Mono'", color: FAINT }}>pts/Å⁻¹</span>
+              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: FAINT }}>
+                {segments.length} seg · <span style={{ color: ACCENTINK, fontWeight: 700 }}>{totalK} k-pts</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Brillouin zone (right, flex — aligns with Crystal & Run) */}
+          <BrillouinZoneViewer bzModel={bzModel} system={bravais?.system} onPathChange={onPathChange} />
         </div>
-      </div>
-    </div>
+      </section>
 
-    {baseStructure && filesList.length > 0 && (
-      <div className="glass-panel rounded-2xl p-6">
-        <PhononDOS pipeline={pipeline} files={filesList} family={configFamily} baseStructure={baseStructure}
-          temperature={temperature}
-          referenceHandle={refMode === 'file' ? rmc6fList.find(r => r.name === refName)?.handle : null} />
-      </div>
-    )}
+      {/* ════════ GROUP 3 · RUN ════════ */}
+      <section>
+        <GroupHeader n="3" title="Run calculation" />
+        <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
+          {/* displacement reference */}
+          <div className="rnr-card" style={{ width: 340, display: 'flex', flexDirection: 'column', padding: 18 }}>
+            <div style={{ ...cardTitle, marginBottom: 12 }}>Displacement reference</div>
+            <Radio checked={refMode === 'average'} onClick={() => setRefMode('average')}>
+              Ensemble average <span style={{ font: "11px 'Space Mono'", color: FAINT }}>default</span>
+            </Radio>
+            <Radio checked={refMode === 'file'} onClick={() => setRefMode('file')}>Equilibrium .rmc6f file</Radio>
+            {refMode === 'file' && (
+              <div style={{ marginTop: 10, paddingLeft: 26 }}>
+                <select value={refName} onChange={e => setRefName(e.target.value)}
+                  style={{ width: '100%', background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 10px', font: "12px 'Space Mono'", color: INK, cursor: 'pointer' }}>
+                  <option value="">(select a file)</option>
+                  {rmc6fList.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
+                </select>
+                {refName && <div style={{ marginTop: 8, font: "11px 'Space Mono'", color: FAINT }}>selected <span style={{ color: ACCENTINK }}>{refName}</span></div>}
+              </div>
+            )}
+            <div style={{ marginTop: 'auto', paddingTop: 14, font: "11px/1.7 'Spline Sans'", color: FAINT }}>
+              Sets the equilibrium positions r₀ for the displacement field u = r − r₀ that builds the dynamical matrix.
+            </div>
+          </div>
 
-    {dirHandle && (
-      <div className="glass-panel rounded-2xl p-6">
-        <FitQuality dirHandle={dirHandle} />
-      </div>
-    )}
+          {/* run */}
+          <div className="rnr-card" style={{ flex: 1, minWidth: 0, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <span style={cardTitle}>Run</span>
+              {bravais && <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM }}>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>}
+            </div>
+
+            <div style={{ ...eyebrow, marginBottom: 9 }}>PARAMETERS</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '150px 150px', gap: 12, marginBottom: 16 }}>
+              <Field label="T (K)" value={temperature} onChange={v => setTemperature(v)} step={1} />
+              <Field label="degen tol" value={degenerateTol} onChange={v => setDegenerateTol(v)} step={0.001} />
+            </div>
+
+            <div style={{ ...eyebrow, marginBottom: 9 }}>OPTIONS</div>
+            <label onClick={() => setRunDos(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '11px 13px', cursor: 'pointer', marginBottom: 16 }}>
+              <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: runDos ? ACCENT : 'transparent', border: `2px solid ${runDos ? ACCENT : 'var(--bar)'}` }}>
+                {runDos && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
+              </span>
+              <span style={{ font: "13px 'Spline Sans'", color: INK }}>Run Phonon DOS</span>
+              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: FAINT }}>q-grid</span>
+              <span style={{ background: 'var(--card)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '4px 12px', font: "12.5px 'Space Mono'", color: INK }}>{dosN}³</span>
+            </label>
+
+            {/* launch */}
+            <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 15 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ font: "600 13px 'Space Grotesk'", color: INK, whiteSpace: 'nowrap' }}>
+                  {segments.length} segments · <span style={{ color: ACCENTINK }}>{totalK} k-points</span>
+                </div>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  {isProcessing
+                    ? <button onClick={() => { pipeline?.cancel(); setProgressText('Cancelling…'); }} className="rnr-btn"
+                        style={{ background: '#e0564b', color: '#fff', border: 'none', borderRadius: 9, padding: '13px 22px', font: "700 14px 'Space Grotesk'", cursor: 'pointer' }}>■ Cancel</button>
+                    : <button onClick={run} disabled={!canRun} className="rnr-btn"
+                        style={{ background: canRun ? ACCENT : 'var(--inset2)', color: canRun ? '#fff' : FAINT, border: 'none', borderRadius: 9, padding: '13px 28px', font: "700 15px 'Space Grotesk'", cursor: canRun ? 'pointer' : 'default' }}>▶ Run phonon bands</button>}
+                </div>
+              </div>
+              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ flex: 1, minWidth: 0, font: "11px 'Space Mono'", color: DIM, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{progressText || 'idle · ready to compute'}</span>
+                <span style={{ font: "11px 'Space Mono'", color: ACCENTINK, fontWeight: 700 }}>{Math.round(progress)}%</span>
+              </div>
+              <div style={{ marginTop: 6, height: 8, borderRadius: 5, background: 'var(--inset2)', overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: 5, background: ACCENT, width: `${progress}%`, transition: 'width .4s ease' }} />
+              </div>
+              <div ref={logEl} style={{ marginTop: 12, background: '#0f1623', border: '1px solid #1c2740', borderRadius: 9, padding: '11px 13px', height: 120, overflowY: 'auto', font: "11.5px/1.7 'Space Mono'", color: '#9fb3d1' }}>
+                {logLines.length === 0
+                  ? <div style={{ color: '#4a6b8a' }}>› console output will appear here…</div>
+                  : logLines.map((t, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}><span style={{ color: '#4a6b8a' }}>›</span> {t}</div>)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* phonon DOS result (when computed as part of the run) */}
+        {dosCurve && (
+          <div className="rnr-card" style={{ marginTop: 14, padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={cardTitle}>Phonon DOS</span>
+              <span style={{ font: "11px 'Space Mono'", color: DIM }}>{dosN}³ q-grid · Gaussian-broadened</span>
+            </div>
+            <SciChart xLabel="Energy (meV)" yLabel="g(E)" height={220} series={[{ name: 'g(E)', color: ACCENT, width: 1.8, points: dosCurve }]} />
+          </div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+/* ── small building blocks ─────────────────────────────────────────────── */
+function GroupHeader({ n, title, desc }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+      <span style={{ width: 22, height: 22, borderRadius: 6, background: ACCENT, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', font: "700 12px 'Space Grotesk'" }}>{n}</span>
+      <span style={{ font: "600 15px 'Space Grotesk'", letterSpacing: '-.01em', color: INK }}>{title}</span>
+      {desc && <span style={{ font: "12px 'Spline Sans'", color: DIM }}>{desc}</span>}
+      <div style={{ flex: 1, height: 1, background: BORDER, marginLeft: 6 }} />
     </div>
   );
 }
 
-function Num({ label, value, step, onChange }) {
+function Row({ k, v, vColor }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+      <span>{k}</span><span style={{ color: vColor || INK, textAlign: 'right' }}>{v}</span>
+    </div>
+  );
+}
+
+function Stepper({ value, onInc, onDec, width = 42 }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'stretch', background: 'var(--card)', border: `1px solid ${BORDER}`, borderRadius: 7, overflow: 'hidden' }}>
+      <span style={{ padding: '6px 0', width, textAlign: 'center', font: "13px 'Space Mono'", color: ACCENTINK }}>{value}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${BORDER}` }}>
+        <button className="rnr-step" onClick={onInc} title="increase" style={stepBtn}>▲</button>
+        <button className="rnr-step" onClick={onDec} title="decrease" style={{ ...stepBtn, borderTop: `1px solid ${BORDER}` }}>▼</button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, step }) {
   return (
     <div>
-      <label className="text-[10px] text-gray-400 uppercase tracking-wider block mb-1">{label}</label>
+      <div style={{ font: "10.5px 'Space Mono'", color: FAINT, marginBottom: 5 }}>{label}</div>
       <input type="number" step={step} value={value} onChange={e => onChange(parseFloat(e.target.value))}
-        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-sm" />
+        style={{ width: '100%', boxSizing: 'border-box', background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '9px 11px', font: "13px 'Space Mono'", color: INK }} />
     </div>
+  );
+}
+
+function Radio({ checked, onClick, children }) {
+  return (
+    <label onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, font: "13px 'Spline Sans'", color: INK, padding: '9px 10px', borderRadius: 8, background: checked ? 'var(--soft)' : 'transparent', cursor: 'pointer', marginTop: 2 }}>
+      <span style={{ width: 16, height: 16, flex: 'none', borderRadius: '50%', border: `2px solid ${checked ? ACCENT : 'var(--bar)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {checked && <span style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />}
+      </span>
+      {children}
+    </label>
   );
 }

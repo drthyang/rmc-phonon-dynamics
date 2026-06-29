@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { Network } from 'lucide-react';
 
 /**
  * Primitive Brillouin-zone k-path picker (seekpath-style).
@@ -54,7 +53,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0x4f46e5, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+    const faceMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0, transparent: true, opacity: 0.07, side: THREE.DoubleSide });
     for (const face of bz.faces) {
       const pos = [];
       for (let i = 1; i < face.length - 1; i++) pos.push(...face[0], ...face[i], ...face[i + 1]);
@@ -66,11 +65,11 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     for (const [a, b] of bz.edges) edgePos.push(...a, ...b);
     const eg = new THREE.BufferGeometry();
     eg.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
-    scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x818cf8 })));
+    scene.add(new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x9bb0d6 })));
 
     const sphereGeo = new THREE.SphereGeometry(maxR * 0.03, 16, 16);
-    const baseMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
-    const activeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const baseMat = new THREE.MeshBasicMaterial({ color: 0xe06a3b });
+    const activeMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0 });
     const pointsGroup = new THREE.Group();
     scene.add(pointsGroup);
     for (const [label, p] of Object.entries(points)) {
@@ -94,7 +93,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
         if (!a || !b) continue;
         onPath.add(s.from); onPath.add(s.to);
         const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xf59e0b })));
+        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x2f6df0, linewidth: 2 })));
       }
       pointsGroup.children.forEach(m => { m.material = onPath.has(m.userData.label) ? activeMat : baseMat; });
     };
@@ -138,25 +137,39 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
   // Redraw path on segment change.
   useEffect(() => { sceneApi.current?.drawPath(segments); }, [segments]);
 
-  if (!bzModel) return <div className="flex items-center justify-center h-full text-gray-500 text-sm">Load a dataset to build the Brillouin zone.</div>;
+  if (!bzModel) return (
+    <div style={{ flex: 1, minHeight: 268, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', font: "12px 'Spline Sans'" }}>
+      Load a dataset to build the Brillouin zone.
+    </div>
+  );
+
+  const seq = pathLabelSequence(segments);
+  let pathStr = '— none —';
+  if (seq.length) {
+    pathStr = '';
+    for (let i = 0; i < seq.length; i++) {
+      const p = seq[i];
+      if (p === '|') { pathStr += ' | '; continue; }
+      if (i > 0 && seq[i - 1] !== '|') pathStr += '→';
+      pathStr += (bzModel.points[p]?.display || p);
+    }
+  }
 
   return (
-    <div className="bg-black/40 rounded-xl border border-white/5 overflow-hidden flex flex-col h-full relative">
-      <div className="px-4 py-3 border-b border-white/10 bg-white/5 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-          <Network className="w-4 h-4 text-amber-500" />Primitive BZ — {bzModel.variant || bzModel.code}{system ? ` · ${system}` : ''}
-        </h3>
-        <div className="flex gap-1">
-          <button onClick={resetToDefault} className="text-xs bg-white/10 text-gray-300 px-2 py-1 rounded hover:bg-white/20">Default</button>
-          <button onClick={clearPath} className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30">Clear</button>
-        </div>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 14, left: 16, zIndex: 2, font: "600 13px 'Space Grotesk'", letterSpacing: '.01em', color: 'var(--ink)' }}>Brillouin zone</div>
+      <span style={{ position: 'absolute', top: 17, right: 16, zIndex: 2, font: "10px 'Space Mono'", color: 'var(--faint)' }}>
+        {bzModel.code}{system ? ` · ${system}` : ''}
+      </span>
+      <div style={{ flex: 1, minHeight: 268, background: 'var(--inset)', position: 'relative' }}>
+        <div ref={mountRef} style={{ position: 'absolute', inset: 0, cursor: 'crosshair' }} />
       </div>
-      <div className="flex-1 relative">
-        <div ref={mountRef} className="absolute inset-0 cursor-crosshair" />
-        <div className="absolute top-2 left-2 pointer-events-none flex gap-1 flex-wrap max-w-[85%] items-center">
-          {pathLabelSequence(segments).map((p, i) => p === '|'
-            ? <span key={i} className="text-gray-500 text-xs px-0.5">|</span>
-            : <span key={i} className="bg-amber-500 text-black px-1.5 rounded font-bold text-xs">{bzModel.points[p]?.display || p}</span>)}
+      <div style={{ display: 'flex', gap: 9, padding: '9px 12px 9px 16px', borderTop: '1px solid var(--border)', font: "11px 'Space Mono'", color: 'var(--dim)', alignItems: 'center' }}>
+        <span style={{ color: 'var(--faint)' }}>path</span>
+        <span style={{ color: 'var(--ink)', fontFamily: "'Noto Sans', sans-serif", fontWeight: 600, letterSpacing: '.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pathStr}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <button onClick={resetToDefault} className="rnr-btn" style={{ background: 'var(--soft)', color: 'var(--accentInk)', border: 'none', borderRadius: 6, padding: '5px 11px', font: "600 11px 'Space Grotesk'", cursor: 'pointer' }}>Default path</button>
+          <button onClick={clearPath} className="rnr-btn" style={{ background: 'transparent', color: 'var(--dim)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 11px', font: "600 11px 'Space Grotesk'", cursor: 'pointer' }}>Clear</button>
         </div>
       </div>
     </div>
@@ -178,7 +191,7 @@ function makeLabel(text, size) {
   const cv = document.createElement('canvas');
   cv.width = 128; cv.height = 128;
   const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 80px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#2257cf'; ctx.font = "bold 80px 'Noto Sans', sans-serif"; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(text, 64, 64);
   const tex = new THREE.CanvasTexture(cv);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));

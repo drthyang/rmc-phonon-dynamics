@@ -176,7 +176,8 @@ export default function CrystalViewer({
       const pos = new Float32Array(bondPairs.length * 6);
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      bondLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x9aa4b2 }));
+      // Mid grey reads against both the light Runner canvas and the dark Viewer.
+      bondLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x6b7280 }));
       scene.add(bondLines);
     }
 
