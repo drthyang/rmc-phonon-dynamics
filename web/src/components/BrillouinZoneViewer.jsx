@@ -56,7 +56,9 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    const faceMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0, transparent: true, opacity: 0.07, side: THREE.DoubleSide });
+    // depthWrite:false so the translucent faces blend as one tint instead of
+    // showing their fan-triangulation seams as faint triangles.
+    const faceMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
     for (const face of bz.faces) {
       const pos = [];
       for (let i = 1; i < face.length - 1; i++) pos.push(...face[0], ...face[i], ...face[i + 1]);
@@ -72,7 +74,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
 
     const sphereGeo = new THREE.SphereGeometry(maxR * 0.03, 16, 16);
     const baseMat = new THREE.MeshBasicMaterial({ color: 0xe06a3b });
-    const activeMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0 });
+    const activeMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
     const pointsGroup = new THREE.Group();
     scene.add(pointsGroup);
     for (const [label, p] of Object.entries(points)) {
@@ -89,7 +91,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     scene.add(pathGroup);
     // Shared arrowhead (cone) marking each segment's direction.
     const arrowGeo = new THREE.ConeGeometry(maxR * 0.035, maxR * 0.11, 14);
-    const arrowMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0 });
+    const arrowMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
     const YUP = new THREE.Vector3(0, 1, 0);
     const drawPath = (segs) => {
       pathGroup.clear();
@@ -101,7 +103,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
         onPath.add(s.from); onPath.add(s.to);
         const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
         const g = new THREE.BufferGeometry().setFromPoints([va, vb]);
-        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x2f6df0, linewidth: 2 })));
+        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xdc2626, linewidth: 2 })));
         // Arrowhead ~55% along from→to, pointing toward `to`.
         const dir = new THREE.Vector3().subVectors(vb, va);
         const len = dir.length();
