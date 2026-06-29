@@ -39,7 +39,7 @@ async function computeBars(ents, onProgress, isCancelled) {
  */
 const DIM = 'var(--dim)', FAINT = 'var(--faint)', INK = 'var(--ink)', ACCENT = 'var(--accent)', ACCENTINK = 'var(--accentInk)';
 
-export default function FitQuality({ dirHandle, onFlagged }) {
+export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExcludeChange }) {
   const [fitDir, setFitDir] = useState(null);    // folder scanned for RMCProfile fit CSVs
   const [entries, setEntries] = useState([]);
   const [bars, setBars] = useState([]);          // [{ rw }] aligned to entries
@@ -184,6 +184,11 @@ export default function FitQuality({ dirHandle, onFlagged }) {
                 {[1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
               </select>σ
             </span>
+            {onExcludeChange && (
+              <label title="exclude the flagged configs from the calculation" style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: excludeBad ? ACCENTINK : DIM }}>
+                <input type="checkbox" checked={!!excludeBad} onChange={e => onExcludeChange(e.target.checked)} /> exclude
+              </label>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
             <span>config</span>

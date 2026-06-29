@@ -49,7 +49,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [pointsConv, setPointsConv] = useState({});     // label -> conventional fractional
   const [segNpoints, setSegNpoints] = useState({});     // {segIndex: npoints override}
 
-  const [runDos, setRunDos] = useState(true);
+  const [runDos, setRunDos] = useState(false);
   const [dosN, setDosN] = useState(10);                 // q-grid is N × N × N
   const [flaggedConfigs, setFlaggedConfigs] = useState([]); // config #s flagged by fit quality
   const [flagSigma, setFlagSigma] = useState(2);
@@ -275,7 +275,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
         </div>
 
         {/* fit quality */}
-        <FitQuality dirHandle={dirHandle} onFlagged={(cfgs, sig) => { setFlaggedConfigs(cfgs); setFlagSigma(sig); }} />
+        <FitQuality dirHandle={dirHandle} onFlagged={(cfgs, sig) => { setFlaggedConfigs(cfgs); setFlagSigma(sig); }}
+          excludeBad={excludeBad} onExcludeChange={setExcludeBad} />
       </section>
 
       {/* ════════ GROUP 2 · RECIPROCAL SPACE & k-PATH ════════ */}
@@ -366,24 +367,12 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               </span>
             </label>
 
-            {flaggedConfigs.length > 0 && (
-              <label onClick={() => setExcludeBad(v => !v)}
-                style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '11px 13px', cursor: 'pointer', marginBottom: 16 }}>
-                <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: excludeBad ? ACCENT : 'transparent', border: `2px solid ${excludeBad ? ACCENT : 'var(--bar)'}` }}>
-                  {excludeBad && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
-                </span>
-                <span style={{ font: "13px 'Spline Sans'", color: INK }}>Exclude flagged configurations</span>
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: excludeBad ? ACCENTINK : FAINT }}>
-                  {flaggedInRun} configs · &gt; {flagSigma}σ
-                </span>
-              </label>
-            )}
-
             {/* launch */}
             <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 15 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                 <div style={{ font: "600 13px 'Space Grotesk'", color: INK, whiteSpace: 'nowrap' }}>
                   {segments.length} segments · <span style={{ color: ACCENTINK }}>{totalK} k-points</span>
+                  {excludeBad && flaggedInRun > 0 && <span style={{ font: "600 11px 'Space Mono'", color: 'var(--warnInk)' }}> · {flaggedInRun} configs excluded</span>}
                 </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                   {isProcessing
