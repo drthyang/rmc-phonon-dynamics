@@ -93,9 +93,8 @@ export default function App() {
             <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><path d="M12 9v4" /><path d="M12 17h.01" />
           </svg>
           <div style={{ font: "13px/1.55 'Spline Sans'" }}>
-            <span style={{ fontWeight: 600 }}>This browser isn't supported.</span>{' '}
-            It lacks {missingFeatures.join(' and ')}, which the app needs to compute and load data.
-            Please open this page in a <b>Chromium-based browser</b> (Google Chrome or Microsoft Edge), over HTTPS or localhost.
+            <span style={{ fontWeight: 600 }}>Unsupported browser.</span>{' '}
+            Please use <b>Chrome or Edge</b> — this app needs {missingFeatures.join(' and ')}.
           </div>
         </div>
       )}
