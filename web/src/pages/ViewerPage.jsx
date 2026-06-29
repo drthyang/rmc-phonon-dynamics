@@ -5,7 +5,7 @@ import { DEFAULT_COLORS, COVALENT_R } from '../constants';
 import ModeInspector from '../components/ModeInspector';
 import InsPanel from '../components/InsPanel';
 import { generatePhonopyBandYaml, generateBandJson, downloadString } from '../io/writers';
-import { fromBandText } from '../io/viewermodel';
+import { modelFromText } from '../io/phonopyDM';
 
 /* ── Cobalt theme tokens ───────────────────────────────────────────────── */
 const INK = 'var(--ink)', DIM = 'var(--dim)', FAINT = 'var(--faint)';
@@ -87,7 +87,7 @@ export default function ViewerPage({ model, onLoadModel }) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const m = fromBandText(await file.text());
+      const m = modelFromText(await file.text());
       setLoadErr(null); setSelK(0); setSelM(0);
       onLoadModel(m);
     } catch (err) { setLoadErr(err.message); }

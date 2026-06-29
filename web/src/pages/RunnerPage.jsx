@@ -5,7 +5,7 @@ import { analyzeBravais } from '../math/bravais';
 import { buildBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
-import { fromBandText } from '../io/viewermodel';
+import { modelFromText } from '../io/phonopyDM';
 import BrillouinZoneViewer from '../components/BrillouinZoneViewer';
 import CrystalViewer from '../components/CrystalViewer';
 import FitQuality from '../components/FitQuality';
@@ -215,7 +215,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               Load saved result (.yaml / .json)
               <input type="file" accept=".yaml,.yml,.json" style={{ display: 'none' }} onChange={async (e) => {
                 const file = e.target.files?.[0]; if (!file) return;
-                try { onLoadResult(fromBandText(await file.text())); }
+                try { onLoadResult(modelFromText(await file.text())); }
                 catch (err) { setProgressText('Load failed: ' + err.message); }
               }} />
             </label>
