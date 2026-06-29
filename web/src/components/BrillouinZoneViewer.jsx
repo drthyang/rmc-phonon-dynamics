@@ -153,7 +153,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     renderer.domElement.addEventListener('click', onClick);
 
     let id;
-    const loop = () => { id = requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); };
+    const loop = () => { id = requestAnimationFrame(loop); controls.update(); if (!renderer.getContext().isContextLost()) renderer.render(scene, camera); };
     loop();
     const onResize = () => {
       if (!mountRef.current) return;
@@ -161,7 +161,14 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
       camera.aspect = W / H; camera.updateProjectionMatrix(); renderer.setSize(W, H);
     };
     window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('resize', onResize); renderer.domElement.removeEventListener('click', onClick); cancelAnimationFrame(id); renderer.dispose(); sceneApi.current = null; };
+    return () => {
+      window.removeEventListener('resize', onResize);
+      renderer.domElement.removeEventListener('click', onClick);
+      cancelAnimationFrame(id);
+      renderer.dispose();
+      try { renderer.forceContextLoss(); } catch { /* free the WebGL context so contexts don't pile up */ }
+      sceneApi.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bzModel]);
 

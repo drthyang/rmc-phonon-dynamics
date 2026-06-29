@@ -288,6 +288,7 @@ export default function CrystalViewer({
       }
 
       controls.update();
+      if (renderer.getContext().isContextLost()) return;
       renderer.render(scene, camera);
       const G = gifRef.current;
       if (G && G.active) {
@@ -308,7 +309,13 @@ export default function CrystalViewer({
     // to its container (card growth/shrink, fold toggles, column wrap, etc.).
     const ro = new ResizeObserver(onResize);
     ro.observe(mountRef.current);
-    return () => { window.removeEventListener('resize', onResize); ro.disconnect(); cancelAnimationFrame(animId); renderer.dispose(); };
+    return () => {
+      window.removeEventListener('resize', onResize);
+      ro.disconnect();
+      cancelAnimationFrame(animId);
+      renderer.dispose();
+      try { renderer.forceContextLoss(); } catch { /* free the WebGL context so rebuilds don't exhaust them */ }
+    };
   }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondCutoff, bondRules, shading, shadingStrength]);
 
   return <div ref={mountRef} className="w-full h-full min-h-[360px] cursor-move rounded-xl overflow-hidden" />;
