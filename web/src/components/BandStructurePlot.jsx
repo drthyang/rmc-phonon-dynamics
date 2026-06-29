@@ -83,13 +83,20 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     }
 
     // High-symmetry ticks — only those whose distance falls in the x-window.
-    const xticks = [];
+    // Ticks that land at the same x (a break/discontinuity, where two labels
+    // would overlap) are merged into one, e.g. "X,L".
     const hsym = kpathMeta?.hsymIndex || {};
     const eps = xSpan * 1e-6;
-    for (const k of Object.keys(hsym)) {
-      const dx = dist[+k];
-      if (dx >= xLo - eps && dx <= xHi + eps) xticks.push({ x: xOf(dx), label: hsym[k] });
+    const xmap = new Map();
+    for (const k of Object.keys(hsym).map(Number).sort((a, b) => a - b)) {
+      const dx = dist[k];
+      if (!(dx >= xLo - eps && dx <= xHi + eps)) continue;
+      const x = xOf(dx), key = Math.round(x);
+      const e = xmap.get(key) || { x, labels: [] };
+      if (!e.labels.includes(hsym[k])) e.labels.push(hsym[k]);
+      xmap.set(key, e);
     }
+    const xticks = [...xmap.values()].map(e => ({ x: e.x, label: e.labels.join(',') }));
 
     // Adaptive y gridlines across the (zoomed) y-window, with matching decimals.
     const step = niceStep(yHi - yLo);
