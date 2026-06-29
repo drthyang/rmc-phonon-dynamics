@@ -35,6 +35,9 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     setSegments(segs); emit(segs);
   };
   const clearPath = () => { tipRef.current = null; setSegments([]); emit([]); };
+  // Break the path: the next clicked point starts a NEW segment not joined to
+  // the current tip (a discontinuity, rendered as "|" in the path string).
+  const breakPath = () => { tipRef.current = null; sceneApi.current?.drawPath(segments); };
 
   // Build scene once per model.
   useEffect(() => {
@@ -84,6 +87,10 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
 
     const pathGroup = new THREE.Group();
     scene.add(pathGroup);
+    // Shared arrowhead (cone) marking each segment's direction.
+    const arrowGeo = new THREE.ConeGeometry(maxR * 0.035, maxR * 0.11, 14);
+    const arrowMat = new THREE.MeshBasicMaterial({ color: 0x2f6df0 });
+    const YUP = new THREE.Vector3(0, 1, 0);
     const drawPath = (segs) => {
       pathGroup.clear();
       const onPath = new Set();
@@ -92,8 +99,19 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
         const a = points[s.from]?.cart, b = points[s.to]?.cart;
         if (!a || !b) continue;
         onPath.add(s.from); onPath.add(s.to);
-        const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+        const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+        const g = new THREE.BufferGeometry().setFromPoints([va, vb]);
         pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x2f6df0, linewidth: 2 })));
+        // Arrowhead ~55% along from→to, pointing toward `to`.
+        const dir = new THREE.Vector3().subVectors(vb, va);
+        const len = dir.length();
+        if (len > 1e-6) {
+          dir.divideScalar(len);
+          const cone = new THREE.Mesh(arrowGeo, arrowMat);
+          cone.position.copy(va).addScaledVector(dir, len * 0.55);
+          cone.quaternion.setFromUnitVectors(YUP, dir);
+          pathGroup.add(cone);
+        }
       }
       pointsGroup.children.forEach(m => { m.material = onPath.has(m.userData.label) ? activeMat : baseMat; });
     };
@@ -171,6 +189,7 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
         <span style={{ color: 'var(--ink)', fontFamily: "'Noto Sans', sans-serif", fontWeight: 600, letterSpacing: '.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pathStr}</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button onClick={resetToDefault} className="rnr-btn" style={{ background: 'var(--soft)', color: 'var(--accentInk)', border: 'none', borderRadius: 6, padding: '5px 11px', font: "600 11px 'Space Grotesk'", cursor: 'pointer' }}>Default path</button>
+          <button onClick={breakPath} title="Start a disconnected segment — the next point you click won't join the current one" className="rnr-btn" style={{ background: 'transparent', color: 'var(--dim)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 11px', font: "600 11px 'Space Grotesk'", cursor: 'pointer' }}>Break</button>
           <button onClick={clearPath} className="rnr-btn" style={{ background: 'transparent', color: 'var(--dim)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 11px', font: "600 11px 'Space Grotesk'", cursor: 'pointer' }}>Clear</button>
         </div>
       </div>
