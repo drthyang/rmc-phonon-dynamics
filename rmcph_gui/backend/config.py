@@ -15,6 +15,7 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 # Where computed band.yaml / results are written (Phase 4+).
 RESULTS_DIR = REPO_ROOT / "results"
+JOBS_STATE_FILE = RESULTS_DIR / "jobs_state.json"
 
 # Server-side directory browser (Phase 1):
 #   - browsing starts here

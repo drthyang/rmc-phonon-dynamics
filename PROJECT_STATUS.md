@@ -19,22 +19,21 @@ This document is a quick handoff to help contributors pick up work.
 
 ## Known gaps / follow-ups
 
-1. **Resume/reconnect job state after page reload** in `rmcph_gui`.
-2. **Large `band.yaml` UX warnings** (especially when eigenvectors make files huge).
-3. **CIF equilibrium-reference support** for displacement reference selection.
-4. **`.rmc6f` parser optimization** for large ensembles (currently Python-loop heavy).
-5. **Automated tests expansion** across GUI backend APIs + runner integration + viewer parsing paths.
+1. **Large `band.yaml` UX warnings** (especially when eigenvectors make files huge).
+2. **CIF equilibrium-reference support** for displacement reference selection.
+3. **`.rmc6f` parser optimization** for large ensembles (currently Python-loop heavy).
+4. **Automated tests expansion** across GUI backend APIs + runner integration + viewer parsing paths.
 
 ## Recent development notes
 
 - May 26, 2026: Refined `rmcph_gui` Fit Quality figures. Changes include a clickable Rw summary plot over all configurations with percent ticks and a selected-config guide, folded detailed S(Q)/F(Q) and G(r) plots that expand on summary click, external figure-header legends, solid residual baseline styling, hover tooltips, x-axis zoom/reset controls, Rw-only metric display, and tightened axis bounds to remove unnecessary empty plot regions.
 - May 27, 2026: Added `PHYSICS_ALGORITHM_AUDIT.md`, a physics/algorithm handoff covering the active GPU runner flow, displacement and k-vector conventions, energy conversion, band output, risks, and prioritized implementation/debug TODOs.
+- June 8, 2026: Added JSON-backed job-state persistence plus a `/api/jobs/latest` reconnect path. The Run view now restores the latest active or completed job after a page reload and resumes polling active jobs.
 
 ## Suggested next milestones
 
 ### Milestone A — Reliability
-- Add job-state persistence (backend store + reconnect endpoint).
-- Add restart-safe status polling and cancellation reconciliation.
+- Add restart-safe cancellation reconciliation.
 
 ### Milestone B — Performance
 - Profile `.rmc6f` parse/read path and batch conversion.

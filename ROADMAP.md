@@ -7,7 +7,7 @@ _Last updated: 2026-05-26. Current stable release: v0.1.0._
 ## v0.2 — Stability & Reliability
 _Make the app safe to use in real research sessions without losing work._
 
-- [ ] **Job-state persistence** — Backend stores running/completed job state to disk (`rmcph_gui/backend/core/jobs.py`); frontend reconnects and restores the Run panel after a page reload. Currently a crash or reload loses all job context.
+- [x] **Job-state persistence** — Backend stores running/completed job state to disk (`rmcph_gui/backend/core/jobs.py`); frontend reconnects and restores the Run panel after a page reload. Restarted backends mark previously queued/running jobs as interrupted.
 - [ ] **`src/` CPU engine 2π fix** — `src/Calculators.py` still omits the 2π factor in the Bloch phase that was validated and corrected in `src_gpu/`. Align both engines.
 - [ ] **CIF equilibrium-reference support** — The "Equilibrium file" picker in Step 1 already accepts `.cif` but raises `NotImplementedError`. Wire it through the reader.
 - [ ] **Large `band.yaml` guardrails** — Warn before writing eigenvector-included YAML files that can reach hundreds of MB; suggest the JSON fast-path.

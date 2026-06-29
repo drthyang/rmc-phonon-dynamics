@@ -45,6 +45,9 @@ export const api = {
 
     getJob: (id) => getJSON(`/api/jobs/${id}`),
 
+    latestJob: (activeOnly = false) =>
+        getJSON(`/api/jobs/latest?${new URLSearchParams({ active_only: activeOnly ? 'true' : 'false' })}`),
+
     cancelJob: (id) => getJSON(`/api/jobs/${id}/cancel`, { method: 'POST' }),
 
     sqgrConfigs: (folder) =>

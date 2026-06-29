@@ -40,6 +40,11 @@ def list_jobs():
     return jobmod.manager.list()
 
 
+@router.get("/jobs/latest")
+def latest_job(active_only: bool = False):
+    return jobmod.manager.latest(active_only=active_only)
+
+
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str):
     snap = jobmod.manager.get(job_id)

@@ -31,6 +31,8 @@ export function mountRunView(root) {
 
     let schema = { fields: [] };
 
+    restoreLatestJob();
+
     api.listRunners()
         .then((runners) => {
             const r = runners.find((x) => x.name === 'phonon_bands') || runners[0];
@@ -74,7 +76,9 @@ export function mountRunView(root) {
             <tr><td>Dataset</td><td>${dsTxt}</td></tr>
             <tr><td>k-path</td><td>${kpTxt}</td></tr>
           </table>`;
-        goBtn.disabled = !(okDs && okKp);
+        const job = state.get('job');
+        const running = job && ['queued', 'running'].includes(job.status);
+        goBtn.disabled = running || !(okDs && okKp);
     }
 
     if (unsub) unsub();
@@ -84,6 +88,18 @@ export function mountRunView(root) {
     renderSummary();
 
     goBtn.addEventListener('click', submit);
+
+    async function restoreLatestJob() {
+        const remembered = state.get('job');
+        if (remembered) attachJob(remembered);
+        try {
+            let latest = await api.latestJob(true);
+            if (!latest) latest = await api.latestJob(false);
+            if (latest) attachJob(latest);
+        } catch (_) {
+            // Reconnect is opportunistic; the Run form should still work.
+        }
+    }
 
     async function submit() {
         const kp = state.get('kpath');
@@ -102,11 +118,21 @@ export function mountRunView(root) {
           </div>`;
         try {
             const job = await api.submitJob('phonon_bands', params);
-            state.set('job', job);
-            renderJob(job);
-            startPolling(job.id);
+            attachJob(job);
         } catch (err) {
             jobEl.innerHTML = `<p class="err">✗ ${err.message}</p>`;
+            renderSummary();
+        }
+    }
+
+    function attachJob(job) {
+        state.set('job', job);
+        renderJob(job);
+        if (['queued', 'running'].includes(job.status)) {
+            goBtn.disabled = true;
+            startPolling(job.id);
+        } else {
+            stopPolling();
             renderSummary();
         }
     }
@@ -171,8 +197,7 @@ export function mountRunView(root) {
             cancelBtn.disabled = true;
             try {
                 const j = await api.cancelJob(job.id);
-                state.set('job', j);
-                renderJob(j);
+                attachJob(j);
             } catch (err) {
                 cancelBtn.disabled = false;
             }
