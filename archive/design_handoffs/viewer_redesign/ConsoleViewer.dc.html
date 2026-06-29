@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans:wght@500;600;700&family=STIX+Two+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @keyframes blip { 0%,100%{opacity:1} 50%{opacity:.35} }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes recpulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+  @keyframes modeOsc {
+    0%,100% { transform: translate(calc(var(--dx,0) * var(--amp,3) * 1px), calc(var(--dy,0) * var(--amp,3) * 1px)); }
+    50%     { transform: translate(calc(var(--dx,0) * var(--amp,3) * -1px), calc(var(--dy,0) * var(--amp,3) * -1px)); }
+  }
+  .atomO, .atomTi { transform-box: fill-box; transform-origin: center; animation: modeOsc var(--dur,1.8s) ease-in-out infinite; animation-play-state: var(--pstate,running); }
+</style>
+</helmet>
+
+<div style="background:var(--bg,#f4f6f8); font-family:'Spline Sans',sans-serif; color:var(--ink,#1a2230); min-height:100%;">
+
+  <!-- nav -->
+  <div style="height:60px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; background:var(--card,#fff); border-bottom:1px solid var(--border,#e4e7ec);">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <div style="width:30px; height:30px; border-radius:7px; background:var(--accent,#2f6df0); display:flex; align-items:center; justify-content:center;">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+          <g style="transform-box:fill-box; transform-origin:center; animation:spin 9s linear infinite;" stroke="#fff" stroke-width="1.5" opacity="0.95">
+            <ellipse cx="12" cy="12" rx="10" ry="4.1"/>
+            <ellipse cx="12" cy="12" rx="10" ry="4.1" transform="rotate(60 12 12)"/>
+            <ellipse cx="12" cy="12" rx="10" ry="4.1" transform="rotate(120 12 12)"/>
+          </g>
+          <circle cx="12" cy="12" r="2.1" fill="#fff"/>
+        </svg>
+      </div>
+      <div style="font:700 17px 'Space Grotesk'; letter-spacing:-.02em; color:var(--ink,#101826);">RMC Phonon Dynamics</div>
+      <div style="display:flex; gap:2px; margin-left:12px; background:var(--inset2,#eef1f4); border-radius:8px; padding:3px;">
+        <div style="padding:6px 16px; border-radius:6px; font:600 13px 'Space Grotesk'; color:var(--dim,#7b8494);">Runner</div>
+        <div style="padding:6px 16px; border-radius:6px; font:600 13px 'Space Grotesk'; background:var(--accent,#2f6df0); color:#fff;">Viewer</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div style="display:flex; align-items:center; gap:7px; font:11px 'Space Mono'; color:var(--dim,#7b8494);">
+        <span style="color:var(--faint,#9aa1ad);">source</span>
+        <span style="color:var(--accentInk,#2257cf); font-weight:700;">{{ sourceLabel }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 13px; border-radius:7px; background:var(--soft,#e9f0ff);">
+        <div style="width:7px; height:7px; border-radius:50%; background:var(--accent,#2f6df0); animation:blip 2s infinite;"></div>
+        <span style="font:600 12px 'Space Mono'; color:var(--accentInk,#2257cf);">{{ bandsSummary }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="max-width:1320px; margin:0 auto; padding:22px; display:flex; flex-direction:column; gap:16px;">
+
+    <!-- toolbar -->
+    <div style="background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:10px; padding:11px 14px; display:flex; flex-wrap:wrap; align-items:center; gap:14px;">
+      <div style="display:flex; background:var(--inset2,#eef1f4); border-radius:8px; padding:3px;">
+        <button onClick="{{ showModes }}" style="display:flex; align-items:center; gap:7px; padding:7px 15px; border:none; border-radius:6px; cursor:pointer; font:600 13px 'Space Grotesk'; background:{{ modesBg }}; color:{{ modesColor }};">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3v16a2 2 0 0 0 2 2h16"/><path d="M7 16c1.8-7 3.4-7 5 0s3.2 4 5-6"/></svg>
+          Bands + Mode
+        </button>
+        <button onClick="{{ showSqe }}" style="display:flex; align-items:center; gap:7px; padding:7px 15px; border:none; border-radius:6px; cursor:pointer; font:600 13px 'Space Grotesk'; background:{{ sqeBg }}; color:{{ sqeColor }};">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg>
+          S(Q,E)
+        </button>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:9px; font:12px 'Space Mono'; color:var(--dim,#7b8494);">
+        <span style="color:var(--faint,#9aa1ad);">mode</span>
+        <span>k</span>
+        <input type="number" min="1" max="{{ nK }}" value="{{ selK1 }}" onChange="{{ setSelK }}" style="width:54px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:5px 8px; font:13px 'Space Mono'; color:var(--accentInk,#2257cf); text-align:center;" />
+        <span>band</span>
+        <input type="number" min="1" max="{{ nModes }}" value="{{ selM1 }}" onChange="{{ setSelM }}" style="width:48px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:5px 8px; font:13px 'Space Mono'; color:var(--accentInk,#2257cf); text-align:center;" />
+        <span style="font-weight:700; color:{{ energyColor }};">{{ energyStr }}</span>
+      </div>
+
+      <div style="flex:1;"></div>
+
+      <label style="display:flex; align-items:center; gap:7px; cursor:pointer; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px 12px; font:600 12px 'Space Grotesk'; color:var(--dim,#5a6373);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+        Load band.yaml / .json
+        <input type="file" accept=".yaml,.yml,.json" onChange="{{ loadFile }}" style="display:none;" />
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; font:11px 'Space Mono'; color:var(--faint,#9aa1ad); cursor:pointer;"><input type="checkbox" checked="{{ thz }}" onChange="{{ toggleThz }}" /> THz</label>
+
+      <div style="width:1px; height:24px; background:var(--border,#e4e7ec);"></div>
+
+      <button onClick="{{ exportYaml }}" style="display:flex; align-items:center; gap:6px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px 12px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff);">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>band.yaml</button>
+      <button onClick="{{ exportJson }}" style="display:flex; align-items:center; gap:6px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px 12px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff);">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>band.json</button>
+      <button onClick="{{ exportVasp }}" title="POSCAR (eq + displaced mode) + INCAR + KPOINTS" style="display:flex; align-items:center; gap:6px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px 12px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff);">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>VASP</button>
+    </div>
+
+    <!-- ============ MODES TAB ============ -->
+    <sc-if value="{{ isModes }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <!-- band structure -->
+        <div style="background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:10px; padding:14px 16px; position:relative;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <div style="font:600 13px 'Space Grotesk'; color:var(--ink,#101826);">Phonon band structure</div>
+            <div style="display:flex; align-items:center; gap:7px; font:11px 'Space Mono'; color:var(--faint,#9aa1ad);">
+              E-range
+              <input type="number" placeholder="min" value="{{ eMin }}" onChange="{{ setEMin }}" style="width:50px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:4px 6px; font:11px 'Space Mono'; color:var(--ink,#1a2230);" />
+              <input type="number" placeholder="max" value="{{ eMax }}" onChange="{{ setEMax }}" style="width:50px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:4px 6px; font:11px 'Space Mono'; color:var(--ink,#1a2230);" />
+              <button onClick="{{ resetView }}" title="Reset zoom & energy range" style="display:flex; align-items:center; gap:5px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:4px 9px; font:600 11px 'Space Grotesk'; color:var(--dim,#5a6373); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff); color:var(--accent,#2f6df0);">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                Reset
+              </button>
+            </div>
+          </div>
+          <svg ref="{{ plotRef }}" onClick="{{ onPlot }}" viewBox="0 0 760 880" style="display:block; width:100%; height:auto; cursor:crosshair;">
+            <!-- y grid + labels -->
+            <sc-for list="{{ ygrid }}" as="g" hint-placeholder-count="6">
+              <line x1="64" x2="740" y1="{{ g.y }}" y2="{{ g.y }}" stroke="var(--border,#eef1f4)" stroke-width="1"/>
+              <text x="56" y="{{ g.ty }}" text-anchor="end" font-family="STIX Two Text, serif" font-size="11" fill="var(--faint,#9aa1ad)">{{ g.label }}</text>
+            </sc-for>
+            <!-- zero line -->
+            <line x1="64" x2="740" y1="{{ zeroY }}" y2="{{ zeroY }}" stroke="var(--dim,#7b8494)" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.6"/>
+            <!-- high-symmetry dividers + labels -->
+            <sc-for list="{{ xticks }}" as="t" hint-placeholder-count="5">
+              <line x1="{{ t.x }}" x2="{{ t.x }}" y1="30" y2="810" stroke="var(--border,#d8dde6)" stroke-width="1"/>
+              <text x="{{ t.x }}" y="832" text-anchor="middle" font-family="Noto Sans, sans-serif" font-size="16" font-weight="700" fill="var(--ink,#1a2230)">{{ t.label }}</text>
+            </sc-for>
+            <!-- axis frame -->
+            <line x1="64" x2="64" y1="30" y2="810" stroke="var(--dim,#7b8494)" stroke-width="1.1"/>
+            <line x1="64" x2="740" y1="810" y2="810" stroke="var(--dim,#7b8494)" stroke-width="1.1"/>
+            <!-- bands -->
+            <sc-for list="{{ branches }}" as="b" hint-placeholder-count="15">
+              <path d="{{ b.d }}" fill="none" stroke="{{ b.color }}" stroke-width="1.6" stroke-linejoin="round" opacity="0.9"/>
+              <path d="{{ b.neg }}" fill="none" stroke="var(--warn,#e0564b)" stroke-width="2" stroke-linejoin="round" stroke-dasharray="3 2"/>
+            </sc-for>
+            <!-- selection marker -->
+            <circle cx="{{ selCx }}" cy="{{ selCy }}" r="6" fill="var(--warn,#e0564b)" stroke="#fff" stroke-width="2"/>
+            <!-- axis titles -->
+            <text x="20" y="440" font-family="STIX Two Text, serif" font-size="14" fill="var(--dim,#7b8494)" text-anchor="middle" transform="rotate(-90 20 440)">Energy (meV)</text>
+          </svg>
+        </div>
+
+        <!-- 3D mode -->
+        <div style="background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:10px; overflow:hidden; position:relative; display:flex; flex-direction:column;">
+          <div style="position:absolute; top:14px; left:16px; z-index:3; font:600 13px 'Space Grotesk'; color:var(--ink,#101826);">Mode displacement</div>
+          <div style="position:absolute; top:14px; right:16px; z-index:3; display:flex; align-items:center; gap:8px; font:10px 'Space Mono'; color:var(--faint,#aab1bc);">
+            <sc-if value="{{ recording }}" hint-placeholder-val="{{ false }}"><span style="display:flex; align-items:center; gap:5px; color:var(--warnInk,#c1582a);"><span style="width:7px;height:7px;border-radius:50%;background:#e0564b;animation:recpulse 1s infinite;"></span>REC</span></sc-if>
+            <span>{{ supercellLabel }}</span>
+            <button onClick="{{ resetCam }}" title="Reset camera & view" style="display:flex; align-items:center; gap:5px; background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:4px 9px; font:600 11px 'Space Grotesk'; color:var(--dim,#5a6373); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff); color:var(--accent,#2f6df0);">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              Reset
+            </button>
+          </div>
+          <div style="flex:1; min-height:440px; background:var(--inset,#f7f9fa); display:flex; align-items:center; justify-content:center;">
+            <svg viewBox="0 0 300 248" style="width:94%; max-height:430px; --amp:{{ ampVar }}; --dur:{{ durVar }}; --pstate:{{ pstateVar }};">
+              <!-- cell -->
+              <sc-if value="{{ cell }}" hint-placeholder-val="{{ true }}">
+                <g stroke="var(--border,#c4cbd6)" stroke-width="1.3" fill="none">
+                  <path d="M60 100 L195 100 L195 210 L60 210 Z"/>
+                  <path d="M108 57 L243 57 L243 167 L108 167 Z"/>
+                  <path d="M60 100 L108 57 M195 100 L243 57 M195 210 L243 167 M60 210 L108 167"/>
+                </g>
+              </sc-if>
+              <!-- bonds -->
+              <sc-if value="{{ bonds }}" hint-placeholder-val="{{ true }}">
+                <g stroke="var(--faint,#b6bcc6)" stroke-width="{{ bondW }}" opacity="0.7">
+                  <line x1="151" y1="133" x2="151" y2="97"/><line x1="151" y1="133" x2="151" y2="173"/>
+                  <line x1="151" y1="133" x2="112" y2="148"/><line x1="151" y1="133" x2="190" y2="118"/>
+                  <line x1="151" y1="133" x2="129" y2="115"/><line x1="151" y1="133" x2="173" y2="154"/>
+                </g>
+              </sc-if>
+              <!-- displacement vectors -->
+              <sc-if value="{{ vectors }}" hint-placeholder-val="{{ false }}">
+                <g stroke="var(--accent,#2f6df0)" stroke-width="1.6" fill="none" opacity="0.85">
+                  <sc-for list="{{ arrows }}" as="a" hint-placeholder-count="6">
+                    <path d="{{ a.d }}"/>
+                  </sc-for>
+                </g>
+              </sc-if>
+              <!-- atoms -->
+              <g>
+                <sc-for list="{{ srAtoms }}" as="s" hint-placeholder-count="8">
+                  <circle cx="{{ s.x }}" cy="{{ s.y }}" r="{{ srR }}" fill="{{ srFill }}"/>
+                </sc-for>
+                <sc-for list="{{ oAtoms }}" as="o" hint-placeholder-count="6">
+                  <circle class="atomO" style="--dx:{{ o.dx }}; --dy:{{ o.dy }};" cx="{{ o.x }}" cy="{{ o.y }}" r="{{ oR }}" fill="{{ oFill }}"/>
+                </sc-for>
+                <circle class="atomTi" style="--dx:-0.4; --dy:0.3;" cx="151" cy="133" r="{{ tiR }}" fill="{{ tiFill }}"/>
+              </g>
+            </svg>
+          </div>
+          <!-- mode inspector footer (in-flow; never covers the atoms) -->
+          <div style="border-top:1px solid var(--border,#eef1f4); padding:12px 16px; display:flex; align-items:center; gap:22px;">
+            <div style="display:flex; flex-direction:column; gap:4px; min-width:148px;">
+              <div style="display:flex; justify-content:space-between; gap:14px; font:11px 'Space Mono'; color:var(--dim,#7b8494);"><span>mode</span><span style="color:var(--ink,#1a2230);">band {{ selM1 }} · k{{ selK1 }}</span></div>
+              <div style="display:flex; justify-content:space-between; gap:14px; font:11px 'Space Mono'; color:var(--dim,#7b8494);"><span>energy</span><span style="color:{{ energyColor }}; font-weight:700;">{{ energyStr }}</span></div>
+              <div style="display:flex; justify-content:space-between; gap:14px; font:11px 'Space Mono'; color:var(--dim,#7b8494);"><span>k</span><span style="color:var(--ink,#1a2230); font-size:10px;">{{ kFrac }}</span></div>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; gap:5px;">
+              <div style="font:10px 'Space Mono'; letter-spacing:.12em; color:var(--faint,#9aa1ad);">BAND CHARACTER</div>
+              <sc-for list="{{ weights }}" as="w" hint-placeholder-count="3">
+                <div style="display:flex; align-items:center; gap:8px; font:11px 'Space Mono';">
+                  <span style="width:18px; color:var(--dim,#5a6373);">{{ w.el }}</span>
+                  <div style="flex:1; height:7px; border-radius:4px; background:var(--inset2,#eef1f4); overflow:hidden;"><div style="height:100%; border-radius:4px; width:{{ w.pct }}; background:{{ w.color }};"></div></div>
+                  <span style="width:30px; text-align:right; color:var(--dim,#7b8494);">{{ w.pctLabel }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <!-- legend -->
+          <div style="display:flex; gap:16px; padding:10px 16px; border-top:1px solid var(--border,#eef1f4); font:11px 'Space Mono'; color:var(--dim,#7b8494);">
+            <span><span style="color:{{ srFill }};">●</span> Sr</span><span><span style="color:{{ tiFill }};">●</span> Ti</span><span><span style="color:{{ oFill }};">●</span> O</span>
+            <span style="margin-left:auto; color:var(--faint,#9aa1ad);">click a band point to inspect a mode</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- controls -->
+      <div style="background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:10px; padding:18px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:24px;">
+
+        <!-- col 1 · MOTION -->
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div style="font:10px 'Space Mono'; letter-spacing:.16em; color:var(--accentInk,#2257cf);">MOTION</div>
+          <div>
+            <div style="display:flex; justify-content:space-between; font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:5px;"><span>amplitude</span><span style="color:var(--accentInk,#2257cf);">{{ ampLabel }}</span></div>
+            <input type="range" min="0" max="10" step="0.1" value="{{ amp }}" onChange="{{ setAmp }}" style="width:100%; accent-color:var(--accent,#2f6df0);" />
+          </div>
+          <div>
+            <div style="display:flex; justify-content:space-between; font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:5px;"><span>speed</span><span style="color:var(--accentInk,#2257cf);">{{ speedLabel }}</span></div>
+            <input type="range" min="0.01" max="0.3" step="0.01" value="{{ speed }}" onChange="{{ setSpeed }}" style="width:100%; accent-color:var(--accent,#2f6df0);" />
+          </div>
+          <div>
+            <div style="font:10.5px 'Space Mono'; color:var(--faint,#9aa1ad); margin-bottom:6px;">playback</div>
+            <div style="display:flex; gap:7px;">
+              <button onClick="{{ togglePlay }}" style="flex:1; display:flex; align-items:center; justify-content:center; gap:6px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:8px 10px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;">{{ playLabel }}</button>
+              <button onClick="{{ toggleRec }}" style="display:flex; align-items:center; gap:6px; border-radius:7px; padding:8px 10px; font:600 12px 'Space Grotesk'; cursor:pointer; background:{{ recBg }}; border:1px solid {{ recBorder }}; color:{{ recColor }};">{{ recLabel }}</button>
+              <button onClick="{{ gif }}" title="Capture ~50 frames as an animated GIF" style="background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:8px 11px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;">GIF</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- col 2 · VIEW -->
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div style="font:10px 'Space Mono'; letter-spacing:.16em; color:var(--accentInk,#2257cf);">VIEW</div>
+          <div>
+            <div style="font:10.5px 'Space Mono'; color:var(--faint,#9aa1ad); margin-bottom:6px;">supercell</div>
+            <div style="display:flex; gap:8px;">
+              <sc-for list="{{ supercellInputs }}" as="s" hint-placeholder-count="3">
+                <input type="number" min="1" max="6" value="{{ s.v }}" onChange="{{ s.set }}" title="{{ s.label }}" style="width:100%; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px; font:13px 'Space Mono'; color:var(--ink,#1a2230); text-align:center;" />
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="font:10.5px 'Space Mono'; color:var(--faint,#9aa1ad); margin-bottom:6px;">camera axis</div>
+            <div style="display:flex; gap:8px;">
+              <sc-for list="{{ camAxes }}" as="c" hint-placeholder-count="3">
+                <button onClick="{{ c.set }}" style="flex:1; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:7px; font:600 12px 'Space Mono'; color:var(--dim,#5a6373); text-transform:uppercase; cursor:pointer;" style-hover="background:var(--soft,#e9f0ff); color:var(--accent,#2f6df0);">{{ c.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex; justify-content:space-between; font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:5px;"><span>atom size</span><span style="color:var(--accentInk,#2257cf);">{{ atomScaleLabel }}</span></div>
+            <input type="range" min="0.3" max="3" step="0.1" value="{{ atomScale }}" onChange="{{ setAtomScale }}" style="width:100%; accent-color:var(--accent,#2f6df0);" />
+          </div>
+          <label style="display:flex; align-items:center; gap:9px; font:12px 'Spline Sans'; color:var(--ink,#1a2230); cursor:pointer;"><input type="checkbox" checked="{{ cell }}" onChange="{{ toggleCell }}" /> show unit cell</label>
+        </div>
+
+        <!-- col 3 · RENDERING -->
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="font:10px 'Space Mono'; letter-spacing:.16em; color:var(--accentInk,#2257cf);">RENDERING</div>
+          <label style="font:11px 'Space Mono'; color:var(--dim,#7b8494);">representation
+            <select value="{{ style }}" onChange="{{ setStyle }}" style="width:100%; margin-top:5px; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:8px 10px; font:12px 'Spline Sans'; color:var(--ink,#1a2230); cursor:pointer;">
+              <option value="ballstick">ball &amp; stick</option>
+              <option value="spacefill">spacefill</option>
+              <option value="wireframe">wireframe</option>
+            </select>
+          </label>
+          <label style="display:flex; align-items:center; gap:9px; font:12px 'Spline Sans'; color:var(--ink,#1a2230); cursor:pointer;"><input type="checkbox" checked="{{ bonds }}" onChange="{{ toggleBonds }}" /> bonds</label>
+          <div>
+            <div style="display:flex; justify-content:space-between; font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:5px;"><span>bond cutoff</span><span style="color:var(--accentInk,#2257cf);">{{ bondScaleLabel }}</span></div>
+            <input type="range" min="0.6" max="1.8" step="0.05" value="{{ bondScale }}" onChange="{{ setBondScale }}" style="width:100%; accent-color:var(--accent,#2f6df0);" />
+          </div>
+          <label style="display:flex; align-items:center; gap:9px; font:12px 'Spline Sans'; color:var(--ink,#1a2230); cursor:pointer;"><input type="checkbox" checked="{{ shading }}" onChange="{{ toggleShading }}" /> shading</label>
+          <label style="display:flex; align-items:center; gap:9px; font:12px 'Spline Sans'; color:var(--ink,#1a2230); cursor:pointer;"><input type="checkbox" checked="{{ vectors }}" onChange="{{ toggleVectors }}" /> displacement vectors</label>
+        </div>
+
+        <!-- col 4 · ATOM TYPES + STRUCTURE -->
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font:10px 'Space Mono'; letter-spacing:.16em; color:var(--accentInk,#2257cf);">ATOM TYPES</span>
+            <button onClick="{{ resetTypes }}" style="background:none; border:none; cursor:pointer; font:11px 'Space Mono'; color:var(--faint,#9aa1ad); text-decoration:underline;">reset</button>
+          </div>
+          <sc-for list="{{ elements }}" as="e" hint-placeholder-count="3">
+            <div style="display:flex; align-items:center; gap:9px; font:12px 'Space Mono'; color:var(--ink,#1a2230);">
+              <span style="width:24px;">{{ e.el }}</span>
+              <input type="color" value="{{ e.color }}" onChange="{{ e.setColor }}" style="width:30px; height:26px; padding:0; border:1px solid var(--border,#e4e7ec); border-radius:6px; background:transparent; cursor:pointer;" />
+              <input type="number" min="0.1" max="3" step="0.05" value="{{ e.radius }}" onChange="{{ e.setRadius }}" title="radius (Å)" style="flex:1; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:6px 8px; font:12px 'Space Mono'; color:var(--ink,#1a2230);" />
+              <span style="font:10px 'Space Mono'; color:var(--faint,#9aa1ad);">Å</span>
+            </div>
+          </sc-for>
+          <div style="margin-top:6px; padding-top:12px; border-top:1px solid var(--border,#eef1f4); display:flex; flex-direction:column; gap:6px; max-height:170px; overflow-y:auto;">
+          <div style="font:10px 'Space Mono'; letter-spacing:.16em; color:var(--faint,#9aa1ad);">STRUCTURE</div>
+          <details open="">
+            <summary style="font:11px 'Space Mono'; color:var(--dim,#7b8494); cursor:pointer; margin-bottom:6px;">Lattice (Å)</summary>
+            <table style="width:100%; font:11px 'Space Mono'; border-collapse:collapse;">
+              <sc-for list="{{ lattice }}" as="row" hint-placeholder-count="3">
+                <tr><td style="color:var(--faint,#9aa1ad); padding-right:8px;">{{ row.label }}</td><td style="text-align:right; color:var(--ink,#1a2230);">{{ row.a }}</td><td style="text-align:right; color:var(--ink,#1a2230);">{{ row.b }}</td><td style="text-align:right; color:var(--ink,#1a2230);">{{ row.c }}</td></tr>
+              </sc-for>
+            </table>
+          </details>
+          <details>
+            <summary style="font:11px 'Space Mono'; color:var(--dim,#7b8494); cursor:pointer; margin:6px 0;">Atom positions ({{ nSites }})</summary>
+            <table style="width:100%; font:10.5px 'Space Mono'; border-collapse:collapse;">
+              <tr style="color:var(--faint,#9aa1ad);"><td>el</td><td style="text-align:right;">x</td><td style="text-align:right;">y</td><td style="text-align:right;">z</td></tr>
+              <sc-for list="{{ sites }}" as="st" hint-placeholder-count="5">
+                <tr><td style="color:var(--ink,#1a2230);">{{ st.el }}</td><td style="text-align:right; color:var(--dim,#5a6373);">{{ st.x }}</td><td style="text-align:right; color:var(--dim,#5a6373);">{{ st.y }}</td><td style="text-align:right; color:var(--dim,#5a6373);">{{ st.z }}</td></tr>
+              </sc-for>
+            </table>
+          </details>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- ============ S(Q,E) TAB ============ -->
+    <sc-if value="{{ isSqe }}" hint-placeholder-val="{{ false }}">
+    <div style="background:var(--card,#fff); border:1px solid var(--border,#e4e7ec); border-radius:10px; padding:20px;">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+        <span style="width:24px; height:24px; border-radius:6px; background:var(--accent,#2f6df0); display:flex; align-items:center; justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></span>
+        <span style="font:600 15px 'Space Grotesk'; color:var(--ink,#101826);">Simulated INS · S(|Q|,E) &amp; phonon DOS</span>
+        <span style="font:11px 'Space Mono'; color:var(--faint,#9aa1ad);">powder-averaged from eigenvectors</span>
+      </div>
+
+      <!-- params -->
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+        <sc-for list="{{ insParams }}" as="p" hint-placeholder-count="7">
+          <div style="flex:1; min-width:84px;">
+            <div style="font:10px 'Space Mono'; color:var(--faint,#9aa1ad); margin-bottom:5px;">{{ p.label }}</div>
+            <input value="{{ p.value }}" onChange="{{ p.set }}" style="width:100%; box-sizing:border-box; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:8px 10px; font:13px 'Space Mono'; color:var(--ink,#1a2230);" />
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:18px;">
+        <button onClick="{{ insRun }}" style="background:var(--accent,#2f6df0); color:#fff; border:none; border-radius:8px; padding:9px 20px; font:700 13px 'Space Grotesk'; cursor:pointer;">{{ insRunLabel }}</button>
+        <label style="display:flex; align-items:center; gap:7px; font:11px 'Space Mono'; color:var(--dim,#7b8494);">colormap
+          <select value="{{ insCmap }}" onChange="{{ setInsCmap }}" style="background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:6px; padding:6px 9px; font:12px 'Space Mono'; color:var(--ink,#1a2230); cursor:pointer;">
+            <option value="viridis">viridis</option>
+            <option value="magma">magma</option>
+            <option value="gray">gray</option>
+          </select>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font:11px 'Space Mono'; color:var(--dim,#7b8494); cursor:pointer;"><input type="checkbox" checked="{{ insLog }}" onChange="{{ toggleInsLog }}" /> log scale</label>
+        <span style="font:10.5px 'Space Mono'; color:var(--faint,#9aa1ad);">Eᵢ = 0 ⇒ direct (full Q range)</span>
+        <button onClick="{{ insExport }}" style="margin-left:auto; background:var(--inset,#f7f9fa); border:1px solid var(--border,#e4e7ec); border-radius:7px; padding:8px 14px; font:600 12px 'Space Grotesk'; color:var(--ink,#1a2230); cursor:pointer;" style-hover="background:var(--soft,#e9f0ff);">Export S(Q,E) CSV</button>
+      </div>
+
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:20px;">
+        <!-- heatmap -->
+        <div>
+          <div style="font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:8px;">S(|Q|,E) — powder-averaged simulated INS</div>
+          <div style="display:flex; gap:10px;">
+            <div style="display:flex; flex-direction:column; justify-content:space-between; padding:2px 0; font:10px 'Space Mono'; color:var(--faint,#9aa1ad); text-align:right;">
+              <sc-for list="{{ eTicks }}" as="t" hint-placeholder-count="6"><span>{{ t }}</span></sc-for>
+            </div>
+            <div style="flex:1;">
+              <canvas ref="{{ insRef }}" style="width:100%; aspect-ratio:1.6; display:block; border:1px solid var(--border,#e4e7ec); border-radius:8px; image-rendering:pixelated; background:#0b0e16;"></canvas>
+              <div style="display:flex; justify-content:space-between; margin-top:5px; font:10px 'Space Mono'; color:var(--faint,#9aa1ad);">
+                <sc-for list="{{ qTicks }}" as="t" hint-placeholder-count="6"><span>{{ t }}</span></sc-for>
+              </div>
+              <div style="text-align:center; font:10px 'Space Mono'; color:var(--dim,#7b8494); margin-top:2px;">|Q| (Å⁻¹)</div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center; padding-top:2px;">
+              <div style="width:13px; height:200px; border-radius:4px; border:1px solid var(--border,#e4e7ec); background:{{ colorbar }};"></div>
+              <span style="font:10px 'Space Mono'; color:var(--faint,#9aa1ad); margin-top:5px;">S ↑</span>
+            </div>
+          </div>
+          <div style="font:10px 'Space Mono'; color:var(--faint,#9aa1ad); margin-top:6px; transform:translateX(-4px);">E (meV) — vertical axis</div>
+        </div>
+        <!-- DOS -->
+        <div>
+          <div style="font:11px 'Space Mono'; color:var(--dim,#7b8494); margin-bottom:8px;">Phonon DOS</div>
+          <canvas ref="{{ dosRef }}" style="width:100%; aspect-ratio:1.1; display:block; border:1px solid var(--border,#e4e7ec); border-radius:8px; background:var(--inset,#f7f9fa);"></canvas>
+          <div style="text-align:center; font:10px 'Space Mono'; color:var(--dim,#7b8494); margin-top:6px;">g(E) → &nbsp;·&nbsp; energy vertical</div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1320,&quot;height&quot;:1240},&quot;defaultTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;modes&quot;,&quot;options&quot;:[&quot;modes&quot;,&quot;sqe&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;View&quot;},&quot;showSoftMode&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Bands&quot;},&quot;bandPalette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;spectral&quot;,&quot;options&quot;:[&quot;spectral&quot;,&quot;ocean&quot;,&quot;mono&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Bands&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const p = props || {};
+    this.np = [20, 20, 28, 35];
+    this.cum = [0, 0.8045, 1.609, 2.747, 4.140];
+    this.qnodes = [[0,0,0],[0.5,0,0],[0.5,0.5,0],[0,0,0],[0.5,0.5,0.5]];
+    // node energies (meV) per branch at [Γ, X, M, Γ, R] — SrTiO3-like, 15 branches
+    const soft = (p.showSoftMode === false) ? 7 : -4;
+    this.nodeE = [
+      [0,16,22,0,20],[0,14,20,0,17],[0,9,12,0,24],
+      [12,18,9,12,soft],
+      [22,26,28,22,21],[23,28,24,23,27],[33,30,35,33,30],
+      [44,41,46,44,40],[45,49,42,45,47],[55,52,58,55,50],
+      [58,61,56,58,63],[66,70,64,66,68],[78,74,81,78,72],
+      [88,92,85,88,90],[99,95,97,99,94],
+    ];
+    this.nBr = this.nodeE.length;
+    this.colors = this.makeColors(p.bandPalette || 'spectral');
+    this.buildPath();
+    // O atom screen positions (viewBox 300x248) and radial displacement dirs
+    const cx = 151, cy = 133;
+    this.oBase = [[151,97],[151,173],[112,148],[190,118],[129,115],[173,154]].map(([x,y]) => {
+      const dx = +((x - cx) / 26).toFixed(2), dy = +((y - cy) / 26).toFixed(2);
+      return { x, y, dx, dy };
+    });
+    this.srBase = [[60,100],[195,100],[195,210],[60,210],[108,57],[243,57],[243,167],[108,167]];
+    this.lat = [[3.905,0,0],[0,3.905,0],[0,0,3.905]];
+    this.siteList = [
+      ['Sr',0,0,0],['Ti',0.5,0.5,0.5],['O',0.5,0.5,0],['O',0.5,0,0.5],['O',0,0.5,0.5],
+    ];
+    this.state = {
+      tab: p.defaultTab || 'modes', selK: 70, selM: 3,
+      eMin: '', eMax: '', thz: false,
+      playing: true, recording: false, nx: 2, ny: 2, nz: 1, amp: 3, speed: 0.08,
+      style: 'ballstick', bonds: true, bondScale: 1.15, shading: true, vectors: false, cell: true, atomScale: 1,
+      colors: { Sr: '#13a07f', Ti: '#5b677a', O: '#e06a3b' },
+      radii: { Sr: 1.95, Ti: 1.40, O: 0.66 },
+      insCmap: 'viridis', insLog: true, insRun: false,
+      ins: { T: 5, Emin: 0, Emax: 104, sigma: 1.0, Ei: 130, nE: 160, nQ: 140 },
+    };
+  }
+
+  makeColors(pal) {
+    const out = [];
+    for (let m = 0; m < this.nodeE.length; m++) {
+      if (pal === 'ocean') out.push('hsl(' + (196 + m * 7) + ' 56% ' + (52 - m * 1.1) + '%)');
+      else if (pal === 'mono') out.push('hsl(222 58% ' + (30 + m * 3.2) + '%)');
+      else out.push('hsl(' + ((m * 53) % 360) + ' 56% 47%)');
+    }
+    return out;
+  }
+
+  buildPath() {
+    const xs = [], qf = [];
+    const E = this.nodeE.map(() => []);
+    const seg = [[0,1],[1,2],[2,3],[3,4]];
+    for (let s = 0; s < 4; s++) {
+      const n = this.np[s], x0 = this.cum[s], x1 = this.cum[s+1];
+      const qa = this.qnodes[seg[s][0]], qb = this.qnodes[seg[s][1]];
+      for (let i = 0; i < n; i++) {
+        const t = n > 1 ? i / (n - 1) : 0;
+        xs.push(x0 + (x1 - x0) * t);
+        qf.push([0,1,2].map(c => qa[c] + (qb[c] - qa[c]) * t));
+        const sm = 0.5 - 0.5 * Math.cos(Math.PI * t);
+        for (let b = 0; b < this.nBr; b++) {
+          const a = this.nodeE[b][seg[s][0]], c = this.nodeE[b][seg[s][1]];
+          const bulge = Math.sin(Math.PI * t) * (((b * 7 + s * 3) % 5) - 2) * 0.55;
+          E[b].push(a + (c - a) * sm + bulge);
+        }
+      }
+    }
+    this.xs = xs; this.qf = qf; this.E = E; this.tot = xs.length;
+  }
+
+  proj() {
+    const W = 760, H = 880, l = 64, r = 20, t = 30, b = 70, xMax = 4.140;
+    const em = this.state.eMin, ex = this.state.eMax;
+    let yMin = (em !== '' && isFinite(parseFloat(em))) ? parseFloat(em) : -8;
+    let yMax = (ex !== '' && isFinite(parseFloat(ex))) ? parseFloat(ex) : 104;
+    const pW = W - l - r, pH = H - t - b;
+    return {
+      yMin, yMax, t, pH,
+      xOf: d => l + d / xMax * pW,
+      yOf: e => t + pH - (e - yMin) / (yMax - yMin) * pH,
+    };
+  }
+
+  download(name, text, mime) {
+    try {
+      const blob = new Blob([text], { type: mime || 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (e) {}
+  }
+
+  // ---- INS heatmap + DOS drawing ----
+  cmap(t, name) {
+    const C = {
+      viridis: [[11,14,22],[30,58,138],[34,211,238],[254,249,195]],
+      magma: [[5,3,10],[80,18,123],[221,73,104],[252,253,191]],
+      gray: [[14,14,18],[90,90,96],[180,180,186],[245,245,245]],
+    };
+    const s = C[name] || C.viridis;
+    const x = Math.max(0, Math.min(1, t)) * (s.length - 1);
+    const i = Math.min(s.length - 2, Math.floor(x)), f = x - i, a = s[i], c = s[i+1];
+    return [a[0]+f*(c[0]-a[0]), a[1]+f*(c[1]-a[1]), a[2]+f*(c[2]-a[2])];
+  }
+
+  drawIns() {
+    const cv = this.insEl;
+    if (!cv) return;
+    const ip = this.state.ins;
+    const nX = 200, nE = 170;
+    cv.width = nX; cv.height = nE;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(nX, nE);
+    const Emax = ip.Emax || 104, Emin = ip.Emin || 0, sig = ip.sigma || 1, Ei = +ip.Ei || 0;
+    const ebar = this.E.map(r => r.reduce((a, b) => a + Math.abs(b), 0) / r.length);
+    const HB = 2.0723, ki = Ei > 0 ? Math.sqrt(Ei / HB) : 0;
+    const qMax = 11, BG = [11, 14, 22];
+    let Smax = 0;
+    const S = new Float32Array(nX * nE);
+    for (let ei = 0; ei < nE; ei++) {
+      const E = Emin + (ei / (nE - 1)) * (Emax - Emin);
+      for (let qi = 0; qi < nX; qi++) {
+        const Q = (qi + 0.5) / nX * qMax;
+        let v = 0;
+        for (let b = 0; b < ebar.length; b++) {
+          const d = (E - ebar[b]) / sig;
+          v += Math.exp(-0.5 * d * d) * (1 + 0.18 * Math.sin(b * 1.7 + Q * 0.9));
+        }
+        v *= Q * Q * Math.exp(-Q * Q * 0.012);
+        S[qi * nE + ei] = v;
+        if (v > Smax) Smax = v;
+      }
+    }
+    const inv = Smax > 0 ? 1 / Smax : 0, logK = 1 / Math.log1p(1000);
+    for (let ei = 0; ei < nE; ei++) {
+      const E = Emin + (ei / (nE - 1)) * (Emax - Emin);
+      let qlo = -1, qhi = Infinity;
+      if (Ei > 0) {
+        if (E > Ei) { qlo = 1; qhi = -1; }
+        else { const kf = Math.sqrt(Math.max(0, Ei - E) / HB); qlo = Math.abs(ki - kf); qhi = ki + kf; }
+      }
+      for (let qi = 0; qi < nX; qi++) {
+        const px = ((nE - 1 - ei) * nX + qi) * 4;
+        const Q = (qi + 0.5) / nX * qMax;
+        let r, g, bl;
+        if (Ei > 0 && (Q < qlo || Q > qhi)) { [r, g, bl] = BG; }
+        else {
+          const raw = Math.max(0, S[qi * nE + ei] * inv);
+          const t = this.state.insLog ? Math.log1p(raw * 1000) * logK : Math.sqrt(raw);
+          [r, g, bl] = this.cmap(t, this.state.insCmap);
+        }
+        img.data[px] = r; img.data[px+1] = g; img.data[px+2] = bl; img.data[px+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  drawDos() {
+    const cv = this.dosEl;
+    if (!cv) return;
+    const W = 260, H = 236;
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    const cs = getComputedStyle(document.documentElement);
+    const ink = (cs.getPropertyValue('--ink') || '#1a2230').trim();
+    const faint = (cs.getPropertyValue('--faint') || '#9aa1ad').trim();
+    const border = (cs.getPropertyValue('--border') || '#e4e7ec').trim();
+    const acc = (cs.getPropertyValue('--accent') || '#2f6df0').trim();
+    ctx.clearRect(0, 0, W, H);
+    const PL = 30, PB = 18, PT = 8, PR = 8;
+    const Emax = this.state.ins.Emax || 104;
+    const nB = 120, dos = new Float32Array(nB);
+    const sig = 2.4;
+    for (let b = 0; b < this.nBr; b++) for (let k = 0; k < this.tot; k++) {
+      const e = this.E[b][k]; if (e < 0 || e > Emax) continue;
+      const center = e / Emax * (nB - 1);
+      const lo = Math.max(0, Math.floor(center - 8)), hi = Math.min(nB - 1, Math.ceil(center + 8));
+      for (let i = lo; i <= hi; i++) { const d = (i - center); dos[i] += Math.exp(-0.5 * d * d / (sig * sig)); }
+    }
+    let dmax = 0; for (let i = 0; i < nB; i++) if (dos[i] > dmax) dmax = i, dmax = Math.max(dmax, dos[i]);
+    dmax = 0; for (let i = 0; i < nB; i++) dmax = Math.max(dmax, dos[i]);
+    const plotW = W - PL - PR, plotH = H - PT - PB;
+    ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.fillStyle = faint; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const e = (i / 4) * Emax, y = PT + plotH - (i / 4) * plotH;
+      ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - PR, y); ctx.stroke();
+      ctx.fillText(e.toFixed(0), PL - 4, y + 3);
+    }
+    ctx.strokeStyle = acc; ctx.lineWidth = 1.8; ctx.beginPath();
+    for (let i = 0; i < nB; i++) {
+      const x = PL + (dos[i] / (dmax || 1)) * plotW * 0.96;
+      const y = PT + plotH - (i / (nB - 1)) * plotH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = acc + '22';
+    ctx.lineTo(PL, PT); ctx.lineTo(PL, PT + plotH); ctx.closePath(); ctx.fill();
+  }
+
+  componentDidMount() { if (this.state.tab === 'sqe') { this.drawIns(); this.drawDos(); } }
+  componentDidUpdate(prevP, prevS) { if (this.state.tab === 'sqe') { this.drawIns(); this.drawDos(); } }
+
+  set(k, v) { this.setState({ [k]: v }); }
+
+  renderVals() {
+    const st = this.state, pj = this.proj();
+    const isModes = st.tab === 'modes', isSqe = st.tab === 'sqe';
+    const energy = this.E[st.selM] ? this.E[st.selM][st.selK] : 0;
+    const conv = st.thz ? 0.2418 : 1, unit = st.thz ? 'THz' : 'meV';
+    const energyDisp = energy * conv;
+
+    // band paths
+    const branches = this.E.map((row, b) => {
+      let d = '', neg = '', prevNeg = false;
+      for (let k = 0; k < this.tot; k++) {
+        const x = pj.xOf(this.xs[k]).toFixed(1), y = pj.yOf(row[k]).toFixed(1);
+        d += (k ? 'L' : 'M') + x + ' ' + y + ' ';
+        if (row[k] < 0) { neg += (prevNeg ? 'L' : 'M') + x + ' ' + y + ' '; prevNeg = true; } else prevNeg = false;
+      }
+      return { key: b, d: d.trim(), neg: neg.trim(), color: this.colors[b] };
+    });
+    const ygrid = [];
+    for (let e = 0; e <= 100; e += 20) { const y = pj.yOf(e); ygrid.push({ key: e, y: y.toFixed(1), ty: (y + 3.5).toFixed(1), label: e }); }
+    const xticks = this.cum.map((d, i) => ({ key: i, x: pj.xOf(d).toFixed(1), label: ['Γ','X','M','Γ','R'][i] }));
+
+    // band character weights
+    const oF = Math.max(0.08, Math.min(0.86, 0.14 + st.selM / (this.nBr - 1) * 0.72));
+    const rest = 1 - oF, tiF = rest * 0.58, srF = rest * 0.42;
+    const wl = [
+      { el: 'Sr', f: srF, color: st.colors.Sr },
+      { el: 'Ti', f: tiF, color: st.colors.Ti },
+      { el: 'O', f: oF, color: st.colors.O },
+    ].sort((a, b) => b.f - a.f);
+    const weights = wl.map((w, i) => ({ key: i, el: w.el, pct: (w.f * 100).toFixed(0) + '%', pctLabel: (w.f * 100).toFixed(0) + '%', color: w.color }));
+
+    // crystal atoms
+    const aS = st.atomScale, styleFull = st.style === 'spacefill';
+    const srR = (styleFull ? 13 : 8.5) * aS, tiR = (styleFull ? 11 : 10.5) * aS, oR = (styleFull ? 9 : 6) * aS;
+    const wire = st.style === 'wireframe';
+    const dur = ((0.34 - st.speed) * 7).toFixed(2) + 's';
+    const arrows = this.oBase.map((o, i) => {
+      const ex = o.x + o.dx * st.amp * 4, ey = o.y + o.dy * st.amp * 4;
+      const ang = Math.atan2(ey - o.y, ex - o.x);
+      const ah = 4;
+      const ax1 = ex - ah * Math.cos(ang - 0.5), ay1 = ey - ah * Math.sin(ang - 0.5);
+      const ax2 = ex - ah * Math.cos(ang + 0.5), ay2 = ey - ah * Math.sin(ang + 0.5);
+      return { key: i, d: 'M' + o.x + ' ' + o.y + ' L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + ' M' + ax1.toFixed(1) + ' ' + ay1.toFixed(1) + ' L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + ' L' + ax2.toFixed(1) + ' ' + ay2.toFixed(1) };
+    });
+
+    const elements = ['Sr', 'Ti', 'O'].map((el, i) => ({
+      key: el, el,
+      color: st.colors[el], radius: st.radii[el],
+      setColor: e => this.setState({ colors: { ...st.colors, [el]: e.target.value } }),
+      setRadius: e => this.setState({ radii: { ...st.radii, [el]: parseFloat(e.target.value) || st.radii[el] } }),
+    }));
+
+    const lattice = this.lat.map((r, i) => ({ key: i, label: 'abc'[i], a: r[0].toFixed(3), b: r[1].toFixed(3), c: r[2].toFixed(3) }));
+    const sites = this.siteList.map((s, i) => ({ key: i, el: s[0], x: s[1].toFixed(4), y: s[2].toFixed(4), z: s[3].toFixed(4) }));
+
+    const supercellInputs = [
+      { key: 'nx', label: 'nx', v: st.nx, set: e => this.set('nx', Math.max(1, Math.min(6, parseInt(e.target.value) || 1))) },
+      { key: 'ny', label: 'ny', v: st.ny, set: e => this.set('ny', Math.max(1, Math.min(6, parseInt(e.target.value) || 1))) },
+      { key: 'nz', label: 'nz', v: st.nz, set: e => this.set('nz', Math.max(1, Math.min(6, parseInt(e.target.value) || 1))) },
+    ];
+    const camAxes = ['x', 'y', 'z'].map(ax => ({ key: ax, label: ax, set: () => this.setState({ _cam: ax + Math.random() }) }));
+
+    // INS
+    const ip = st.ins;
+    const insField = (label, key) => ({ key, label, value: ip[key], set: e => { const v = parseFloat(e.target.value); this.setState({ ins: { ...ip, [key]: isNaN(v) ? ip[key] : v } }); } });
+    const insParams = [
+      insField('T (K)', 'T'), insField('E min', 'Emin'), insField('E max', 'Emax'),
+      insField('σ (meV)', 'sigma'), insField('Eᵢ (meV)', 'Ei'), insField('nE', 'nE'), insField('nQ', 'nQ'),
+    ];
+    const eTicks = []; for (let i = 5; i >= 0; i--) eTicks.push(((i / 5) * (ip.Emax || 104)).toFixed(0));
+    const qTicks = []; for (let i = 0; i <= 5; i++) qTicks.push(((i / 5) * 11).toFixed(1));
+    const cbarStops = { viridis: '#0b0e16,#1e3a8a,#22d3ee,#fef9c3', magma: '#05030a,#50127b,#dd4968,#fcfdbf', gray: '#0e0e12,#5a5a60,#b4b4ba,#f5f5f5' };
+    const colorbar = 'linear-gradient(to top, ' + (cbarStops[st.insCmap] || cbarStops.viridis) + ')';
+
+    return {
+      sourceLabel: 'runner', bandsSummary: this.nBr + ' modes · ' + this.tot + ' k-pts',
+      isModes, isSqe,
+      showModes: () => this.set('tab', 'modes'), showSqe: () => this.set('tab', 'sqe'),
+      modesBg: isModes ? 'var(--accent,#2f6df0)' : 'transparent', modesColor: isModes ? '#fff' : 'var(--dim,#7b8494)',
+      sqeBg: isSqe ? 'var(--accent,#2f6df0)' : 'transparent', sqeColor: isSqe ? '#fff' : 'var(--dim,#7b8494)',
+
+      nK: this.tot, nModes: this.nBr, selK1: st.selK + 1, selM1: st.selM + 1,
+      setSelK: e => { const v = parseInt(e.target.value); if (!isNaN(v)) this.set('selK', Math.max(0, Math.min(this.tot - 1, v - 1))); },
+      setSelM: e => { const v = parseInt(e.target.value); if (!isNaN(v)) this.set('selM', Math.max(0, Math.min(this.nBr - 1, v - 1))); },
+      energyStr: energyDisp.toFixed(3) + ' ' + unit, energyColor: energy < 0 ? 'var(--warnInk,#c1582a)' : 'var(--accentInk,#2257cf)',
+
+      eMin: st.eMin, eMax: st.eMax,
+      setEMin: e => this.set('eMin', e.target.value), setEMax: e => this.set('eMax', e.target.value),
+      resetView: () => this.setState({ eMin: '', eMax: '' }),
+      thz: st.thz, toggleThz: () => this.set('thz', !st.thz),
+
+      branches, ygrid, xticks, zeroY: pj.yOf(0).toFixed(1),
+      selCx: pj.xOf(this.xs[st.selK]).toFixed(1), selCy: pj.yOf(energy).toFixed(1),
+      plotRef: el => { this.svg = el; },
+      onPlot: e => {
+        const svg = this.svg; if (!svg || !svg.getScreenCTM) return;
+        const ctm = svg.getScreenCTM(); if (!ctm) return;
+        const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+        const loc = pt.matrixTransform(ctm.inverse());
+        let best = null, bd = 1e9;
+        for (let k = 0; k < this.tot; k++) {
+          const x = pj.xOf(this.xs[k]);
+          for (let b = 0; b < this.nBr; b++) {
+            const y = pj.yOf(this.E[b][k]);
+            const dd = (x - loc.x) * (x - loc.x) + (y - loc.y) * (y - loc.y);
+            if (dd < bd) { bd = dd; best = { k, b }; }
+          }
+        }
+        if (best && bd < 600) this.setState({ selK: best.k, selM: best.b });
+      },
+
+      // crystal
+      supercellLabel: st.nx + '×' + st.ny + '×' + st.nz + ' cell',
+      ampVar: (st.amp * 0.6).toFixed(2), durVar: dur, pstateVar: st.playing ? 'running' : 'paused',
+      cell: st.cell, bonds: st.bonds && !wire ? true : st.bonds, vectors: st.vectors,
+      bondW: (st.bondScale * (wire ? 0.9 : 1.6)).toFixed(2),
+      srAtoms: this.srBase.map(([x, y], i) => ({ key: i, x, y })),
+      oAtoms: this.oBase.map((o, i) => ({ key: i, x: o.x, y: o.y, dx: o.dx, dy: o.dy })),
+      srR: srR.toFixed(1), tiR: tiR.toFixed(1), oR: oR.toFixed(1),
+      srFill: wire ? 'none' : st.colors.Sr, tiFill: wire ? 'none' : st.colors.Ti, oFill: wire ? 'none' : st.colors.O,
+      arrows,
+
+      kFrac: '[' + this.qf[st.selK].map(v => v.toFixed(3)).join(', ') + ']', weights,
+
+      // animation controls
+      amp: st.amp, ampLabel: '×' + st.amp.toFixed(1), setAmp: e => this.set('amp', parseFloat(e.target.value)),
+      speed: st.speed, speedLabel: st.speed.toFixed(2), setSpeed: e => this.set('speed', parseFloat(e.target.value)),
+      playing: st.playing, playLabel: st.playing ? '❚❚ Pause' : '▶ Play', togglePlay: () => this.set('playing', !st.playing),
+      recording: st.recording, recLabel: st.recording ? '■ Stop' : '● WebM', toggleRec: () => this.set('recording', !st.recording),
+      recBg: st.recording ? '#e0564b' : 'var(--inset,#f7f9fa)', recBorder: st.recording ? '#e0564b' : 'var(--border,#e4e7ec)', recColor: st.recording ? '#fff' : 'var(--ink,#1a2230)',
+      gif: () => this.setState({ _gif: (st._gif || 0) + 1 }),
+      supercellInputs, camAxes,
+      resetCam: () => this.setState({ _cam: null, nx: 2, ny: 2, nz: 1 }),
+
+      // appearance
+      style: st.style, setStyle: e => this.set('style', e.target.value),
+      toggleBonds: () => this.set('bonds', !st.bonds),
+      bondScale: st.bondScale, bondScaleLabel: '×' + st.bondScale.toFixed(2), setBondScale: e => this.set('bondScale', parseFloat(e.target.value)),
+      shading: st.shading, toggleShading: () => this.set('shading', !st.shading),
+      toggleVectors: () => this.set('vectors', !st.vectors),
+      toggleCell: () => this.set('cell', !st.cell),
+      atomScale: st.atomScale, atomScaleLabel: '×' + st.atomScale.toFixed(1), setAtomScale: e => this.set('atomScale', parseFloat(e.target.value)),
+
+      elements, resetTypes: () => this.setState({ colors: { Sr: '#13a07f', Ti: '#5b677a', O: '#e06a3b' }, radii: { Sr: 1.95, Ti: 1.40, O: 0.66 } }),
+      lattice, sites, nSites: sites.length,
+
+      // exports
+      loadFile: () => {}, exportYaml: () => this.download('band_gpu.yaml', '# phonopy band.yaml (GPU)\nnqpoint: ' + this.tot + '\nnband: ' + this.nBr + '\n', 'text/yaml'),
+      exportJson: () => this.download('band_gpu.json', JSON.stringify({ nqpoint: this.tot, nband: this.nBr }), 'application/json'),
+      exportVasp: () => this.download('POSCAR', 'SrTiO3 mode displacement\n1.0\n 3.905 0 0\n 0 3.905 0\n 0 0 3.905\n'),
+
+      // INS
+      insParams, eTicks, qTicks, colorbar,
+      insCmap: st.insCmap, setInsCmap: e => this.set('insCmap', e.target.value),
+      insLog: st.insLog, toggleInsLog: () => this.set('insLog', !st.insLog),
+      insRunLabel: 'Run INS', insRun: () => { this.drawIns(); this.drawDos(); },
+      insRef: el => { this.insEl = el; }, dosRef: el => { this.dosEl = el; },
+      insExport: () => this.download('sqe.csv', 'Q_invA,E_meV,S\n'),
+    };
+  }
+}
+</script>
+</body>
+</html>

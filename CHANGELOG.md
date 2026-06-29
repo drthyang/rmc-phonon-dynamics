@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-06-29 — Browser/WebGPU app becomes the application; Cobalt redesign; hosted
+
+- **The app is now fully in the browser** (`web/`, React + Vite + WebGPU): load an
+  RMC ensemble, compute phonon bands on WebGPU, animate 3D modes, simulate INS
+  S(|Q|,E) + DOS — no backend server.
+- **Legacy retired to `archive/`**: the Python engines (`src/`, `src_gpu/`), the
+  FastAPI GUI (`rmcph_gui/`), the standalone viewer (`viz/`), the physics audit,
+  and the design handoffs. History preserved via `git mv`.
+- **Runner & Viewer redesigned** to the Cobalt light theme. Viewer highlights:
+  red band structure with drag-box (data-domain) zoom; 3D mode viewer with a
+  palette colour picker, bond thickness, absolute Å bond cutoff, adjustable
+  shading strength, vector colour and on-atom vector origin, and a
+  container-responsive canvas; live meV↔THz; `band.yaml`/`band.json` export.
+- **Hosted on GitHub Pages** via a CI workflow that builds `web/` and deploys it
+  on every push to `main`.
+
 ## 2026-05-22 — `viz/` S(Q,E) viewer: 141× faster file load
 
 Cut time-from-file-selection to S(Q,E) heatmap shown from **~37.9 s to ~0.27 s**

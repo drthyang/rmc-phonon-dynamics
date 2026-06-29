@@ -6,9 +6,9 @@
 Python + viewer codebase (`src/`, `src_gpu/`, `rmcph_gui/`, `viz/`).
 
 This is an **audit + critical-fix** report. It does *not* claim full parity. The
-legacy canonical scientific path is `src_gpu/runner.py` (see
-`PHYSICS_ALGORITHM_AUDIT.md`). Findings below were verified against the real
-`GTS_5K` dataset in `data/`.
+legacy canonical scientific path is `archive/src_gpu/runner.py` (see
+`archive/PHYSICS_ALGORITHM_AUDIT.md`). Findings below were verified against the
+real `GTS_5K` dataset in `data/`.
 
 ---
 

@@ -1,57 +1,42 @@
-# Project Status & Handoff (May 26, 2026)
+# Project Status & Handoff (June 29, 2026)
 
-This document is a quick handoff to help contributors pick up work.
+A quick orientation for contributors.
 
 ## Current state
 
-- Core physics pipelines exist in both `src/` (CPU) and `src_gpu/` (JAX/GPU).
-- The local runner app (`rmcph_gui/`) can browse datasets, build k-paths, run jobs, and hand results to the viewer.
-- The `rmcph_gui` Fit Quality panel now renders an Rw-vs-configuration overview for F(Q) and G(r); clicking an overview point selects that configuration and expands the detailed observed/RMC/difference figures.
-- The viewer (`viz/`) has major load/perf optimizations, including Web Worker compute and optional JSON fast-path.
+- **The application is the browser app in [`web/`](web/)** (React + Vite +
+  WebGPU). It loads an RMC ensemble (`.rmc6f` or `Frac*.txt` + companion
+  `.rmc6f`), computes the displacement-covariance phonon bands on WebGPU,
+  animates 3D modes, simulates powder INS S(|Q|,E) + DOS, and shows fit quality
+  — all client-side. It is **hosted on GitHub Pages** (built from `web/` by CI).
+- The Runner and Viewer use the **Cobalt light theme** (see
+  [`web/DESIGN_NOTES.md`](web/DESIGN_NOTES.md) and the design handoffs in
+  `archive/design_handoffs/`).
+- The legacy Python engines (`src/`, `src_gpu/`), the FastAPI GUI (`rmcph_gui/`),
+  and the standalone viewer (`viz/`) are **retired to [`archive/`](archive/)**
+  for reference only.
 
-## What is stable
+## Stable / working
 
-- End-to-end `src_gpu` band workflow through GUI runner.
-- `.rmc6f` and `Frac*.txt` config-family detection in GUI flow.
-- Brillouin-zone / high-symmetry point workflow with seekpath mapping to conventional-cell k vectors.
-- Fit Quality preview for RMCProfile output CSVs (`*_XFQ1.csv`, `*_FT_XFQ1.csv`) in `rmcph_gui`, including clickable Rw trend summaries, residual overlays, and Chart.js zoom/reset controls.
-- Viewer-side S(Q,E) + DOS computation pipeline and delayed heavy 3D initialization.
+- WebGPU S(k) → `eigh` → band-connection → bands/DOS pipeline
+  (`web/src/compute`, `web/src/math`), guarded by `npm run validate`.
+- Crystal-system / high-symmetry / Brillouin-zone k-path selection.
+- 3D mode animation, simulated INS heatmap (kinematic cutoff), phonon DOS.
+- Fit-quality Rw overview + F(Q)/G(r) overlays from RMCProfile output.
+- `band.yaml` / `band.json` export; `band.yaml`/`.json` load.
 
 ## Known gaps / follow-ups
 
-1. **Large `band.yaml` UX warnings** (especially when eigenvectors make files huge).
-2. **CIF equilibrium-reference support** for displacement reference selection.
-3. **`.rmc6f` parser optimization** for large ensembles (currently Python-loop heavy).
-4. **Automated tests expansion** across GUI backend APIs + runner integration + viewer parsing paths.
+1. **Browser support** — Chromium-only (WebGPU + File System Access API).
+2. **CIF equilibrium-reference** support for the displacement reference.
+3. **Large-ensemble parsing** of `.rmc6f` (vectorize the reader).
+4. **Large `band.yaml` guardrails** — warn / prefer the JSON fast-path.
+5. **Automated UI/regression coverage** beyond the science validate suite.
 
-## Recent development notes
+## Where to start
 
-- May 26, 2026: Refined `rmcph_gui` Fit Quality figures. Changes include a clickable Rw summary plot over all configurations with percent ticks and a selected-config guide, folded detailed S(Q)/F(Q) and G(r) plots that expand on summary click, external figure-header legends, solid residual baseline styling, hover tooltips, x-axis zoom/reset controls, Rw-only metric display, and tightened axis bounds to remove unnecessary empty plot regions.
-- May 27, 2026: Added `PHYSICS_ALGORITHM_AUDIT.md`, a physics/algorithm handoff covering the active GPU runner flow, displacement and k-vector conventions, energy conversion, band output, risks, and prioritized implementation/debug TODOs.
-- June 8, 2026: Added JSON-backed job-state persistence plus a `/api/jobs/latest` reconnect path. The Run view now restores the latest active or completed job after a page reload and resumes polling active jobs.
-
-## Suggested next milestones
-
-### Milestone A — Reliability
-- Add restart-safe cancellation reconciliation.
-
-### Milestone B — Performance
-- Profile `.rmc6f` parse/read path and batch conversion.
-- Add cached structured intermediate for repeated runs on same dataset.
-
-### Milestone C — UX and Guardrails
-- Add proactive size warnings for large `band.yaml` and suggest JSON export path.
-- Improve validation messages for missing files / incompatible folder layouts.
-
-### Milestone D — Testing and CI
-- Add backend API tests for data/structure/reciprocal/jobs routes.
-- Add deterministic smoke tests for `src_gpu/runner.py` output shape and metadata.
-- Add viewer parser regression test fixtures for YAML vs JSON parity.
-
-## Where to start (recommended)
-
-1. Implement backend job-state persistence in `rmcph_gui/backend/core/jobs.py` (+ minimal API support in `rmcph_gui/backend/api/jobs.py`).
-2. Add tests around state transitions (queued → running → done/cancelled/error).
-3. Expose reconnect semantics in frontend `rmcph_gui/frontend/js/views/run.js`.
-
-This sequence reduces user-facing failure modes before deeper optimization work.
+The boundary contract for the compute/io/math layers and the component prop
+shapes is in [`web/DESIGN_NOTES.md`](web/DESIGN_NOTES.md) — read it first. UI
+work lives in `web/src/pages` and `web/src/components`; keep
+`web/src/{compute,io,math}` and `constants.js` behaviour unchanged (the validate
+suite guards them). See [`ROADMAP.md`](ROADMAP.md) for prioritized next work.
