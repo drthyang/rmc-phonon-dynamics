@@ -99,8 +99,11 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
   const selBar = bars[sel];
   const selRw = selBar?.rw;
   // Configs above the mean + sigma·std threshold are flagged red; the rest teal.
+  // When "exclude" is on, flagged configs are dropped from the run → show them
+  // as transparent dimgray to make the exclusion visible.
   const rwColor = (rw) => {
     if (rw <= threshold) return 'hsla(168, 52%, 48%, 0.5)';
+    if (excludeBad) return 'rgba(105, 105, 105, 0.32)';
     const t = Math.max(0, Math.min(1, (rw - threshold) / ((maxRw - threshold) || 1)));
     return `hsla(${Math.round(22 * (1 - t) + 6 * t)}, 82%, ${Math.round(56 - t * 10)}%, ${0.7 + t * 0.3})`;
   };
