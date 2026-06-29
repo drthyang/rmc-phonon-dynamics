@@ -41,7 +41,7 @@ export default function ViewerPage({ model, onLoadModel }) {
   // Stable identity so CrystalViewer doesn't rebuild (and reset the camera) on
   // every unrelated re-render (e.g. moving the amplitude slider).
   const supercell = useMemo(() => [nx, ny, nz], [nx, ny, nz]);
-  const [amplitude, setAmplitude] = useState(3);
+  const [amplitude, setAmplitude] = useState(1.5);
   const [speed, setSpeed] = useState(0.03);
   const [playing, setPlaying] = useState(true);
   const [showVectors, setShowVectors] = useState(false);
