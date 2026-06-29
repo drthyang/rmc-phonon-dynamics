@@ -1,12 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Waves } from 'lucide-react';
 import { buildInsData } from '../compute/ins';
 import { downloadString } from '../io/writers';
 
+/* ── Cobalt theme tokens ───────────────────────────────────────────────── */
+const INK = 'var(--ink)', DIM = 'var(--dim)', FAINT = 'var(--faint)';
+const ACCENT = 'var(--accent)', BORDER = 'var(--border)', INSET = 'var(--inset)';
+const cardStyle = { background: 'var(--card)', border: `1px solid ${BORDER}`, borderRadius: 10 };
+const insetInput = { width: '100%', boxSizing: 'border-box', background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 10px', font: "13px 'Space Mono'", color: INK };
+
 /**
- * Minimal INS (simulated inelastic neutron scattering) panel: powder S(|Q|,E)
- * heatmap + phonon DOS. Computation runs in io/sqeworker.js. UI is intentionally
- * basic — enough to run and validate the calculation.
+ * INS (simulated inelastic neutron scattering) panel: powder S(|Q|,E) heatmap +
+ * phonon DOS. Computation runs in io/sqeworker.js; the colormap + kinematic-mask
+ * logic is unchanged — only the surrounding chrome was reskinned to the light
+ * theme (the heatmap canvas stays dark for contrast, as designed).
  */
 export default function InsPanel({ results, temperature }) {
   const workerRef = useRef(null);
@@ -15,11 +21,9 @@ export default function InsPanel({ results, temperature }) {
   const [out, setOut] = useState(null);
   const [error, setError] = useState(null);
 
-  // Default energy window from the BULK of the spectrum. RMC covariance can emit
-  // a few modes with very small eigenvalues -> huge meV; a 99th-percentile cap
-  // still let those dominate and crammed the real bands into the bottom. Use the
-  // 90th percentile of POSITIVE energies so the visible window tracks the actual
-  // phonon bandwidth, not the outlier tail.
+  // Default energy window from the BULK of the spectrum (90th percentile of
+  // positive energies) so a few near-zero-eigenvalue outlier modes don't cram
+  // the real bands into the bottom.
   const maxE = useMemo(() => {
     const vals = [];
     for (const row of results.bands) for (const v of row) if (isFinite(v) && v > 0) vals.push(v);
@@ -30,7 +34,7 @@ export default function InsPanel({ results, temperature }) {
   }, [results]);
 
   // Eᵢ (incident energy) defaults to just above the band top so the kinematic
-  // (energy-conservation) cutoff frames the spectrum, as in the legacy viewer.
+  // (energy-conservation) cutoff frames the spectrum.
   const [params, setParams] = useState(() => ({
     T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.3, maxE / 100),
     nE: 160, nQbins: 140, Ei: Math.max(5, Math.ceil(maxE * 1.25)),
@@ -81,7 +85,7 @@ export default function InsPanel({ results, temperature }) {
     const dQ = xMax / nX;
     const Ei = params.Ei;
     const ki = Ei > 0 ? Math.sqrt(Ei / HBAR2_2MN) : 0;
-    const BG = [6, 7, 10];
+    const BG = [11, 14, 22];   // matches the dark canvas background (#0b0e16)
 
     for (let ei = 0; ei < nE; ei++) {
       const E = Eaxis[ei];
@@ -117,95 +121,96 @@ export default function InsPanel({ results, temperature }) {
     downloadString(csv, 'sqe.csv');
   };
 
-  const numField = (label, key, step = 1) => (
-    <div>
-      <label className="text-[10px] text-gray-400 uppercase tracking-wider block">{label}</label>
-      <input type="number" step={step} value={params[key]}
-        onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) }))}
-        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-sm" />
-    </div>
-  );
+  const fields = [
+    ['T (K)', 'T', 1], ['E min', 'Emin', 1], ['E max', 'Emax', 1], ['σ (meV)', 'sigma', 0.1],
+    ['Eᵢ (meV)', 'Ei', 1], ['nE', 'nE', 1], ['nQ', 'nQbins', 1],
+  ];
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-4 text-gray-200">
-        <Waves className="w-5 h-5 text-cyan-400" />
-        <h2 className="text-lg font-medium">Simulated INS — S(|Q|,E) &amp; DOS</h2>
+    <div style={{ ...cardStyle, padding: 20 }}>
+      {/* header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ width: 24, height: 24, borderRadius: 6, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0" /></svg>
+        </span>
+        <span style={{ font: "600 15px 'Space Grotesk'", color: INK }}>Simulated INS · S(|Q|,E) &amp; phonon DOS</span>
+        <span style={{ font: "11px 'Space Mono'", color: FAINT }}>powder-averaged from eigenvectors</span>
       </div>
 
-      <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 mb-4">
-        {numField('T (K)', 'T')}
-        {numField('E min', 'Emin')}
-        {numField('E max', 'Emax')}
-        {numField('σ (meV)', 'sigma', 0.1)}
-        {numField('Eᵢ (meV)', 'Ei')}
-        {numField('nE', 'nE')}
-        {numField('nQ', 'nQbins')}
+      {/* params */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        {fields.map(([label, key, step]) => (
+          <div key={key} style={{ flex: 1, minWidth: 84 }}>
+            <div style={{ font: "10px 'Space Mono'", color: FAINT, marginBottom: 5 }}>{label}</div>
+            <input type="number" step={step} value={params[key]}
+              onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) }))} style={insetInput} />
+          </div>
+        ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button onClick={run} disabled={running}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${running ? 'bg-cyan-700/40' : 'bg-cyan-600 hover:bg-cyan-500'}`}>
+      {/* actions */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <button onClick={run} disabled={running} className="rnr-btn"
+          style={{ background: running ? 'var(--inset2)' : ACCENT, color: running ? DIM : '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', font: "700 13px 'Space Grotesk'", cursor: running ? 'default' : 'pointer' }}>
           {running ? 'Computing…' : 'Run INS'}
         </button>
-        <label className="text-xs text-gray-400 flex items-center gap-1">
-          colormap
-          <select value={cmap} onChange={e => setCmap(e.target.value)} className="bg-white/5 border border-white/10 rounded px-2 py-1 text-sm">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, font: "11px 'Space Mono'", color: DIM }}>colormap
+          <select value={cmap} onChange={e => setCmap(e.target.value)}
+            style={{ background: INSET, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 9px', font: "12px 'Space Mono'", color: INK, cursor: 'pointer' }}>
             <option value="viridis">viridis</option>
             <option value="magma">magma</option>
             <option value="gray">gray</option>
           </select>
         </label>
-        <label className="text-xs text-gray-400 flex items-center gap-1">
-          <input type="checkbox" checked={logScale} onChange={e => setLogScale(e.target.checked)} /> log
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, font: "11px 'Space Mono'", color: DIM, cursor: 'pointer' }}>
+          <input type="checkbox" checked={logScale} onChange={e => setLogScale(e.target.checked)} /> log scale
         </label>
-        <span className="text-[10px] text-gray-500">Eᵢ=0 ⇒ direct (full Q range)</span>
+        <span style={{ font: "10.5px 'Space Mono'", color: FAINT }}>Eᵢ = 0 ⇒ direct (full Q range)</span>
         {out?.powResult && (
-          <button onClick={exportCsv} className="px-4 py-2 rounded-lg text-sm bg-white/10 hover:bg-white/20 border border-white/10">
+          <button onClick={exportCsv} className="rnr-btn"
+            style={{ marginLeft: 'auto', background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 14px', font: "600 12px 'Space Grotesk'", color: INK, cursor: 'pointer' }}>
             Export S(Q,E) CSV
           </button>
         )}
       </div>
 
-      {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
+      {error && <div style={{ color: 'var(--warnInk)', font: "13px 'Space Mono'", marginBottom: 12 }}>{error}</div>}
 
-      {out?.powResult && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <div className="text-xs text-gray-400 mb-2">S(|Q|,E) — powder-averaged simulated INS</div>
-            <div className="flex gap-2">
-              {/* E axis (left) */}
-              <div className="relative w-9 shrink-0" style={{ aspectRatio: '0.07' }}>
-                {ticks(0, params.Emax, 5).map((t, i) => (
-                  <span key={i} className="absolute right-1 text-[10px] text-gray-400 -translate-y-1/2"
-                    style={{ top: `${(1 - t.frac) * 100}%` }}>{t.v.toFixed(0)}</span>
-                ))}
-                <span className="absolute -left-1 top-1/2 -rotate-90 origin-center text-[10px] text-gray-500 whitespace-nowrap">E (meV)</span>
+      {out?.powResult ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+          {/* heatmap */}
+          <div style={{ gridColumn: 'span 2', minWidth: 0 }}>
+            <div style={{ font: "11px 'Space Mono'", color: DIM, marginBottom: 8 }}>S(|Q|,E) — powder-averaged simulated INS</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              {/* E axis */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2px 0', font: "10px 'Space Mono'", color: FAINT, textAlign: 'right' }}>
+                {ticks(params.Emin, params.Emax, 5).slice().reverse().map((t, i) => <span key={i}>{t.v.toFixed(0)}</span>)}
               </div>
-              {/* heatmap */}
-              <div className="flex-1">
-                <canvas ref={canvasRef} className="w-full rounded-lg border border-white/10 block"
-                  style={{ imageRendering: 'pixelated', aspectRatio: '1.5', background: '#06070a' }} />
-                <div className="relative h-4 mt-1">
-                  {ticks(0, out.powResult.xMax, 5).map((t, i) => (
-                    <span key={i} className="absolute text-[10px] text-gray-400 -translate-x-1/2"
-                      style={{ left: `${t.frac * 100}%` }}>{t.v.toFixed(1)}</span>
-                  ))}
+              {/* canvas */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <canvas ref={canvasRef} style={{ width: '100%', aspectRatio: '1.6', display: 'block', border: `1px solid ${BORDER}`, borderRadius: 8, imageRendering: 'pixelated', background: '#0b0e16' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, font: "10px 'Space Mono'", color: FAINT }}>
+                  {ticks(0, out.powResult.xMax, 5).map((t, i) => <span key={i}>{t.v.toFixed(1)}</span>)}
                 </div>
-                <div className="text-center text-[10px] text-gray-500">|Q| (Å⁻¹)</div>
+                <div style={{ textAlign: 'center', font: "10px 'Space Mono'", color: DIM, marginTop: 2 }}>|Q| (Å⁻¹)</div>
               </div>
               {/* colorbar */}
-              <div className="flex flex-col items-center shrink-0">
-                <div className="w-3 rounded" style={{ aspectRatio: '0.18', background: 'linear-gradient(to top, #06070a, #1e3a8a, #22d3ee, #fef9c3)' }} />
-                <span className="text-[9px] text-gray-500 mt-1">S↑</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 2 }}>
+                <div style={{ width: 13, height: 200, borderRadius: 4, border: `1px solid ${BORDER}`, background: COLORBAR[cmap] }} />
+                <span style={{ font: "10px 'Space Mono'", color: FAINT, marginTop: 5 }}>S ↑</span>
               </div>
             </div>
+            <div style={{ font: "10px 'Space Mono'", color: FAINT, marginTop: 6 }}>E (meV) — vertical axis</div>
           </div>
-          <div>
-            <div className="text-xs text-gray-400 mb-2">Phonon DOS</div>
+          {/* DOS */}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ font: "11px 'Space Mono'", color: DIM, marginBottom: 8 }}>Phonon DOS</div>
             <DosPlot dosResult={out.dosResult} Emin={params.Emin} Emax={params.Emax} />
+            <div style={{ textAlign: 'center', font: "10px 'Space Mono'", color: DIM, marginTop: 6 }}>g(E) → &nbsp;·&nbsp; energy vertical</div>
           </div>
         </div>
+      ) : (
+        <div style={{ font: "12px 'Spline Sans'", color: FAINT }}>Press <b style={{ color: DIM }}>Run INS</b> to compute the powder S(|Q|,E) map and phonon DOS.</div>
       )}
     </div>
   );
@@ -217,12 +222,16 @@ function ticks(min, max, n) {
   return arr;
 }
 
-// Multi-stop colormaps. Default 'viridis'-like dark->blue->cyan->yellow.
+// Multi-stop colormaps (RGB) for the heatmap pixels.
 const CMAPS = {
-  viridis: [[6, 7, 10], [30, 58, 138], [34, 211, 238], [254, 249, 195]],
-  magma: [[0, 0, 4], [80, 18, 123], [221, 73, 104], [252, 253, 191]],
-  gray: [[10, 10, 12], [90, 90, 96], [180, 180, 186], [245, 245, 245]],
+  viridis: [[11, 14, 22], [30, 58, 138], [34, 211, 238], [254, 249, 195]],
+  magma: [[5, 3, 10], [80, 18, 123], [221, 73, 104], [252, 253, 191]],
+  gray: [[14, 14, 18], [90, 90, 96], [180, 180, 186], [245, 245, 245]],
 };
+// CSS gradients (bottom→top) for the colorbar, derived from the same stops.
+const grad = (st) => `linear-gradient(to top, ${st.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(', ')})`;
+const COLORBAR = { viridis: grad(CMAPS.viridis), magma: grad(CMAPS.magma), gray: grad(CMAPS.gray) };
+
 function colormap(t, name = 'viridis') {
   const stops = CMAPS[name] || CMAPS.viridis;
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
@@ -238,31 +247,30 @@ function DosPlot({ dosResult, Emin = 0, Emax = 1 }) {
     if (!dosResult || !ref.current) return;
     const { dos, nE, dosMax } = dosResult;
     const cv = ref.current;
-    const PL = 30, PB = 4;
-    const W = 260, H = 220;
+    const PL = 30, PB = 6, W = 260, H = 236;
     cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, W, H);
-    const plotW = W - PL - 6, plotH = H - PB - 4;
-    // E-axis ticks (vertical)
-    ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    const plotW = W - PL - 8, plotH = H - PB - 6;
+    // E-axis gridlines + ticks (energy vertical)
+    ctx.font = "10px 'Space Mono', monospace"; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
       const e = Emin + (i / 4) * (Emax - Emin);
       const y = H - PB - (i / 4) * plotH;
-      ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - 6, y); ctx.stroke();
-      ctx.fillText(e.toFixed(0), PL - 4, y + 3);
+      ctx.strokeStyle = '#e3e7ef'; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - 8, y); ctx.stroke();
+      ctx.fillStyle = '#9aa1b2'; ctx.fillText(e.toFixed(0), PL - 4, y + 3);
     }
-    // DOS curve (DOS horizontal, energy vertical)
-    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i < nE; i++) {
-      const x = PL + (dos[i] / (dosMax || 1)) * plotW;
-      const y = H - PB - (i / (nE - 1)) * plotH;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
+    // g(E) curve (DOS horizontal, energy vertical) with faint fill.
+    const xy = (i) => [PL + (dos[i] / (dosMax || 1)) * plotW, H - PB - (i / (nE - 1)) * plotH];
+    ctx.beginPath();
+    ctx.moveTo(PL, H - PB);
+    for (let i = 0; i < nE; i++) { const [x, y] = xy(i); ctx.lineTo(x, y); }
+    ctx.lineTo(PL, H - PB - plotH);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(47,109,240,0.12)'; ctx.fill();
+    ctx.strokeStyle = '#2f6df0'; ctx.lineWidth = 1.6; ctx.beginPath();
+    for (let i = 0; i < nE; i++) { const [x, y] = xy(i); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
     ctx.stroke();
-    ctx.fillStyle = '#6b7280'; ctx.textAlign = 'left';
-    ctx.fillText('g(E) →', PL + 4, 12);
   }, [dosResult, Emin, Emax]);
-  return <canvas ref={ref} className="w-full rounded-lg border border-white/10" style={{ background: '#06070a' }} />;
+  return <canvas ref={ref} style={{ width: '100%', aspectRatio: '1.1', display: 'block', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--inset)' }} />;
 }

@@ -27,8 +27,8 @@ export default function CrystalViewer({
   isPlaying = true, amplitude = 2.0, speed = 0.08,
   supercell = [2, 2, 1], showVectors = false, showCell = true, atomScale = 1.0, cameraAxis = null,
   elementColors = {}, elementRadii = {}, displayStyle = 'ballstick',
-  showBonds = true, bondScale = 1.15, bondRules = {}, shading = true, recording = false, gifSignal = 0,
-  vectorScale = 1.5,
+  showBonds = true, bondCutoff = 3.0, bondThickness = 0.06, bondRules = {}, shading = true, shadingStrength = 0.5, recording = false, gifSignal = 0,
+  vectorScale = 1.5, vectorColor = '#fde047',
 }) {
   const mountRef = useRef(null);
   const objs = useRef(null);
@@ -37,17 +37,26 @@ export default function CrystalViewer({
   const gifRef = useRef(null);   // { active, frames, gif } during GIF capture
   const view = useRef(null);     // saved camera {pos,target} preserved across rebuilds
 
-  useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale }; },
-    [isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale]);
+  // Live params read by the animation loop — bondThickness & vectorColor update
+  // without a rebuild (so dragging their sliders is smooth and keeps the camera).
+  useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor }; },
+    [isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor]);
 
-  // Camera preset.
+  // Live vector-arrow colour update (no rebuild).
+  useEffect(() => { if (objs.current?.vecMat) objs.current.vecMat.color.set(vectorColor); }, [vectorColor]);
+
+  // Camera preset / reset. `cameraAxis` is a nonce whose first char selects the
+  // action: x/y/z snap down that axis; anything else (e.g. 'reset:…') recentres
+  // on the structure and fits it at a span-based distance ("proper scale").
   useEffect(() => {
     if (!objs.current || !cameraAxis) return;
     const { camera, controls, span, center } = objs.current;
+    const axis = cameraAxis[0];
     const d = span * 1.2 + 6;
-    if (cameraAxis === 'x') camera.position.set(center.x + d, center.y, center.z);
-    if (cameraAxis === 'y') camera.position.set(center.x, center.y + d, center.z);
-    if (cameraAxis === 'z') camera.position.set(center.x, center.y, center.z + d);
+    if (axis === 'x') camera.position.set(center.x + d, center.y, center.z);
+    else if (axis === 'y') camera.position.set(center.x, center.y + d, center.z);
+    else if (axis === 'z') camera.position.set(center.x, center.y, center.z + d);
+    else camera.position.copy(center).add(new THREE.Vector3(span * 0.4, span * 0.3, span * 1.1 + 5)); // reset → default fit
     camera.lookAt(center); controls.target.copy(center); controls.update();
     view.current = { pos: camera.position.clone(), target: controls.target.clone() };
   }, [cameraAxis]);
@@ -101,8 +110,12 @@ export default function CrystalViewer({
     mountRef.current.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    scene.add(new THREE.AmbientLight(0xffffff, shading ? 0.6 : 1.0));
-    if (shading) { const dl = new THREE.DirectionalLight(0xffffff, 0.8); dl.position.set(10, 20, 10); scene.add(dl); }
+    // shadingStrength (0..1) balances flat ambient vs. directional light + how
+    // tight the specular highlight is, so the user can soften the relief.
+    const ss = Math.max(0, Math.min(1, shadingStrength));
+    scene.add(new THREE.AmbientLight(0xffffff, shading ? 1.0 - 0.5 * ss : 1.0));
+    if (shading) { const dl = new THREE.DirectionalLight(0xffffff, 0.25 + 0.85 * ss); dl.position.set(10, 20, 10); scene.add(dl); }
+    const shininess = 10 + 75 * ss;
 
     const matvec = (f) => [
       f[0] * A[0][0] + f[1] * A[1][0] + f[2] * A[2][0],
@@ -134,7 +147,7 @@ export default function CrystalViewer({
     if (showArrows) {
       shaftGeo = new THREE.CylinderGeometry(1, 1, 1, 10); shaftGeo.translate(0, 0.5, 0);
       headGeo = new THREE.ConeGeometry(1, 1, 14);
-      vecMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+      vecMat = new THREE.MeshBasicMaterial({ color: params.current.vectorColor || vectorColor });
     }
 
     for (let cx = 0; cx < nx; cx++) for (let cy = 0; cy < ny; cy++) for (let cz = 0; cz < nz; cz++) {
@@ -144,7 +157,7 @@ export default function CrystalViewer({
         const r0 = matvec([hsym_xyz[s * 3] + cx, hsym_xyz[s * 3 + 1] + cy, hsym_xyz[s * 3 + 2] + cz]);
         const rad = radiusOf(el) * styleFactor * atomScale;
         const mat = shading
-          ? new THREE.MeshPhongMaterial({ color: colorOf(el), shininess: 70 })
+          ? new THREE.MeshPhongMaterial({ color: colorOf(el), shininess, specular: new THREE.Color().setScalar(0.04 + 0.16 * ss) })
           : new THREE.MeshBasicMaterial({ color: colorOf(el) });
         const mesh = new THREE.Mesh(getGeo(rad), mat);
         mesh.position.set(...r0);
@@ -164,21 +177,26 @@ export default function CrystalViewer({
     }
     if (atoms.length) center.divideScalar(atoms.length);
 
-    // Bonds (line segments, covalent-radius cutoff × bondScale). Updated per frame.
-    let bondLines = null, bondPairs = [];
+    // Bonds: cylinders (so thickness is adjustable — WebGL lines can't vary
+    // width). Pairs within an absolute Å cutoff (per-pair override via bondRules,
+    // else the global bondCutoff). Transforms are refreshed each frame via an
+    // InstancedMesh so the bonds track the oscillating atoms.
+    let bondMesh = null, bondPairs = [];
+    const bondGeo = new THREE.CylinderGeometry(1, 1, 1, 8);  // unit, centred on +Y
     if (bondsOn && atoms.length <= 1600) {
       for (let i = 0; i < atoms.length; i++) for (let j = i + 1; j < atoms.length; j++) {
         const key = [atoms[i].el, atoms[j].el].sort().join('-');
-        const cut = (bondRules[key] != null) ? bondRules[key] : bondScale * (defRadius(atoms[i].el) + defRadius(atoms[j].el));
+        const cut = (bondRules[key] != null) ? bondRules[key] : bondCutoff;
         const dx = atoms[i].r0[0] - atoms[j].r0[0], dy = atoms[i].r0[1] - atoms[j].r0[1], dz = atoms[i].r0[2] - atoms[j].r0[2];
         if (dx * dx + dy * dy + dz * dz <= cut * cut) bondPairs.push([i, j]);
       }
-      const pos = new Float32Array(bondPairs.length * 6);
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      // Mid grey reads against both the light Runner canvas and the dark Viewer.
-      bondLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x6b7280 }));
-      scene.add(bondLines);
+      if (bondPairs.length) {
+        // Mid grey reads against both the light Runner canvas and the dark Viewer.
+        const bondMat = new THREE.MeshBasicMaterial({ color: 0x6b7280 });
+        bondMesh = new THREE.InstancedMesh(bondGeo, bondMat, bondPairs.length);
+        bondMesh.frustumCulled = false;
+        scene.add(bondMesh);
+      }
     }
 
     if (showCell) {
@@ -198,11 +216,31 @@ export default function CrystalViewer({
     // Restore the previous view so appearance tweaks don't reset the camera.
     if (view.current) { camera.position.copy(view.current.pos); controls.target.copy(view.current.target); controls.update(); }
     controls.addEventListener('change', () => { view.current = { pos: camera.position.clone(), target: controls.target.clone() }; });
-    objs.current = { camera, controls, span, center, renderer };
+    objs.current = { camera, controls, span, center, renderer, vecMat: showArrows ? vecMat : null };
 
     let t = 0, animId;
     const up = new THREE.Vector3();
     const Y0 = new THREE.Vector3(0, 1, 0);
+    // Scratch objects for composing bond-cylinder instance matrices each frame.
+    const bMid = new THREE.Vector3(), bDir = new THREE.Vector3(), bQuat = new THREE.Quaternion();
+    const bScale = new THREE.Vector3(), bMat4 = new THREE.Matrix4();
+    const pi3 = new THREE.Vector3(), pj3 = new THREE.Vector3();
+    const updateBonds = (thick) => {
+      if (!bondMesh) return;
+      for (let b = 0; b < bondPairs.length; b++) {
+        const [i, j] = bondPairs[b];
+        pi3.copy(atoms[i].mesh.position); pj3.copy(atoms[j].mesh.position);
+        bMid.addVectors(pi3, pj3).multiplyScalar(0.5);
+        bDir.subVectors(pj3, pi3);
+        const len = bDir.length() || 1e-6;
+        bQuat.setFromUnitVectors(Y0, bDir.multiplyScalar(1 / len));
+        bScale.set(thick, len, thick);
+        bMat4.compose(bMid, bQuat, bScale);
+        bondMesh.setMatrixAt(b, bMat4);
+      }
+      bondMesh.instanceMatrix.needsUpdate = true;
+    };
+    updateBonds(bondThickness);   // initial placement (correct even when paused / no eigenvector)
     const animate = () => {
       animId = requestAnimationFrame(animate);
       const P = params.current;
@@ -228,7 +266,8 @@ export default function CrystalViewer({
 
           if (at.arrow) {
             // Arrow = the SAME instantaneous displacement, so every moving atom
-            // has a matching vector that oscillates with it. Anchored at rest.
+            // has a matching vector that oscillates with it. Origin pinned to the
+            // atom's current (displaced) centre so it always emanates from the atom.
             const len = Math.hypot(dx, dy, dz);
             const L = len * P.vectorScale;
             if (L > 1e-4 * span) {
@@ -241,20 +280,11 @@ export default function CrystalViewer({
               at.arrow.head.position.set(0, shaftLen + hH / 2, 0);
               up.set(dx / len, dy / len, dz / len);
               at.arrow.g.quaternion.setFromUnitVectors(Y0, up);
-              at.arrow.g.position.set(at.r0[0], at.r0[1], at.r0[2]);
+              at.arrow.g.position.copy(at.mesh.position);
             } else { at.arrow.g.visible = false; }
           }
         }
-        if (bondLines) {
-          const pos = bondLines.geometry.attributes.position.array;
-          for (let b = 0; b < bondPairs.length; b++) {
-            const [i, j] = bondPairs[b];
-            const pi = atoms[i].mesh.position, pj = atoms[j].mesh.position;
-            pos[b * 6] = pi.x; pos[b * 6 + 1] = pi.y; pos[b * 6 + 2] = pi.z;
-            pos[b * 6 + 3] = pj.x; pos[b * 6 + 4] = pj.y; pos[b * 6 + 5] = pj.z;
-          }
-          bondLines.geometry.attributes.position.needsUpdate = true;
-        }
+        if (bondMesh) updateBonds(P.bondThickness || 0.06);
       }
 
       controls.update();
@@ -270,11 +300,16 @@ export default function CrystalViewer({
     const onResize = () => {
       if (!mountRef.current) return;
       const w = mountRef.current.clientWidth, h = mountRef.current.clientHeight;
+      if (w < 1 || h < 1) return;   // skip transient zero-size layouts
       camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
     };
     window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('resize', onResize); cancelAnimationFrame(animId); renderer.dispose(); };
-  }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondScale, bondRules, shading]);
+    // Track the CARD's size, not just the window, so the structure box adapts
+    // to its container (card growth/shrink, fold toggles, column wrap, etc.).
+    const ro = new ResizeObserver(onResize);
+    ro.observe(mountRef.current);
+    return () => { window.removeEventListener('resize', onResize); ro.disconnect(); cancelAnimationFrame(animId); renderer.dispose(); };
+  }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondCutoff, bondRules, shading, shadingStrength]);
 
   return <div ref={mountRef} className="w-full h-full min-h-[360px] cursor-move rounded-xl overflow-hidden" />;
 }

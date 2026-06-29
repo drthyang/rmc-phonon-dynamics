@@ -50,7 +50,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [segNpoints, setSegNpoints] = useState({});     // {segIndex: npoints override}
 
   const [runDos, setRunDos] = useState(true);
-  const [dosN] = useState(20);
+  const [dosN, setDosN] = useState(10);                 // q-grid is N × N × N
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -346,7 +346,10 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               </span>
               <span style={{ font: "13px 'Spline Sans'", color: INK }}>Run Phonon DOS</span>
               <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: FAINT }}>q-grid</span>
-              <span style={{ background: 'var(--card)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '4px 12px', font: "12.5px 'Space Mono'", color: INK }}>{dosN}³</span>
+              <span onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Stepper width={34} value={dosN} onInc={() => setDosN(n => Math.min(40, n + 1))} onDec={() => setDosN(n => Math.max(2, n - 1))} />
+                <span style={{ font: "12.5px 'Space Mono'", color: FAINT }}>³ = {dosN ** 3} pts</span>
+              </span>
             </label>
 
             {/* launch */}
@@ -370,12 +373,21 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               <div style={{ marginTop: 6, height: 8, borderRadius: 5, background: 'var(--inset2)', overflow: 'hidden' }}>
                 <div style={{ height: '100%', borderRadius: 5, background: ACCENT, width: `${progress}%`, transition: 'width .4s ease' }} />
               </div>
-              <div ref={logEl} style={{ marginTop: 12, background: '#0f1623', border: '1px solid #1c2740', borderRadius: 9, padding: '11px 13px', height: 120, overflowY: 'auto', font: "11.5px/1.7 'Space Mono'", color: '#9fb3d1' }}>
-                {logLines.length === 0
-                  ? <div style={{ color: '#4a6b8a' }}>› console output will appear here…</div>
-                  : logLines.map((t, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}><span style={{ color: '#4a6b8a' }}>›</span> {t}</div>)}
-              </div>
             </div>
+          </div>
+        </div>
+
+        {/* log console — full width beneath the controls so messages have room to breathe */}
+        <div className="rnr-card" style={{ marginTop: 14, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={cardTitle}>Log console</span>
+            <span style={{ font: "11px 'Space Mono'", color: FAINT }}>run output &amp; progress messages</span>
+            {isProcessing && <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: ACCENTINK, fontWeight: 700 }}>running · {Math.round(progress)}%</span>}
+          </div>
+          <div ref={logEl} style={{ background: '#0f1623', border: '1px solid #1c2740', borderRadius: 9, padding: '12px 14px', height: 150, overflowY: 'auto', font: "11.5px/1.7 'Space Mono'", color: '#9fb3d1' }}>
+            {logLines.length === 0
+              ? <div style={{ color: '#4a6b8a' }}>› console output will appear here…</div>
+              : logLines.map((t, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}><span style={{ color: '#4a6b8a' }}>›</span> {t}</div>)}
           </div>
         </div>
 

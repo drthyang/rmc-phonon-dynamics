@@ -63,9 +63,18 @@ export default function App() {
             <button onClick={() => setPage('viewer')} style={pill(page === 'viewer')}>Viewer</button>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', borderRadius: 8, background: 'var(--soft)', border: '1px solid rgba(47,109,240,0.16)' }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: ready ? 'var(--accent)' : 'var(--faint)', boxShadow: ready ? '0 0 0 3px rgba(47,109,240,0.15)' : 'none', animation: ready ? 'blip 2s infinite' : 'none' }} />
-          <span style={{ font: "600 12px 'Space Mono'", color: ready ? 'var(--accentInk)' : 'var(--faint)' }}>{ready ? 'WebGPU ready' : 'initializing…'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {page === 'viewer' && model && (
+            <span style={{ font: "11px 'Space Mono'", color: 'var(--faint)' }}>source {model.source || 'file'}</span>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', borderRadius: 8, background: 'var(--soft)', border: '1px solid rgba(47,109,240,0.16)' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: ready ? 'var(--accent)' : 'var(--faint)', boxShadow: ready ? '0 0 0 3px rgba(47,109,240,0.15)' : 'none', animation: ready ? 'blip 2s infinite' : 'none' }} />
+            <span style={{ font: "600 12px 'Space Mono'", color: ready ? 'var(--accentInk)' : 'var(--faint)' }}>
+              {page === 'viewer' && model
+                ? `${model.bands[0].length} modes · ${model.bands.length} k-pts`
+                : ready ? 'WebGPU ready' : 'initializing…'}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -76,7 +85,7 @@ export default function App() {
         <RunnerPage pipeline={pipelineRef.current} ready={ready} onResults={onResults} onLoadResult={loadModel} />
       </div>
       <div style={{ display: page === 'viewer' ? 'block' : 'none' }}>
-        <main className="max-w-[1400px] w-full mx-auto p-6"><ViewerPage model={model} onLoadModel={setModel} /></main>
+        <main style={{ maxWidth: 1320, margin: '0 auto', padding: 22 }}><ViewerPage model={model} onLoadModel={setModel} /></main>
       </div>
     </div>
   );

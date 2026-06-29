@@ -1,20 +1,47 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { conventionalLattice, reciprocalLattice, pathDistances } from '../math/reciprocal';
 
 /**
- * Physical band-structure plot (custom SVG).
+ * Physical band-structure plot (custom SVG, Cobalt light theme).
  *
  * x-axis: cumulative reciprocal-path distance (Å⁻¹) with high-symmetry tick
- * labels and vertical segment dividers. y-axis: energy (meV) with a 0 line.
- * Click (or hover) selects the nearest (k, mode) and reports it via onPick;
- * the selected point is marked.
+ * labels (Noto Sans) and vertical segment dividers. y-axis: energy (`unit`)
+ * with adaptive gridlines and a dashed zero line. Branches are drawn in a red
+ * family; sub-zero portions are overdrawn dashed (soft-mode / imaginary freq).
+ * A blue marker flags the selected (k, mode).
+ *
+ * Interactions: drag a box *inside the plot frame* to zoom — the boxed data
+ * region is remapped to fill the whole frame and the axis tick values recompute
+ * for the zoomed range (a true data-domain zoom, not a pixel crop). A single
+ * click (no drag) selects the nearest (k, mode). `resetSignal` (a changing
+ * nonce) clears the zoom back to the full range.
+ *
+ * Axis math (reciprocalLattice / pathDistances / kpathMeta.hsymIndex) is the
+ * same as before — only the styling/zoom changed.
  */
-const W = 820, H = 420;
-const M = { l: 56, r: 16, t: 18, b: 40 };
+const W = 760, H = 880;
+const XL = 64, XR = 740, YT = 30, YB = 810;   // plot frame (pixel/user space)
+const PW = XR - XL, PH = YB - YT;
+const CLIP = 'bsp-frame-clip';
+// Red family — distinct hue/lightness per branch while reading as "red".
+const branchColor = (m) => `hsl(${(m * 6) % 16}, 72%, ${40 + (m % 7) * 3.2}%)`;
 
-export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax }) {
+// A "nice" gridline step (1/2/5 × 10ⁿ) for ~`target` divisions over `range`.
+function niceStep(range, target = 6) {
+  const raw = Math.max(range, 1e-9) / target;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
+
+export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax, unit = 'meV', resetSignal = 0 }) {
   const svgRef = useRef(null);
-  const [hover, setHover] = useState(null);
+  const [domain, setDomain] = useState(null);    // zoom window {xMin,xMax,yMin,yMax} in DATA coords, or null = full
+  const [sel, setSel] = useState(null);          // live drag box {x0,y0,x1,y1} in pixel space
+  const dragRef = useRef(null);
+
+  // Reset zoom whenever the parent bumps resetSignal.
+  useEffect(() => { setDomain(null); }, [resetSignal]);
 
   const model = useMemo(() => {
     if (!bands?.length || !qPoints?.length) return null;
@@ -28,54 +55,69 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     if (Number.isFinite(eMax)) yMax = eMax;
     const nModes = bands[0].length;
 
-    const plotW = W - M.l - M.r, plotH = H - M.t - M.b;
-    const xOf = (d) => M.l + (d / xMax) * plotW;
-    const yOf = (e) => M.t + plotH - ((e - yMin) / (yMax - yMin)) * plotH;
+    // Effective (possibly zoomed) data window mapped onto the full plot frame.
+    const xLo = domain ? domain.xMin : 0, xHi = domain ? domain.xMax : xMax;
+    const yLo = domain ? domain.yMin : yMin, yHi = domain ? domain.yMax : yMax;
+    const xSpan = (xHi - xLo) || 1, ySpan = (yHi - yLo) || 1;
 
-    // One polyline per mode.
-    const paths = [];
+    const xOf = (d) => XL + ((d - xLo) / xSpan) * PW;
+    const yOf = (e) => YB - ((e - yLo) / ySpan) * PH;
+    // Inverse (pixel → data) for converting the drag box into a data window.
+    const invX = (px) => xLo + ((px - XL) / PW) * xSpan;
+    const invY = (py) => yLo + ((YB - py) / PH) * ySpan;
+
+    // One polyline per branch, plus a separate path of only its sub-zero spans.
+    const branches = [];
     for (let m = 0; m < nModes; m++) {
-      let dStr = '';
+      let d = '', neg = '', penNeg = false;
       for (let k = 0; k < bands.length; k++) {
         const v = bands[k][m];
-        if (!isFinite(v)) continue;
-        dStr += (dStr ? 'L' : 'M') + xOf(dist[k]).toFixed(1) + ' ' + yOf(v).toFixed(1) + ' ';
+        if (!isFinite(v)) { penNeg = false; continue; }
+        const X = xOf(dist[k]).toFixed(1), Y = yOf(v).toFixed(1);
+        d += (d ? 'L' : 'M') + X + ' ' + Y + ' ';
+        if (v < 0) { neg += (penNeg ? 'L' : 'M') + X + ' ' + Y + ' '; penNeg = true; }
+        else penNeg = false;
       }
-      paths.push(dStr);
+      branches.push({ d, neg, color: branchColor(m) });
     }
 
-    // High-symmetry ticks (label + divider) from kpathMeta.hsymIndex.
-    const ticks = [];
+    // High-symmetry ticks — only those whose distance falls in the x-window.
+    const xticks = [];
     const hsym = kpathMeta?.hsymIndex || {};
+    const eps = xSpan * 1e-6;
     for (const k of Object.keys(hsym)) {
-      const ki = +k;
-      ticks.push({ x: xOf(dist[ki]), label: hsym[k] });
+      const dx = dist[+k];
+      if (dx >= xLo - eps && dx <= xHi + eps) xticks.push({ x: xOf(dx), label: hsym[k] });
     }
 
-    // y gridlines
-    const yticks = [];
-    const nY = 6;
-    for (let i = 0; i <= nY; i++) {
-      const e = yMin + (i / nY) * (yMax - yMin);
-      yticks.push({ y: yOf(e), label: e.toFixed(0) });
+    // Adaptive y gridlines across the (zoomed) y-window, with matching decimals.
+    const step = niceStep(yHi - yLo);
+    const dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
+    const ygrid = [];
+    for (let e = Math.ceil(yLo / step) * step; e <= yHi + step * 1e-6; e += step) {
+      ygrid.push({ y: yOf(e), label: e.toFixed(dec) });
     }
 
-    return { dist, xOf, yOf, paths, ticks, yticks, nModes, yMin, yMax };
-  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax]);
+    const zeroIn = 0 >= yLo && 0 <= yHi;
+    return { dist, xOf, yOf, invX, invY, branches, xticks, ygrid, nModes, zeroY: yOf(0), zeroIn };
+  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax, domain]);
 
   if (!model) return null;
 
-  const pickNearest = (evt) => {
-    // Map client coords to viewBox user space via the SVG CTM so the picked
-    // point matches the cursor exactly regardless of preserveAspectRatio
-    // letterboxing (a naive rect ratio is wrong when aspect ratios differ).
+  // Map client coords → user space via the SVG CTM (viewBox is fixed at the full
+  // frame, so user space == pixel space here).
+  const toUser = (evt) => {
     const svg = svgRef.current;
-    const ctm = svg.getScreenCTM();
+    const ctm = svg?.getScreenCTM();
     if (!ctm) return null;
     const pt = svg.createSVGPoint();
     pt.x = evt.clientX; pt.y = evt.clientY;
-    const loc = pt.matrixTransform(ctm.inverse());
-    const px = loc.x, py = loc.y;
+    return pt.matrixTransform(ctm.inverse());
+  };
+  const clampX = (x) => Math.max(XL, Math.min(XR, x));
+  const clampY = (y) => Math.max(YT, Math.min(YB, y));
+
+  const pickNearest = (loc) => {
     let best = null, bestD = Infinity;
     for (let k = 0; k < bands.length; k++) {
       const x = model.xOf(model.dist[k]);
@@ -83,66 +125,97 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
         const v = bands[k][m];
         if (!isFinite(v)) continue;
         const y = model.yOf(v);
-        const dd = (x - px) * (x - px) + (y - py) * (y - py);
-        if (dd < bestD) { bestD = dd; best = { k, m, x, y, e: v }; }
+        const dd = (x - loc.x) ** 2 + (y - loc.y) ** 2;
+        if (dd < bestD) { bestD = dd; best = { k, m }; }
       }
     }
-    return bestD < 400 ? best : null; // ~20px radius
+    return bestD < 576 ? best : null;   // ~24 px (frame is fixed)
+  };
+
+  const onDown = (e) => { const p = toUser(e); if (p) dragRef.current = { x0: clampX(p.x), y0: clampY(p.y), moved: false }; };
+  const onMove = (e) => {
+    if (!dragRef.current) return;
+    const p = toUser(e); if (!p) return;
+    const d = dragRef.current;
+    const x1 = clampX(p.x), y1 = clampY(p.y);
+    if (Math.abs(x1 - d.x0) > 4 || Math.abs(y1 - d.y0) > 4) d.moved = true;
+    if (d.moved) setSel({ x0: d.x0, y0: d.y0, x1, y1 });
+  };
+  const onUp = (e) => {
+    const d = dragRef.current; dragRef.current = null; setSel(null);
+    const p = toUser(e); if (!p || !d) return;
+    if (d.moved) {
+      // Box-zoom: pixel box (clamped to frame) → data window. Require a usable size.
+      const xa = clampX(d.x0), xb = clampX(p.x), ya = clampY(d.y0), yb = clampY(p.y);
+      if (Math.abs(xb - xa) > 12 && Math.abs(yb - ya) > 12) {
+        setDomain({
+          xMin: model.invX(Math.min(xa, xb)), xMax: model.invX(Math.max(xa, xb)),
+          yMin: model.invY(Math.max(ya, yb)), yMax: model.invY(Math.min(ya, yb)),   // pixel-y is inverted
+        });
+      }
+    } else {
+      const hit = pickNearest(p);
+      if (hit && onPick) onPick(hit.k, hit.m);
+    }
   };
 
   const selPt = selected && isFinite(bands[selected.k]?.[selected.m])
     ? { x: model.xOf(model.dist[selected.k]), y: model.yOf(bands[selected.k][selected.m]) }
     : null;
+  const inFrame = (p) => p && p.x >= XL - 1 && p.x <= XR + 1 && p.y >= YT - 1 && p.y <= YB + 1;
 
   return (
-    <div className="w-full h-full p-2">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full h-full"
-        style={{ cursor: 'crosshair' }}
-        onMouseMove={(e) => setHover(pickNearest(e))}
-        onMouseLeave={() => setHover(null)}
-        onClick={(e) => { const p = pickNearest(e); if (p && onPick) onPick(p.k, p.m); }}
-      >
-        {/* y grid + labels */}
-        {model.yticks.map((t, i) => (
-          <g key={`y${i}`}>
-            <line x1={M.l} x2={W - M.r} y1={t.y} y2={t.y} stroke="rgba(255,255,255,0.07)" />
-            <text x={M.l - 8} y={t.y + 3} textAnchor="end" fontSize="11" fill="#9ca3af">{t.label}</text>
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair', userSelect: 'none' }}
+      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { dragRef.current = null; setSel(null); }}>
+
+      <defs><clipPath id={CLIP}><rect x={XL} y={YT} width={PW} height={PH} /></clipPath></defs>
+
+      {/* y grid + labels */}
+      {model.ygrid.map((g, i) => (
+        <g key={`y${i}`}>
+          <line x1={XL} x2={XR} y1={g.y} y2={g.y} stroke="var(--border)" strokeWidth="1" />
+          <text x={56} y={g.y + 4} textAnchor="end" fontFamily="STIX Two Text, serif" fontSize="11" fill="var(--faint)">{g.label}</text>
+        </g>
+      ))}
+
+      {/* zero line (only when 0 is in range) */}
+      {model.zeroIn && <line x1={XL} x2={XR} y1={model.zeroY} y2={model.zeroY} stroke="var(--dim)" strokeWidth="0.8" strokeDasharray="3 3" opacity="0.6" />}
+
+      {/* high-symmetry dividers + labels */}
+      {model.xticks.map((t, i) => (
+        <g key={`x${i}`}>
+          <line x1={t.x} x2={t.x} y1={YT} y2={YB} stroke="var(--border)" strokeWidth="1" />
+          <text x={t.x} y={832} textAnchor="middle" fontFamily="Noto Sans, sans-serif" fontSize="16" fontWeight="700" fill="var(--ink)">{t.label}</text>
+        </g>
+      ))}
+
+      {/* axis frame */}
+      <line x1={XL} x2={XL} y1={YT} y2={YB} stroke="var(--dim)" strokeWidth="1.1" />
+      <line x1={XL} x2={XR} y1={YB} y2={YB} stroke="var(--dim)" strokeWidth="1.1" />
+
+      {/* bands (clipped to the frame so zoomed-out-of-range parts don't overflow) */}
+      <g clipPath={`url(#${CLIP})`}>
+        {model.branches.map((b, m) => (
+          <g key={m}>
+            <path d={b.d} fill="none" stroke={b.color} strokeWidth="1.6" strokeLinejoin="round" opacity="0.9" />
+            {b.neg && <path d={b.neg} fill="none" stroke="#e0564b" strokeWidth="2" strokeLinejoin="round" strokeDasharray="3 2" />}
           </g>
         ))}
-        {/* zero line */}
-        <line x1={M.l} x2={W - M.r} y1={model.yOf(0)} y2={model.yOf(0)} stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3" />
+        {/* selection marker (blue, for contrast against the red branches) */}
+        {inFrame(selPt) && <circle cx={selPt.x} cy={selPt.y} r="6" fill="#2f6df0" stroke="#fff" strokeWidth="2" />}
+      </g>
 
-        {/* high-symmetry dividers + labels */}
-        {model.ticks.map((t, i) => (
-          <g key={`x${i}`}>
-            <line x1={t.x} x2={t.x} y1={M.t} y2={H - M.b} stroke="rgba(255,255,255,0.18)" />
-            <text x={t.x} y={H - M.b + 16} textAnchor="middle" fontSize="12" fill="#e5e7eb">{t.label}</text>
-          </g>
-        ))}
+      {/* drag-to-zoom selection box */}
+      {sel && (
+        <rect x={Math.min(sel.x0, sel.x1)} y={Math.min(sel.y0, sel.y1)} width={Math.abs(sel.x1 - sel.x0)} height={Math.abs(sel.y1 - sel.y0)}
+          fill="rgba(47,109,240,0.10)" stroke="#2f6df0" strokeWidth="1" strokeDasharray="4 3" />
+      )}
 
-        {/* bands */}
-        {model.paths.map((d, m) => (
-          <path key={m} d={d} fill="none" stroke={`hsl(${(m * 47) % 360} 65% 62%)`} strokeWidth="1.1" opacity="0.85" />
-        ))}
+      {/* axis title */}
+      <text x={20} y={(YT + YB) / 2} fontFamily="STIX Two Text, serif" fontSize="14" fill="var(--dim)" textAnchor="middle" transform={`rotate(-90 20 ${(YT + YB) / 2})`}>Energy ({unit})</text>
 
-        {/* hover + selection markers */}
-        {hover && <circle cx={hover.x} cy={hover.y} r="4" fill="#fff" opacity="0.6" />}
-        {selPt && <circle cx={selPt.x} cy={selPt.y} r="5" fill="#ef4444" stroke="#fff" strokeWidth="1.5" />}
-
-        {/* axis labels */}
-        <text x={16} y={H / 2} fontSize="12" fill="#9ca3af" transform={`rotate(-90 16 ${H / 2})`} textAnchor="middle">Energy (meV)</text>
-        <text x={(M.l + W - M.r) / 2} y={H - 4} fontSize="11" fill="#6b7280" textAnchor="middle">Wave vector (high-symmetry path)</text>
-
-        {/* hover readout */}
-        {hover && (
-          <text x={W - M.r} y={M.t + 12} textAnchor="end" fontSize="12" fill="#fbbf24">
-            {hover.e.toFixed(2)} meV · band {hover.m + 1} · k{hover.k + 1}
-          </text>
-        )}
-      </svg>
-    </div>
+      {/* zoom hint */}
+      <text x={XR} y={YT + 4} textAnchor="end" fontFamily="Space Mono, monospace" fontSize="11" fill="var(--faint)">{domain ? 'zoomed · Reset to clear' : 'drag a box to zoom'}</text>
+    </svg>
   );
 }

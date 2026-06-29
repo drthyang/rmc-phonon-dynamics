@@ -91,14 +91,21 @@ export default function FitQuality({ dirHandle }) {
 
   const nConfigs = entries.length;
   const maxRw = bars.reduce((m, b) => Math.max(m, b.rw), 0) || 1;
-  const minRw = bars.length ? bars.reduce((m, b) => Math.min(m, b.rw), Infinity) : 0;
+  const meanRw = bars.length ? bars.reduce((s, b) => s + b.rw, 0) / bars.length : 0;
+  const worseCount = bars.reduce((n, b) => n + (b.rw > meanRw ? 1 : 0), 0);
   const selBar = bars[sel];
   const selRw = selBar?.rw;
-  // Heat-map each bar by fit quality: low Rw (good) → teal, high Rw (poor) → red.
+  // Emphasise fit quality *relative to the average*: configs at/below the mean
+  // Rw read as a calm teal, configs worse than average ramp toward red by how
+  // far above the mean they sit. Fills are translucent so a few hundred bars
+  // read as a distribution instead of one solid block.
   const rwColor = (rw) => {
-    const t = Math.max(0, Math.min(1, (rw - minRw) / ((maxRw - minRw) || 1)));
-    return `hsl(${Math.round(165 * (1 - t) + 8 * t)}, 62%, ${Math.round(52 - t * 6)}%)`;
+    if (rw <= meanRw) return 'hsla(168, 52%, 48%, 0.5)';
+    const t = Math.max(0, Math.min(1, (rw - meanRw) / ((maxRw - meanRw) || 1)));
+    return `hsla(${Math.round(30 * (1 - t) + 6 * t)}, 78%, ${Math.round(56 - t * 8)}%, ${0.5 + t * 0.4})`;
   };
+  // Pixel height of a bar (and the average guide line) within the 104px body.
+  const barH = (rw) => Math.max(2, Math.round(6 + (rw / maxRw) * 92));
 
   const title = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -167,7 +174,7 @@ export default function FitQuality({ dirHandle }) {
             <span>config</span>
             <input type="number" min={1} max={nConfigs} value={sel + 1}
               onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v)) selectConfig(Math.max(0, Math.min(nConfigs - 1, v - 1))); }}
-              style={{ width: 54, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', font: "13px 'Space Mono'", color: ACCENTINK, textAlign: 'center' }} />
+              style={{ width: 74, boxSizing: 'border-box', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', font: "13px 'Space Mono'", color: ACCENTINK, textAlign: 'center' }} />
             <span>/ {nConfigs}</span>
             {selRw != null && <span style={{ color: ACCENTINK, fontWeight: 700, marginLeft: 2 }}>Rw {selRw.toFixed(1)}%</span>}
             {selBar && (selBar.rwF != null || selBar.rwG != null) &&
@@ -181,15 +188,19 @@ export default function FitQuality({ dirHandle }) {
         <div style={{ position: 'relative', background: 'var(--inset)', border: `1px solid var(--border)`, borderRadius: 9, padding: '12px 12px 0' }}>
           <span style={{ position: 'absolute', top: 7, left: 12, font: "10px 'Space Mono'", color: FAINT }}>Rw {maxRw.toFixed(1)}%</span>
           <span style={{ position: 'absolute', top: 7, right: 12, font: "10px 'Space Mono'", color: FAINT }}>
-            <span style={{ color: 'hsl(165,62%,52%)' }}>●</span> best&nbsp;&nbsp;<span style={{ color: 'hsl(8,62%,46%)' }}>●</span> worst
+            <span style={{ color: 'hsl(12,78%,52%)' }}>●</span> {worseCount} of {nConfigs} worse than average
           </span>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 0 : nConfigs > 60 ? 1 : 3, height: 104, overflow: 'hidden', borderBottom: `1.5px solid var(--dim)` }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 1 : nConfigs > 60 ? 2 : 3, height: 104, overflow: 'hidden', borderBottom: `1.5px solid var(--dim)` }}>
+            {/* average-Rw guide: bars rising above this line fit worse than the mean */}
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: barH(meanRw), borderTop: '1px dashed var(--faint)', pointerEvents: 'none', zIndex: 2 }}>
+              <span style={{ position: 'absolute', right: 0, top: -12, font: "9px 'Space Mono'", color: FAINT }}>avg {meanRw.toFixed(1)}%</span>
+            </div>
             {bars.map((b, i) => {
               const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);
               const selected = i === sel;
               return (
                 <div key={i} className="rnr-bar" onClick={() => selectConfig(i)} title={`config ${entries[i].config} · ${parts.join(' · ')}`}
-                  style={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: '2px 2px 0 0', height: Math.max(2, Math.round(6 + (b.rw / maxRw) * 92)), background: selected ? 'var(--accent)' : rwColor(b.rw), outline: selected ? '1.5px solid var(--accentInk)' : 'none', outlineOffset: 0, zIndex: selected ? 1 : 0, position: 'relative' }} />
+                  style={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: '2px 2px 0 0', height: barH(b.rw), background: selected ? 'var(--accent)' : rwColor(b.rw), outline: selected ? '1.5px solid var(--accentInk)' : 'none', outlineOffset: 0, zIndex: selected ? 3 : 0, position: 'relative' }} />
               );
             })}
           </div>
