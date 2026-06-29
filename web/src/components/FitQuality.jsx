@@ -91,8 +91,14 @@ export default function FitQuality({ dirHandle }) {
 
   const nConfigs = entries.length;
   const maxRw = bars.reduce((m, b) => Math.max(m, b.rw), 0) || 1;
+  const minRw = bars.length ? bars.reduce((m, b) => Math.min(m, b.rw), Infinity) : 0;
   const selBar = bars[sel];
   const selRw = selBar?.rw;
+  // Heat-map each bar by fit quality: low Rw (good) → teal, high Rw (poor) → red.
+  const rwColor = (rw) => {
+    const t = Math.max(0, Math.min(1, (rw - minRw) / ((maxRw - minRw) || 1)));
+    return `hsl(${Math.round(165 * (1 - t) + 8 * t)}, 62%, ${Math.round(52 - t * 6)}%)`;
+  };
 
   const title = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -170,16 +176,23 @@ export default function FitQuality({ dirHandle }) {
               </span>}
           </div>
         </div>
-        {/* Adaptive gap: with hundreds of configs a fixed 3px gap would exceed
-            the container width and collapse every bar to zero width. */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 0 : nConfigs > 60 ? 1 : 3, height: 92, padding: '0 2px', overflow: 'hidden' }}>
-          {bars.map((b, i) => {
-            const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);
-            return (
-              <div key={i} onClick={() => selectConfig(i)} title={`config ${entries[i].config} · ${parts.join(' · ')}`}
-                style={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: '2px 2px 0 0', height: Math.round(14 + (b.rw / maxRw) * 78), background: i === sel ? ACCENT : 'var(--bar)' }} />
-            );
-          })}
+        {/* Histogram framed like a plot: heat-mapped bars on a baseline, with a
+            y-scale hint. Adaptive gap so hundreds of bars never collapse to 0px. */}
+        <div style={{ position: 'relative', background: 'var(--inset)', border: `1px solid var(--border)`, borderRadius: 9, padding: '12px 12px 0' }}>
+          <span style={{ position: 'absolute', top: 7, left: 12, font: "10px 'Space Mono'", color: FAINT }}>Rw {maxRw.toFixed(1)}%</span>
+          <span style={{ position: 'absolute', top: 7, right: 12, font: "10px 'Space Mono'", color: FAINT }}>
+            <span style={{ color: 'hsl(165,62%,52%)' }}>●</span> best&nbsp;&nbsp;<span style={{ color: 'hsl(8,62%,46%)' }}>●</span> worst
+          </span>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 0 : nConfigs > 60 ? 1 : 3, height: 104, overflow: 'hidden', borderBottom: `1.5px solid var(--dim)` }}>
+            {bars.map((b, i) => {
+              const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);
+              const selected = i === sel;
+              return (
+                <div key={i} className="rnr-bar" onClick={() => selectConfig(i)} title={`config ${entries[i].config} · ${parts.join(' · ')}`}
+                  style={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: '2px 2px 0 0', height: Math.max(2, Math.round(6 + (b.rw / maxRw) * 92)), background: selected ? 'var(--accent)' : rwColor(b.rw), outline: selected ? '1.5px solid var(--accentInk)' : 'none', outlineOffset: 0, zIndex: selected ? 1 : 0, position: 'relative' }} />
+              );
+            })}
+          </div>
         </div>
       </div>
 

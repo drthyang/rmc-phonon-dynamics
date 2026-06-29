@@ -54,3 +54,5 @@ body {
 .rnr-step:hover { background: var(--soft); color: var(--accent); }
 .rnr-btn { transition: filter .12s, background .12s, border-color .12s; }
 .rnr-btn:hover { filter: brightness(.97); }
+.rnr-bar { transition: filter .1s; }
+.rnr-bar:hover { filter: brightness(1.18) saturate(1.1); }

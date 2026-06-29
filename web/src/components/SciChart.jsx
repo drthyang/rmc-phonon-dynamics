@@ -22,6 +22,23 @@ import React, { useMemo, useRef, useState, useEffect, useId } from 'react';
 const M = { l: 48, r: 14, t: 16, b: 38 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
+// "Nice" round tick values (1·2·5 × 10ⁿ) inside [min,max] — avoids the random
+// decimals you get from evenly slicing the raw data range.
+function axisTicks(min, max, n = 5) {
+  if (!(max > min)) return { ticks: [min], decimals: 0 };
+  const raw = (max - min) / n;
+  const exp = Math.floor(Math.log10(raw));
+  const base = Math.pow(10, exp);
+  const f = raw / base;
+  const step = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * base;
+  const ticks = [];
+  for (let v = Math.ceil(min / step - 1e-9) * step; v <= max + step * 1e-6; v += step) {
+    ticks.push(Math.abs(v) < step * 1e-6 ? 0 : v);
+  }
+  return { ticks, decimals: Math.max(0, -Math.floor(Math.log10(step) + 1e-9)) };
+}
+const fmtTick = (v, d) => (Object.is(v, -0) || Math.abs(v) < 1e-12 ? 0 : v).toFixed(d);
+
 export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false, baselines = [], height = 220, resetKey }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
@@ -69,11 +86,11 @@ export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false
       }
       return d.trim();
     });
-    const xt = [], yt = [];
-    for (let i = 0; i <= 4; i++) { const x = xmin + (i / 4) * (xmax - xmin); xt.push({ p: xOf(x), v: x }); }
-    for (let i = 0; i <= 4; i++) { const y = ymin + (i / 4) * (ymax - ymin); yt.push({ p: yOf(y), v: y }); }
-    return { xOf, yOf, xInv, yInv, paths, xt, yt, x0: M.l, x1: w - M.r, y0: H - M.b, y1: M.t,
-      zeroY: yOf(0), hasZero: ymin < 0 && ymax > 0 };
+    const xa = axisTicks(xmin, xmax, 6), ya = axisTicks(ymin, ymax, 5);
+    const xt = xa.ticks.map(v => ({ p: xOf(v), v }));
+    const yt = ya.ticks.map(v => ({ p: yOf(v), v }));
+    return { xOf, yOf, xInv, yInv, paths, xt, yt, xdec: xa.decimals, ydec: ya.decimals,
+      x0: M.l, x1: w - M.r, y0: H - M.b, y1: M.t, zeroY: yOf(0), hasZero: ymin < 0 && ymax > 0 };
   }, [series, w, H, zoom]);
 
   if (!model) return <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', font: "12px 'Spline Sans'" }}>no data</div>;
@@ -156,8 +173,8 @@ export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false
           {model.xt.map((t, i) => <line key={`xt${i}`} x1={t.p} y1={model.y0} x2={t.p} y2={model.y0 + 4} />)}
         </g>
         <g fill="var(--faint)" fontFamily={font} fontSize="10">
-          {model.yt.map((t, i) => <text key={`yl${i}`} x={model.x0 - 7} y={t.p + 3} textAnchor="end">{fmt(t.v)}</text>)}
-          {model.xt.map((t, i) => <text key={`xl${i}`} x={t.p} y={model.y0 + 15} textAnchor="middle">{fmt(t.v)}</text>)}
+          {model.yt.map((t, i) => <text key={`yl${i}`} x={model.x0 - 7} y={t.p + 3} textAnchor="end">{fmtTick(t.v, model.ydec)}</text>)}
+          {model.xt.map((t, i) => <text key={`xl${i}`} x={t.p} y={model.y0 + 15} textAnchor="middle">{fmtTick(t.v, model.xdec)}</text>)}
         </g>
         {xLabel && <text x={(model.x0 + model.x1) / 2} y={H - 5} textAnchor="middle" fill="var(--dim)" fontFamily={font} fontSize="11">{xLabel}</text>}
         {yLabel && <text x="13" y={(model.y0 + model.y1) / 2} textAnchor="middle" fill="var(--dim)" fontFamily={font} fontSize="11" transform={`rotate(-90 13 ${(model.y0 + model.y1) / 2})`}>{yLabel}</text>}
@@ -166,11 +183,15 @@ export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false
         <g clipPath={`url(#${clip})`}>
           {series.map((s, i) => {
             if (s.marker) {
-              const n = s.points.length, step = Math.max(1, Math.ceil(n / 170)), c = [];
-              for (let k = 0; k < n; k += step) {
+              // Every measured point (no downsampling); only those within the
+              // current x-domain are emitted so a deep zoom stays light.
+              const c = [];
+              for (let k = 0; k < s.points.length; k++) {
                 const [x, y] = s.points[k];
                 if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-                c.push(<circle key={k} cx={model.xOf(x).toFixed(1)} cy={model.yOf(y).toFixed(1)} r={s.r || 2.1} fill="none" stroke={s.color} strokeWidth="1" vectorEffect="non-scaling-stroke" />);
+                const px = model.xOf(x);
+                if (px < model.x0 - 4 || px > model.x1 + 4) continue;
+                c.push(<circle key={k} cx={px.toFixed(1)} cy={model.yOf(y).toFixed(1)} r={s.r || 1.9} fill="none" stroke={s.color} strokeWidth="1" vectorEffect="non-scaling-stroke" />);
               }
               return <g key={i}>{c}</g>;
             }
