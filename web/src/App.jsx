@@ -82,7 +82,7 @@ export default function App() {
             <span style={{ font: "600 12px 'Space Mono'", color: ready ? '#fff' : 'rgba(255,255,255,0.7)' }}>
               {page === 'viewer' && model
                 ? `${model.bands[0].length} modes · ${model.bands.length} k-pts`
-                : ready ? 'WebGPU ready' : 'initializing…'}
+                : ready ? 'GPU ready' : 'initializing…'}
             </span>
           </div>
         </div>
