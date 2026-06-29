@@ -64,7 +64,7 @@ export default function App() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
             <span style={{ font: "700 17px 'Space Grotesk'", letterSpacing: '-.02em', color: 'var(--ink)' }}>RMC Phonon Dynamics</span>
-            <span style={{ font: "10px 'Space Mono'", letterSpacing: '.03em', color: 'var(--faint)', marginTop: 1 }}>WebGPU phonon-band calculator</span>
+            <span style={{ font: "10px 'Space Mono'", letterSpacing: '.03em', color: 'var(--faint)', marginTop: 1 }}>phonons from RMC total-scattering ensembles</span>
           </div>
           <div style={{ display: 'flex', gap: 3, marginLeft: 12, background: 'var(--inset2)', borderRadius: 9, padding: 3, border: '1px solid var(--border)' }}>
             <button onClick={() => setPage('runner')} style={pill(page === 'runner')}>Runner</button>
@@ -108,6 +108,16 @@ export default function App() {
       <div style={{ display: page === 'viewer' ? 'block' : 'none' }}>
         <main style={{ maxWidth: 1320, margin: '0 auto', padding: 22 }}><ViewerPage model={model} onLoadModel={setModel} /></main>
       </div>
+
+      {/* Footer — value proposition + copyright, shown under whichever page is active. */}
+      <footer style={{ borderTop: '1px solid var(--border)', padding: '20px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, textAlign: 'center' }}>
+        <span style={{ font: "12px/1.6 'Spline Sans'", color: 'var(--dim)', maxWidth: 760 }}>
+          Phonons computed from <b style={{ color: 'var(--ink)' }}>RMC ensembles fitted to experimental total-scattering &amp; diffraction data</b> — a structure-derived route, not spectroscopy or lattice-dynamics models.
+        </span>
+        <span style={{ font: "11px 'Space Mono'", color: 'var(--faint)' }}>
+          © 2026 Tsung-Han Yang · <a href="https://github.com/drthyang/rmc-phonon-dynamics" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accentInk)', textDecoration: 'none' }}>source</a>
+        </span>
+      </footer>
     </div>
   );
 }

@@ -8,6 +8,13 @@ ensembles — no install, no setup, no server. Open the page, pick your run fold
 and get phonon band structures, animated 3D modes, and simulated neutron spectra
 in seconds.
 
+> **What makes it different:** the phonons come straight from your
+> **RMC ensemble — atomic configurations fitted to experimental total-scattering
+> and diffraction data** (real-space PDF + reciprocal-space S(Q)/Bragg). They are
+> extracted from the *displacement covariance* of those configurations, so the
+> dynamics are a direct consequence of the measured structure — **not** taken
+> from a spectroscopy measurement (INS/Raman/IR) or a lattice-dynamics/DFT model.
+
 ### ▶️ Open the app — [drthyang.github.io/rmc-phonon-dynamics](https://drthyang.github.io/rmc-phonon-dynamics/)
 
 1. Visit the link above.
