@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  deployments: write
 
 # Allow one concurrent deployment; let an in-progress run finish.
 concurrency:
@@ -47,3 +48,20 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+      - name: Prune superseded deployments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const all = await github.paginate(github.rest.repos.listDeployments, { owner, repo, per_page: 100 });
+            all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const stale = all.slice(1); // keep only the most recent (current) deployment
+            core.info(`Found ${all.length} deployments; pruning ${stale.length}.`);
+            for (const d of stale) {
+              try {
+                await github.rest.repos.createDeploymentStatus({ owner, repo, deployment_id: d.id, state: 'inactive' });
+                await github.rest.repos.deleteDeployment({ owner, repo, deployment_id: d.id });
+              } catch (e) {
+                core.warning(`Could not delete deployment ${d.id}: ${e.message}`);
+              }
+            }
