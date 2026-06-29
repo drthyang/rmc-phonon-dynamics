@@ -109,13 +109,12 @@ export default function App() {
         <main style={{ maxWidth: 1320, margin: '0 auto', padding: 22 }}><ViewerPage model={model} onLoadModel={setModel} /></main>
       </div>
 
-      {/* Footer — value proposition + copyright, shown under whichever page is active. */}
-      <footer style={{ borderTop: '1px solid var(--border)', padding: '20px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, textAlign: 'center' }}>
-        <span style={{ font: "12px/1.6 'Spline Sans'", color: 'var(--dim)', maxWidth: 760 }}>
-          Phonons computed from <b style={{ color: 'var(--ink)' }}>RMC ensembles fitted to experimental total-scattering &amp; diffraction data</b> — a structure-derived route, not spectroscopy or lattice-dynamics models.
-        </span>
+      {/* Footer — copyright + license, shown under whichever page is active. */}
+      <footer style={{ borderTop: '1px solid var(--border)', padding: '16px 24px', display: 'flex', justifyContent: 'center' }}>
         <span style={{ font: "11px 'Space Mono'", color: 'var(--faint)' }}>
-          © 2026 Tsung-Han Yang · <a href="https://github.com/drthyang/rmc-phonon-dynamics" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accentInk)', textDecoration: 'none' }}>source</a>
+          © 2026 Tsung-Han Yang ·{' '}
+          <a href="https://github.com/drthyang/rmc-phonon-dynamics/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accentInk)', textDecoration: 'none' }}>MIT License</a> ·{' '}
+          <a href="https://github.com/drthyang/rmc-phonon-dynamics" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accentInk)', textDecoration: 'none' }}>source</a>
         </span>
       </footer>
     </div>
