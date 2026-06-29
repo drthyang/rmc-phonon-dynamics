@@ -170,7 +170,9 @@ export default function FitQuality({ dirHandle }) {
               </span>}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 92, padding: '0 2px' }}>
+        {/* Adaptive gap: with hundreds of configs a fixed 3px gap would exceed
+            the container width and collapse every bar to zero width. */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: nConfigs > 150 ? 0 : nConfigs > 60 ? 1 : 3, height: 92, padding: '0 2px', overflow: 'hidden' }}>
           {bars.map((b, i) => {
             const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);
             return (
