@@ -74,7 +74,11 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
 
     const sphereGeo = new THREE.SphereGeometry(maxR * 0.03, 16, 16);
     const baseMat = new THREE.MeshBasicMaterial({ color: 0xe06a3b });
-    const activeMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
+    // One colour per disconnected sub-path (a "Break" starts a new group).
+    // Group 0 = the original path (red); later groups cycle through these.
+    const GROUP_COLORS = [0xdc2626, 0x13a07f, 0x8b5cf6, 0xec4899, 0xd97706];
+    const groupMats = GROUP_COLORS.map(c => new THREE.MeshBasicMaterial({ color: c }));
+    const groupLineMats = GROUP_COLORS.map(c => new THREE.LineBasicMaterial({ color: c, linewidth: 2 }));
     const pointsGroup = new THREE.Group();
     scene.add(pointsGroup);
     for (const [label, p] of Object.entries(points)) {
@@ -91,31 +95,39 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
     scene.add(pathGroup);
     // Shared arrowhead (cone) marking each segment's direction.
     const arrowGeo = new THREE.ConeGeometry(maxR * 0.035, maxR * 0.11, 14);
-    const arrowMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
     const YUP = new THREE.Vector3(0, 1, 0);
     const drawPath = (segs) => {
       pathGroup.clear();
-      const onPath = new Set();
-      if (tipRef.current) onPath.add(tipRef.current);
-      for (const s of segs) {
+      const ptGroup = new Map();   // label -> group index (for point colour)
+      let group = 0;
+      for (let si = 0; si < segs.length; si++) {
+        const s = segs[si];
+        if (si > 0 && segs[si - 1].to !== s.from) group++;   // a break starts a new colour group
+        const gi = group % GROUP_COLORS.length;
         const a = points[s.from]?.cart, b = points[s.to]?.cart;
         if (!a || !b) continue;
-        onPath.add(s.from); onPath.add(s.to);
+        ptGroup.set(s.from, gi); ptGroup.set(s.to, gi);
         const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
         const g = new THREE.BufferGeometry().setFromPoints([va, vb]);
-        pathGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xdc2626, linewidth: 2 })));
+        pathGroup.add(new THREE.Line(g, groupLineMats[gi]));
         // Arrowhead ~55% along from→to, pointing toward `to`.
         const dir = new THREE.Vector3().subVectors(vb, va);
         const len = dir.length();
         if (len > 1e-6) {
           dir.divideScalar(len);
-          const cone = new THREE.Mesh(arrowGeo, arrowMat);
+          const cone = new THREE.Mesh(arrowGeo, groupMats[gi]);
           cone.position.copy(va).addScaledVector(dir, len * 0.55);
           cone.quaternion.setFromUnitVectors(YUP, dir);
           pathGroup.add(cone);
         }
       }
-      pointsGroup.children.forEach(m => { m.material = onPath.has(m.userData.label) ? activeMat : baseMat; });
+      // Current tip: if it begins a fresh (post-break) sub-path, highlight it in the next colour.
+      const tip = tipRef.current;
+      if (tip && !ptGroup.has(tip)) ptGroup.set(tip, (segs.length ? group + 1 : 0) % GROUP_COLORS.length);
+      pointsGroup.children.forEach(m => {
+        const gi = ptGroup.get(m.userData.label);
+        m.material = gi == null ? baseMat : groupMats[gi];
+      });
     };
     sceneApi.current = { drawPath };
     drawPath(segments);
