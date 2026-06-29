@@ -45,8 +45,8 @@ export default function ViewerPage({ model, onLoadModel }) {
   const [speed, setSpeed] = useState(0.03);
   const [playing, setPlaying] = useState(true);
   const [showVectors, setShowVectors] = useState(false);
-  const [vectorScale, setVectorScale] = useState(1.5);
-  const [vectorColor, setVectorColor] = useState('#fde047');
+  const [vectorScale, setVectorScale] = useState(2.0);
+  const [vectorColor, setVectorColor] = useState('#e0564b');
   const [showCell, setShowCell] = useState(true);
   const [atomScale, setAtomScale] = useState(1);
   const [camNonce, setCamNonce] = useState(null);

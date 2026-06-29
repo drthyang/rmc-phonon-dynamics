@@ -210,7 +210,7 @@ export default function CrystalViewer({
 
     const span = Math.hypot(...matvec([nx, ny, nz]));
     // Arrow visual sizes (world units, scaled to the cell extent).
-    const aShaftR = span * 0.006, aHeadR = span * 0.018, aHeadH = span * 0.05;
+    const arrowBaseW = span * 0.006;   // base shaft half-width; scaled by vectorScale per frame
     controls.target.copy(center);
     camera.position.copy(center).add(new THREE.Vector3(span * 0.4, span * 0.3, span * 1.1 + 5));
     // Restore the previous view so appearance tweaks don't reset the camera.
@@ -269,13 +269,17 @@ export default function CrystalViewer({
             // has a matching vector that oscillates with it. Origin pinned to the
             // atom's current (displaced) centre so it always emanates from the atom.
             const len = Math.hypot(dx, dy, dz);
-            const L = len * P.vectorScale;
+            const vs = P.vectorScale || 1;
+            const L = len * vs;
             if (L > 1e-4 * span) {
               at.arrow.g.visible = true;
-              const hH = Math.min(aHeadH, L * 0.45);
-              const hR = aHeadR * (hH / aHeadH);
+              const shaftR = arrowBaseW * vs;            // shaft width scales with vector size
+              const headR = shaftR * 3;                  // arrowhead radius adjusts with the width
+              const idealHeadH = headR * 1.9;            // head length proportional to its radius
+              const hH = Math.min(idealHeadH, L * 0.5);  // never longer than half the arrow
+              const hR = headR * (hH / idealHeadH);      // keep proportions if the head is clamped
               const shaftLen = Math.max(L - hH, L * 0.02);
-              at.arrow.shaft.scale.set(aShaftR, shaftLen, aShaftR);
+              at.arrow.shaft.scale.set(shaftR, shaftLen, shaftR);
               at.arrow.head.scale.set(hR, hH, hR);
               at.arrow.head.position.set(0, shaftLen + hH / 2, 0);
               up.set(dx / len, dy / len, dz / len);
