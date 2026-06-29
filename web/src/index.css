@@ -46,6 +46,10 @@ body {
   border: 1px solid #27272a;
 }
 
+/* Scale the whole app up a touch for readability (Chromium-only app, so the
+   non-standard `zoom` is safe and scales text + layout uniformly). */
+.rnr { zoom: 1.15; }
+
 /* Runner-scoped helpers (light theme). */
 .rnr ::-webkit-scrollbar { width: 9px; height: 9px; }
 .rnr ::-webkit-scrollbar-thumb { background: #d5dae4; border-radius: 6px; }
