@@ -38,6 +38,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
   const svgRef = useRef(null);
   const [domain, setDomain] = useState(null);    // zoom window {xMin,xMax,yMin,yMax} in DATA coords, or null = full
   const [sel, setSel] = useState(null);          // live drag box {x0,y0,x1,y1} in pixel space
+  const [hover, setHover] = useState(null);      // nearest point under the cursor {k,m,x,y}
   const dragRef = useRef(null);
 
   // Reset zoom whenever the parent bumps resetSignal.
@@ -117,6 +118,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
   const clampX = (x) => Math.max(XL, Math.min(XR, x));
   const clampY = (y) => Math.max(YT, Math.min(YB, y));
 
+  // Nearest selectable (k, mode) to a point, with its pixel position.
   const pickNearest = (loc) => {
     let best = null, bestD = Infinity;
     for (let k = 0; k < bands.length; k++) {
@@ -126,20 +128,24 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
         if (!isFinite(v)) continue;
         const y = model.yOf(v);
         const dd = (x - loc.x) ** 2 + (y - loc.y) ** 2;
-        if (dd < bestD) { bestD = dd; best = { k, m }; }
+        if (dd < bestD) { bestD = dd; best = { k, m, x, y }; }
       }
     }
-    return bestD < 576 ? best : null;   // ~24 px (frame is fixed)
+    return best;
   };
 
   const onDown = (e) => { const p = toUser(e); if (p) dragRef.current = { x0: clampX(p.x), y0: clampY(p.y), moved: false }; };
   const onMove = (e) => {
-    if (!dragRef.current) return;
     const p = toUser(e); if (!p) return;
-    const d = dragRef.current;
-    const x1 = clampX(p.x), y1 = clampY(p.y);
-    if (Math.abs(x1 - d.x0) > 4 || Math.abs(y1 - d.y0) > 4) d.moved = true;
-    if (d.moved) setSel({ x0: d.x0, y0: d.y0, x1, y1 });
+    if (dragRef.current) {
+      const d = dragRef.current;
+      const x1 = clampX(p.x), y1 = clampY(p.y);
+      if (Math.abs(x1 - d.x0) > 4 || Math.abs(y1 - d.y0) > 4) d.moved = true;
+      if (d.moved) { setSel({ x0: d.x0, y0: d.y0, x1, y1 }); setHover(null); }
+      return;
+    }
+    // Not dragging: preview the nearest selectable point under the cursor.
+    setHover(pickNearest(p));
   };
   const onUp = (e) => {
     const d = dragRef.current; dragRef.current = null; setSel(null);
@@ -166,7 +172,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair', userSelect: 'none' }}
-      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { dragRef.current = null; setSel(null); }}>
+      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { dragRef.current = null; setSel(null); setHover(null); }}>
 
       <defs><clipPath id={CLIP}><rect x={XL} y={YT} width={PW} height={PH} /></clipPath></defs>
 
@@ -201,6 +207,9 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
             {b.neg && <path d={b.neg} fill="none" stroke="#e0564b" strokeWidth="2" strokeLinejoin="round" strokeDasharray="3 2" />}
           </g>
         ))}
+        {/* hover marker — translucent spot on the nearest selectable point */}
+        {hover && !sel && <circle cx={hover.x} cy={hover.y} r="7" fill="rgba(47,109,240,0.22)" stroke="rgba(47,109,240,0.5)" strokeWidth="1" style={{ pointerEvents: 'none' }} />}
+
         {/* selection marker (blue, for contrast against the red branches) */}
         {inFrame(selPt) && <circle cx={selPt.x} cy={selPt.y} r="6" fill="#2f6df0" stroke="#fff" strokeWidth="2" />}
       </g>
