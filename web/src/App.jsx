@@ -39,22 +39,21 @@ export default function App() {
 
   const loadModel = (m) => { setModel(m); setPage('viewer'); };
 
-  // Tab pills sit on the cobalt header: active = solid white with accent text,
-  // inactive = translucent white text.
+  // Tab pills on the light header: active = raised white chip with accent text.
   const pill = (active) => ({
     padding: '6px 16px', borderRadius: 7, font: "600 13px 'Space Grotesk'",
     cursor: 'pointer', border: 'none', transition: 'color .15s, background .15s, box-shadow .15s',
     background: active ? '#fff' : 'transparent',
-    color: active ? 'var(--accentInk)' : 'rgba(255,255,255,0.82)',
-    boxShadow: active ? '0 2px 6px rgba(16,24,38,0.18)' : 'none',
+    color: active ? 'var(--accentInk)' : 'var(--dim)',
+    boxShadow: active ? '0 1px 2px rgba(16,24,38,0.12)' : 'none',
   });
 
   return (
     <div className="rnr" style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--ink)', fontFamily: "'Spline Sans', sans-serif" }}>
       {/* ── top nav ─────────────────────────────────────────────── */}
-      <header style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', background: 'linear-gradient(120deg, #1f50c4 0%, #2f6df0 58%, #4884f6 100%)', borderBottom: '1px solid rgba(255,255,255,0.14)', boxShadow: '0 2px 12px rgba(31,80,196,0.28)', position: 'sticky', top: 0, zIndex: 50 }}>
+      <header style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(10px) saturate(1.3)', WebkitBackdropFilter: 'blur(10px) saturate(1.3)', borderBottom: '1px solid var(--border)', boxShadow: '0 1px 3px rgba(16,24,38,0.04)', position: 'sticky', top: 0, zIndex: 50 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.25)' }}>
+          <div style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(47,109,240,0.30)' }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
               <g stroke="#fff" strokeWidth="1.5" opacity="0.95">
                 <ellipse cx="12" cy="12" rx="10" ry="4.1" />
@@ -65,21 +64,21 @@ export default function App() {
             </svg>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-            <span style={{ font: "700 17px 'Space Grotesk'", letterSpacing: '-.02em', color: '#fff' }}>RMC Phonon Dynamics</span>
-            <span style={{ font: "10px 'Space Mono'", letterSpacing: '.03em', color: 'rgba(255,255,255,0.72)', marginTop: 1 }}>phonons from RMC total-scattering ensembles</span>
+            <span style={{ font: "700 17px 'Space Grotesk'", letterSpacing: '-.02em', color: 'var(--ink)' }}>RMC Phonon Dynamics</span>
+            <span style={{ font: "10px 'Space Mono'", letterSpacing: '.03em', color: 'var(--faint)', marginTop: 1 }}>phonons from RMC total-scattering ensembles</span>
           </div>
-          <div style={{ display: 'flex', gap: 3, marginLeft: 12, background: 'rgba(255,255,255,0.14)', borderRadius: 9, padding: 3, border: '1px solid rgba(255,255,255,0.20)' }}>
+          <div style={{ display: 'flex', gap: 3, marginLeft: 12, background: 'var(--inset2)', borderRadius: 9, padding: 3, border: '1px solid var(--border)' }}>
             <button onClick={() => setPage('runner')} style={pill(page === 'runner')}>Runner</button>
             <button onClick={() => setPage('viewer')} style={pill(page === 'viewer')}>Viewer</button>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {page === 'viewer' && model && (
-            <span style={{ font: "11px 'Space Mono'", color: 'rgba(255,255,255,0.72)' }}>source {model.source || 'file'}</span>
+            <span style={{ font: "11px 'Space Mono'", color: 'var(--faint)' }}>source {model.source || 'file'}</span>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', borderRadius: 8, background: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.22)' }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: ready ? '#fff' : 'rgba(255,255,255,0.5)', boxShadow: ready ? '0 0 0 3px rgba(255,255,255,0.22)' : 'none', animation: ready ? 'blip 2s infinite' : 'none' }} />
-            <span style={{ font: "600 12px 'Space Mono'", color: ready ? '#fff' : 'rgba(255,255,255,0.7)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 13px', borderRadius: 8, background: 'var(--soft)', border: '1px solid rgba(47,109,240,0.16)' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: ready ? 'var(--accent)' : 'var(--faint)', boxShadow: ready ? '0 0 0 3px rgba(47,109,240,0.15)' : 'none', animation: ready ? 'blip 2s infinite' : 'none' }} />
+            <span style={{ font: "600 12px 'Space Mono'", color: ready ? 'var(--accentInk)' : 'var(--faint)' }}>
               {page === 'viewer' && model
                 ? `${model.bands[0].length} modes · ${model.bands.length} k-pts`
                 : ready ? 'GPU ready' : 'initializing…'}
