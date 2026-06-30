@@ -1,12 +1,12 @@
 # Computation-cell framework — implementation plan
 
-Status: **Phase 0 complete**, **Phase 1 mostly landed** — relabel-driven
-per-basis-site S(k) wired into `compute/pipeline.js` (default `P = I` = zero
-regression) **and** the conventional default k-path (the Γ→X fix), verified
-end-to-end in-browser. Tests in `npm run validate` (`cells_pipeline_test.mjs`,
-`highsym_test.mjs`). What's left in Phase 1: the reference-mode knob and exposing
-`P` in the UI — see the Phase 1 bullet below. This is the reference plan; build
-piece by piece and check work against it.
+Status: **Phases 0, 1, 2 complete.** Relabel-driven per-basis-site S(k) (default
+`P = I` = zero regression), conventional default k-path (the Γ→X fix), reference
+mode, and a UI computation-cell selector (`Conventional | Custom n₁×n₂×n₃`, the
+path mapped `q_cell = P·q_conv`). Verified in-browser + `npm run validate`
+(`cells_pipeline_test.mjs` [A–E], `highsym_test.mjs`). **Next: Phase 3** — the
+primitive-cell option (unfolded dispersion) via `analyzeBravais` (`P = M`, reuse
+the primitive `buildBZModel`). This is the reference plan; build piece by piece.
 
 ## Problem
 
@@ -117,12 +117,21 @@ the reference and pooling the statistics is Phase 1.**
     control on the runner. Node coverage in `cells_pipeline_test.mjs` [D]
     (symmetrized ≠ per-atom under static disorder; identical for statistically
     equal sites).
-  - **Remaining:** surface `P` via the UI (Phase 2). The pipeline already accepts
-    `options.computationCell.P`. (NB: the primitive seekpath BZ picker —
-    `buildBZModel`, with W/K/U/L etc. — is no longer the runner default; it returns
-    as the *unfolded* primitive option in Phase 3.)
+  - **Done:** `P` is surfaced via the UI (see Phase 2). NB: the primitive seekpath
+    BZ picker (`buildBZModel`, W/K/U/L) is no longer the runner default; it returns
+    as the *unfolded* primitive option in Phase 3.
 - **Phase 2 — UI cell selector + custom supercell** (`Conventional | Custom
-  n₁×n₂×n₃`).
+  n₁×n₂×n₃`). **✅ DONE.** Key design: the user always picks the path on the
+  CONVENTIONAL BZ; the cell choice only sets `P`, and `runCalculation` maps each
+  point `q_cell = P·q_conv` before the Bloch phase (DOS `genGrid` is already in
+  cell-frac). So no per-cell BZ rebuild. `RunnerPage` "Computation cell" selector
+  (`Conventional | Custom n₁×n₂×n₃` → `P = diag(n)`) passes `computationCell.P` to
+  `runCalculation`/`computeDOSGrid`; results carry `compCell:{P,L}`. Cell-aware
+  consumers: `viewermodel` shows the computation cell `L` and attaches `bandRecip`
+  (conventional reciprocal) so band-path distances stay physical; `BandStructurePlot`
+  prefers `bandRecip`. Large-`N` guard warns when `3·N_basis > 600`. Node coverage:
+  `cells_pipeline_test.mjs` [E] (`q_cell = P·q_conv`; custom 2×1×1 folds conventional
+  X onto the supercell Γ; genuine ½ point stays distinct).
 - **Phase 3 — primitive cell via symmetry.** Derive primitive `P` from
   `analyzeBravais` (manual override fallback); add `Primitive` option → unfolded
   dispersion.

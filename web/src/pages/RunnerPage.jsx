@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
+import { IDENT } from '../math/cells';
 import { buildConventionalBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -40,6 +41,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
   const [refMode, setRefMode] = useState('average');   // 'average' | 'file'  (reference SOURCE)
   const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
+  const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'custom' (computation cell)
+  const [customN, setCustomN] = useState([1, 1, 1]);   // P = diag(n) for a custom supercell
   const [refName, setRefName] = useState('');
 
   const [temperature, setTemperature] = useState(5);
@@ -79,6 +82,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // k-path uses conventional high-symmetry points (X at ½). This fixes the
   // spurious Γ→X mirror symmetry the primitive seekpath path produced.
   const bzModel = useMemo(() => (bravais ? buildConventionalBZModel(bravais) : null), [bravais]);
+
+  // Computation cell: P = I (conventional) or diag(n) (custom supercell). The path
+  // is still picked on the conventional BZ; the pipeline maps q → P·q internally.
+  const compP = useMemo(() => (cellType === 'custom'
+    ? [[customN[0], 0, 0], [0, customN[1], 0], [0, 0, customN[2]]]
+    : IDENT), [cellType, customN]);
+  const nConvBasis = baseStructure?.basis?.length || 0;
+  const cellMult = cellType === 'custom' ? customN[0] * customN[1] * customN[2] : 1;
+  const nBranches = 3 * nConvBasis * cellMult;
 
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;
@@ -182,13 +194,13 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       }
 
       pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); pushLog(t); };
-      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol, referenceMode });
+      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol, referenceMode, computationCell: { P: compP } });
 
       let dos = null;
       if (runDos) {
         pushLog(`Computing phonon DOS · q-grid ${dosN}³…`);
         try {
-          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle, referenceMode });
+          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle, referenceMode, computationCell: { P: compP } });
           setDosEnergies(d.energies);
           dos = { energies: d.energies, gridN: d.gridN };
           pushLog(`Phonon DOS · ${d.nq} q-points × ${d.nModes} modes`);
@@ -365,6 +377,31 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ display: 'grid', gridTemplateColumns: '150px 150px', gap: 12, marginBottom: 16 }}>
               <Field label="T (K)" value={temperature} onChange={v => setTemperature(v)} step={1} />
               <Field label="degen tol" value={degenerateTol} onChange={v => setDegenerateTol(v)} step={0.001} />
+            </div>
+
+            <div style={{ ...eyebrow, marginBottom: 9 }}>COMPUTATION CELL</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+                {[['conventional', 'Conventional'], ['custom', 'Custom supercell']].map(([t, lbl]) => (
+                  <button key={t} onClick={() => setCellType(t)} className="rnr-btn"
+                    style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer' }}>{lbl}</button>
+                ))}
+              </div>
+              {cellType === 'custom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {[0, 1, 2].map(i => (
+                    <Stepper key={i} width={28} value={customN[i]}
+                      onInc={() => setCustomN(n => n.map((x, j) => j === i ? Math.min(8, x + 1) : x))}
+                      onDec={() => setCustomN(n => n.map((x, j) => j === i ? Math.max(1, x - 1) : x))} />
+                  ))}
+                  <span style={{ font: "11px 'Space Mono'", color: FAINT }}>× conv.</span>
+                </div>
+              )}
+              {nConvBasis > 0 && (
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: nBranches > 600 ? 'var(--warnInk)' : FAINT }}>
+                  {nConvBasis * cellMult} sites · {nBranches} branches{nBranches > 600 ? ' ⚠' : ''}
+                </span>
+              )}
             </div>
 
             <div style={{ ...eyebrow, marginBottom: 9 }}>OPTIONS</div>

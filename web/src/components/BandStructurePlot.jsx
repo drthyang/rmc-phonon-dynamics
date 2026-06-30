@@ -46,7 +46,10 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
 
   const model = useMemo(() => {
     if (!bands?.length || !qPoints?.length) return null;
-    const recip = reciprocalLattice(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim));
+    // q-points are in conventional coords; prefer the conventional reciprocal the
+    // runner attaches (bandRecip) so path distances are right even when the 3D
+    // viewer cell is a custom/primitive computation cell.
+    const recip = baseStructure.bandRecip || reciprocalLattice(conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim));
     const dist = pathDistances(qPoints, recip, kpathMeta?.segSizes);
     const xMax = dist[dist.length - 1] || 1;
     let yMin = 0, yMax = 1;

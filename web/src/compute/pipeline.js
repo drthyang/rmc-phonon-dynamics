@@ -163,7 +163,7 @@ export class PhononPipeline {
     return {
       parsedFrames, numFiles, numAtoms, hsym_xyz, firstFrameIds, reverseAtomDic,
       uniqueRN: tauRN, numTypes, typeIndices, masses, counts, segSymbols, basis, cellN,
-      refFrac, wrapRef, v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
+      refFrac, wrapRef, P, cellL: lab.L, v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
     };
   }
 
@@ -212,11 +212,23 @@ export class PhononPipeline {
     this.onProgress(35, 'Preparing WebGPU buffers...');
 
     const D = 3 * prep.numTypes;
+    if (D > 600) console.warn(`[cells] large computation cell: ${prep.numTypes} basis sites → ${D}×${D} S(k); eigh is O(N³) and may be slow.`);
     const phononBands = [], phononEigvecs = [];
     const N = kPathPoints.length;
+    // The user always picks the path on the CONVENTIONAL BZ. Map each point into
+    // the computation cell's reciprocal before the Bloch phase: q_cell = P·q_conv
+    // (so the phase q_cell·n matches the cell index n in L units). For P = I this
+    // is the identity; for a custom supercell it folds, for the primitive cell it
+    // unfolds. qPoints stored in the result stay conventional (for the plot axis).
+    const P = prep.P;
+    const toCell = (q) => [
+      P[0][0] * q[0] + P[0][1] * q[1] + P[0][2] * q[2],
+      P[1][0] * q[0] + P[1][1] * q[1] + P[1][2] * q[2],
+      P[2][0] * q[0] + P[2][1] * q[1] + P[2][2] * q[2],
+    ];
     for (let k = 0; k < N; k++) {
       if (this._cancel) throw new Error('cancelled');
-      const q = kPathPoints[k];
+      const q = toCell(kPathPoints[k]);
       this.onProgress(35 + (k / N) * 50, `Computing S(k) for k-point ${k + 1}/${N}...`);
       const { Sk_real, Sk_imag } = await this._skAtKvec([q[0] * TWO_PI_PHASE, q[1] * TWO_PI_PHASE, q[2] * TWO_PI_PHASE], prep);
       const { eigenvalues, eigenvectors } = eigh(Sk_real, Sk_imag, D);
@@ -233,7 +245,7 @@ export class PhononPipeline {
       baseStructure: {
         ...baseStructure, hsym_xyz: prep.hsym_xyz, atomType: prep.firstFrameIds,
         cellIdx: prep.parsedFrames[0].cellIdx, uniqueRN: prep.uniqueRN, segSymbols: prep.segSymbols, counts: prep.counts,
-        siteBasis: prep.basis,
+        siteBasis: prep.basis, compCell: { P: prep.P, L: prep.cellL },
       },
     };
   }

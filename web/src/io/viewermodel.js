@@ -13,13 +13,21 @@
 // uniqueRN (sorted reference numbers) — consistent with the diagonalizer.
 
 import yaml from 'js-yaml';
-import { conventionalLattice } from '../math/reciprocal.js';
+import { conventionalLattice, reciprocalLattice } from '../math/reciprocal.js';
 import { THZ_TO_MEV } from '../constants.js';
 
 /** Convert in-memory pipeline results into the unit-cell viewer model. */
 export function fromResults(results, kpathMeta) {
   const bs = results.baseStructure;
-  const A = conventionalLattice(bs.v1, bs.v2, bs.v3, bs.dim); // unit-cell rows
+  // Unit cell shown in the 3D viewer = the COMPUTATION cell (L = P·A_conv). For
+  // the default conventional cell this equals A_conv; for a custom/primitive cell
+  // it is the chosen sub-/super-cell (siteBasis fractions are in L units).
+  const Aconv = conventionalLattice(bs.v1, bs.v2, bs.v3, bs.dim);
+  const A = (bs.compCell && bs.compCell.L) || Aconv;
+  // The band-path q-points stay in CONVENTIONAL coords (the user picks the path on
+  // the conventional BZ), so the plot's x-axis distances use the conventional
+  // reciprocal regardless of the computation cell.
+  const bandRecip = reciprocalLattice(Aconv);
 
   // The S(k) rows / eigenvector components are ordered by basis site τ. Prefer
   // the τ-ordered `siteBasis` (cell-framework) so site r ↔ eigvec row r exactly;
@@ -63,7 +71,7 @@ export function fromResults(results, kpathMeta) {
     source: 'runner',
     baseStructure: {
       atomDic, dim: [1, 1, 1],
-      v1: A[0], v2: A[1], v3: A[2],
+      v1: A[0], v2: A[1], v3: A[2], bandRecip,
       uniqueRN, atomType,
       hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
     },

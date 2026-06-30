@@ -273,5 +273,36 @@ console.log('\n[D] Reference mode — symmetrized pools equivalent sites; per-at
   ok(dOrd < 1e-9, `ordered: per-atom == symmetrized (|Δ|=${dOrd.toExponential(2)})`);
 }
 
+// ── E. Custom supercell: q-transform (q_cell = P·q_conv) + zone folding ──────
+console.log('\n[E] Custom supercell — conventional path folds into the supercell BZ');
+{
+  // 4 conventional cells along x (simple-cubic chain, 1 site each); custom
+  // computation cell P = diag(2,1,1) → 2 basis sites, 2 cells.
+  const a = 4.0, dim = [4, 1, 1];
+  const v_super = [[a * 4, 0, 0], [0, a, 0], [0, 0, a]];
+  const A = Aconv(v_super, dim);
+  const cells = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0]];
+  const masses = [28, 28, 28, 28];
+  let s = 5; const j = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
+  const frames = [];
+  for (let f = 0; f < 8; f++) frames.push(cells.map(() => [0.04 * j(), 0.04 * j(), 0.04 * j()]));
+  const mean = meanFrac(frames, 4);
+  const Pc = [[2, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const lab = buildCellLabeling(avgPositions(cells, mean, A), masses.map(() => 'Si'), masses, A, Pc, { tol: 0.2 });
+  ok(lab.nBasis === 2 && lab.nCells === 2, `custom 2×1×1 → 2 basis sites, 2 cells (got ${lab.nBasis}/${lab.nCells})`);
+
+  const matVec = (P, q) => [0, 1, 2].map(r => P[r][0] * q[0] + P[r][1] * q[1] + P[r][2] * q[2]);
+  ok(matVec(Pc, [0.5, 0, 0]).join(',') === '1,0,0', 'q_cell = P·q_conv maps conventional X(½,0,0) → supercell (1,0,0)');
+
+  const inputs = { dim, v_super, frames };
+  const gamma = skFromLabeling(inputs, masses, matVec(Pc, [0, 0, 0]), lab);
+  const foldX = skFromLabeling(inputs, masses, matVec(Pc, [0.5, 0, 0]), lab);   // q_cell = (1,0,0): integer → folds
+  const subX = skFromLabeling(inputs, masses, matVec(Pc, [0.25, 0, 0]), lab);   // q_cell = (½,0,0): genuine boundary
+  const dFold = Math.max(maxAbsDiff(gamma.Sre, foldX.Sre, gamma.D * gamma.D), maxAbsDiff(gamma.Sim, foldX.Sim, gamma.D * gamma.D));
+  ok(approx(dFold, 0, 1e-9), `conventional X folds onto supercell Γ — S==S(Γ) (|Δ|=${dFold.toExponential(2)})`);
+  const dSub = maxAbsDiff(gamma.Sre, subX.Sre, gamma.D * gamma.D);
+  ok(dSub > 1e-6, `supercell zone boundary (½) is a genuine point — S≠S(Γ) (|Δ|=${dSub.toExponential(2)})`);
+}
+
 if (fails) { console.error(`\n❌ cell-framework pipeline: ${fails} check(s) failed`); process.exit(1); }
 console.log('\n✅ cell-framework pipeline (Phase 1) OK');
