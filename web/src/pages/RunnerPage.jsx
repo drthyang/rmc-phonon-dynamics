@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
-import { buildBZModel, displayLabel } from '../math/highsym';
+import { buildConventionalBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
@@ -74,7 +74,10 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       : null),
     [baseStructure]
   );
-  const bzModel = useMemo(() => (bravais ? buildBZModel(bravais) : null), [bravais]);
+  // Cell-framework default (Phase 1): compute over the CONVENTIONAL cell, so the
+  // k-path uses conventional high-symmetry points (X at ½). This fixes the
+  // spurious Γ→X mirror symmetry the primitive seekpath path produced.
+  const bzModel = useMemo(() => (bravais ? buildConventionalBZModel(bravais) : null), [bravais]);
 
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;

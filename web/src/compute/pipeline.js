@@ -1,6 +1,8 @@
 import { ComputeEngine } from './engine';
 import { eigh, eigenvaluesToMev } from '../math/diagonalize';
 import { connectBands } from '../math/band_connection';
+import { buildCellLabeling, IDENT } from '../math/cells';
+import { conventionalLattice } from '../math/reciprocal';
 import { ATOMIC_MASS, ENERGY_CONV, TWO_PI_PHASE } from '../constants';
 
 /** Uniform Γ-centered q-grid over the conventional reciprocal cell [-0.5,0.5)^3
@@ -86,38 +88,68 @@ export class PhononPipeline {
       for (let j = 0; j < hsym_xyz.length; j++) hsym_xyz[j] /= parsedFrames.length;
     }
 
-    // Group atoms by basis site (sorted unique reference number) — see Sk_avg.
+    // Per-atom element / mass (reference-number → element map).
     const firstFrameIds = parsedFrames[0].atomType;
     const reverseAtomDic = {};
     for (const [symbol, idxs] of Object.entries(baseStructure.atomDic)) idxs.forEach(idx => { reverseAtomDic[idx] = symbol; });
-    const uniqueRN = Array.from(new Set(firstFrameIds)).sort((a, b) => a - b);
-    const numTypes = uniqueRN.length;
-    const rnToSeg = new Map(); uniqueRN.forEach((rn, seg) => rnToSeg.set(rn, seg));
-    const typeIndices = new Uint32Array(numAtoms);
+    const elements = new Array(numAtoms);
     const masses = new Float32Array(numAtoms);
-    const counts = new Float32Array(numTypes);
     for (let i = 0; i < numAtoms; i++) {
-      const seg = rnToSeg.get(firstFrameIds[i]);
-      typeIndices[i] = seg; counts[seg] += 1;
-      masses[i] = ATOMIC_MASS[reverseAtomDic[firstFrameIds[i]]] || 0.0;
+      elements[i] = reverseAtomDic[firstFrameIds[i]];
+      masses[i] = ATOMIC_MASS[elements[i]] || 0.0;
     }
-    const segSymbols = uniqueRN.map(rn => reverseAtomDic[rn]);
     const v_super = [
       baseStructure.v1[0], baseStructure.v1[1], baseStructure.v1[2],
       baseStructure.v2[0], baseStructure.v2[1], baseStructure.v2[2],
       baseStructure.v3[0], baseStructure.v3[1], baseStructure.v3[2],
     ];
 
+    // ── Computation cell (Phase 1) ──────────────────────────────────────────
+    // Group the S(k) covariance by basis site τ of cell L = P·A_conv (default
+    // P = I → conventional cell, identical to the previous per-RN grouping) and
+    // index the Bloch phase by the cell index n in L units. See cells.js /
+    // docs/cell-framework-plan.md.
+    const P = options.computationCell?.P || IDENT;
+    const Aconv = conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, baseStructure.dim);
+    const cell0 = parsedFrames[0].cellIdx;
+    const avgPos = new Array(numAtoms);
+    for (let i = 0; i < numAtoms; i++) {
+      // average position in conventional-cell fractional units = cellIdx + within-cell mean frac
+      const fx = cell0[i * 3] + hsym_xyz[i * 3];
+      const fy = cell0[i * 3 + 1] + hsym_xyz[i * 3 + 1];
+      const fz = cell0[i * 3 + 2] + hsym_xyz[i * 3 + 2];
+      avgPos[i] = [
+        fx * Aconv[0][0] + fy * Aconv[1][0] + fz * Aconv[2][0],
+        fx * Aconv[0][1] + fy * Aconv[1][1] + fz * Aconv[2][1],
+        fx * Aconv[0][2] + fy * Aconv[1][2] + fz * Aconv[2][2],
+      ];
+    }
+    const lab = buildCellLabeling(avgPos, elements, masses, Aconv, P, { tol: options.cellTol ?? 0.08 });
+    if (lab.error) throw new Error(`Computation-cell labeling failed: ${lab.error}`);
+    if (lab.issues.length) console.warn('[cells] labeling issues:', lab.issues.join('; '));
+
+    const numTypes = lab.nBasis;
+    const typeIndices = lab.tau;
+    const counts = lab.counts;
+    const cellN = lab.cellN;            // per-atom cell index n (L units) for the phase
+
+    // τ-ordered site identifiers (representative RN per basis site) for the
+    // viewer model / exporters, plus the τ-ordered basis (frac + element).
+    const tauRN = new Array(numTypes).fill(null);
+    for (let i = 0; i < numAtoms; i++) { const t = typeIndices[i]; if (tauRN[t] == null) tauRN[t] = firstFrameIds[i]; }
+    const segSymbols = lab.tauElement.slice();
+    const basis = lab.tauFrac.map((frac, t) => ({ frac, element: lab.tauElement[t] }));
+
     return {
       parsedFrames, numFiles, numAtoms, hsym_xyz, firstFrameIds, reverseAtomDic,
-      uniqueRN, numTypes, typeIndices, masses, counts, segSymbols,
+      uniqueRN: tauRN, numTypes, typeIndices, masses, counts, segSymbols, basis, cellN,
       v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
     };
   }
 
   // ── Ensemble-averaged S(k) at one kvec (radians/cell) ──────────────────────
   async _skAtKvec(kvec, prep) {
-    const { parsedFrames, numFiles, numAtoms, hsym_xyz, masses, typeIndices, counts, numTypes, v_super, dim, activeBatchSize } = prep;
+    const { parsedFrames, numFiles, numAtoms, hsym_xyz, masses, typeIndices, counts, numTypes, cellN, v_super, dim, activeBatchSize } = prep;
     const D = 3 * numTypes;
     const Sk_real = new Float64Array(D * D);
     const Sk_imag = new Float64Array(D * D);
@@ -136,9 +168,11 @@ export class PhononPipeline {
           dispBatch[offset + ix] = dx * v_super[0] + dy * v_super[3] + dz * v_super[6];
           dispBatch[offset + iy] = dx * v_super[1] + dy * v_super[4] + dz * v_super[7];
           dispBatch[offset + iz] = dx * v_super[2] + dy * v_super[5] + dz * v_super[8];
-          cellBatch[offset + ix] = frame.cellIdx[ix];
-          cellBatch[offset + iy] = frame.cellIdx[iy];
-          cellBatch[offset + iz] = frame.cellIdx[iz];
+          // Bloch phase indexes the computation cell: n (in L units) from the
+          // average structure — constant across frames (cells.buildCellLabeling).
+          cellBatch[offset + ix] = cellN[ix];
+          cellBatch[offset + iy] = cellN[iy];
+          cellBatch[offset + iz] = cellN[iz];
         }
       }
       const r = await this.engine.computeBatch(kvec, dispBatch, cellBatch, masses, typeIndices, numTypes, currentBatchSize, counts);
@@ -177,6 +211,7 @@ export class PhononPipeline {
       baseStructure: {
         ...baseStructure, hsym_xyz: prep.hsym_xyz, atomType: prep.firstFrameIds,
         cellIdx: prep.parsedFrames[0].cellIdx, uniqueRN: prep.uniqueRN, segSymbols: prep.segSymbols, counts: prep.counts,
+        siteBasis: prep.basis,
       },
     };
   }

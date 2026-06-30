@@ -140,3 +140,57 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
     assign, nBasis: sortedBasis.length, nCells, issues,
   };
 }
+
+/* ── pipeline glue ───────────────────────────────────────────────────────── */
+export const IDENT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+/**
+ * From per-atom AVERAGE cartesian positions (+ element/mass) build the
+ * (basis-site τ, cell-index n) labeling for computation cell L = P·A_conv, in
+ * the flat-buffer form the S(k) kernel consumes.
+ *
+ * For P = I this reproduces the conventional-cell, per-reference-number grouping
+ * the pipeline used before (τ ↔ a basis site, n ↔ the file cell index), so it is
+ * a no-op for the default cell. For P ≠ I it regroups every atom onto the chosen
+ * sub-/super-cell (primitive collapses equivalent sites; a custom supercell adds
+ * sites). The basis is τ-ordered (sorted by fractional position).
+ *
+ * @param {number[][]} avgPos  - per-atom average cartesian positions [[x,y,z],…]
+ * @param {string[]}   elements- per-atom element symbol (aligned to avgPos)
+ * @param {number[]}   masses  - per-atom mass (aligned to avgPos)
+ * @param {number[][]} Aconv   - conventional-cell vectors (rows)
+ * @param {number[][]} [P]     - cell transform L = P·A_conv (default I)
+ * @param {{tol?:number}} [opts]
+ * @returns {{ L, nBasis, nCells, basis, tau, cellN, counts, tauElement,
+ *             tauMass, tauFrac, issues }}
+ *   tau      : Uint32Array(N)      basis-site index per atom
+ *   cellN    : Float32Array(3N)    cell index n (L units) per atom, for the phase
+ *   counts   : Float32Array(nBasis) atoms per basis site (kernel normalization)
+ *   tauElement/tauMass/tauFrac : per-τ element / mass / site fraction
+ */
+export function buildCellLabeling(avgPos, elements, masses, Aconv, P = IDENT, opts = {}) {
+  const L = cellVectors(Aconv, P);
+  const atoms = avgPos.map((pos, i) => ({ pos, element: elements[i], mass: masses[i] }));
+  const r = relabelAtoms(atoms, L, opts);
+  if (r.error) return { error: r.error, L, nBasis: 0, nCells: 0, basis: [], tau: new Uint32Array(0), cellN: new Float32Array(0), counts: new Float32Array(0), tauElement: [], tauMass: [], tauFrac: [], issues: r.issues };
+
+  const n = atoms.length;
+  const tau = new Uint32Array(n);
+  const cellN = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const a = r.assign[i];
+    tau[i] = a.tau;
+    cellN[i * 3] = a.n[0]; cellN[i * 3 + 1] = a.n[1]; cellN[i * 3 + 2] = a.n[2];
+  }
+  const counts = new Float32Array(r.nBasis);
+  const tauElement = new Array(r.nBasis);
+  const tauMass = new Array(r.nBasis);
+  const tauFrac = new Array(r.nBasis);
+  for (let t = 0; t < r.nBasis; t++) {
+    counts[t] = r.basis[t].count;
+    tauElement[t] = r.basis[t].element;
+    tauMass[t] = r.basis[t].mass;
+    tauFrac[t] = r.basis[t].frac;
+  }
+  return { L, nBasis: r.nBasis, nCells: r.nCells, basis: r.basis, tau, cellN, counts, tauElement, tauMass, tauFrac, issues: r.issues };
+}

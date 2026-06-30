@@ -15,6 +15,7 @@
 
 import { brillouinZone } from './brillouin.js';
 import { primToConv, fracToCart } from './bravais.js';
+import { highSymmetryPoints } from './reciprocal.js';
 
 const T3 = 1 / 3;
 
@@ -185,4 +186,28 @@ export function buildBZModel(bravais) {
   }
   const path = tbl.path.filter(([a, b]) => points[a] && points[b]);
   return { code: bravais.code, variant: tbl.variant, points, path, bz: brillouinZone(B) };
+}
+
+/**
+ * Conventional-cell BZ model (cell-framework default, P = I). Same shape as
+ * buildBZModel, but in the CONVENTIONAL reciprocal cell: high-symmetry points are
+ * the simple-setting conventional-fractional points (reciprocal.js HIGH_SYM, e.g.
+ * cubic X at ½), so `fracConv` is the point itself — no primitive→conventional
+ * fold. This is what the S(k) calculation needs when computing over the
+ * conventional cell, and it removes the spurious Γ→X mirror symmetry that the
+ * primitive seekpath path produces (primitive X folds onto a conventional
+ * reciprocal-lattice vector ≡ Γ). The displayed zone is the Wigner-Seitz cell of
+ * the conventional reciprocal lattice.
+ */
+export function buildConventionalBZModel(bravais) {
+  const Bc = bravais.B_conv;                    // 2π conventional reciprocal rows
+  const hs = highSymmetryPoints(bravais.system);
+  const points = {};
+  for (const [label, frac] of Object.entries(hs.points)) {
+    points[label] = { frac, fracConv: frac, cart: fracToCart(frac, Bc), display: displayLabel(label) };
+  }
+  const seq = hs.defaultPath || [];
+  const path = [];
+  for (let i = 0; i < seq.length - 1; i++) if (points[seq[i]] && points[seq[i + 1]]) path.push([seq[i], seq[i + 1]]);
+  return { code: 'conventional', variant: 'conventional', points, path, bz: brillouinZone(Bc) };
 }

@@ -20,17 +20,38 @@ import { THZ_TO_MEV } from '../constants.js';
 export function fromResults(results, kpathMeta) {
   const bs = results.baseStructure;
   const A = conventionalLattice(bs.v1, bs.v2, bs.v3, bs.dim); // unit-cell rows
-  const uniqueRN = bs.uniqueRN;
-  const natom = uniqueRN.length;
 
-  const rnFirst = new Map();
-  for (let i = 0; i < bs.atomType.length; i++) {
-    if (!rnFirst.has(bs.atomType[i])) rnFirst.set(bs.atomType[i], i);
-  }
-  const hsym = new Float64Array(natom * 3);
-  for (let r = 0; r < natom; r++) {
-    const ai = rnFirst.get(uniqueRN[r]);
-    for (let c = 0; c < 3; c++) hsym[r * 3 + c] = ((bs.hsym_xyz[ai * 3 + c] % 1) + 1) % 1;
+  // The S(k) rows / eigenvector components are ordered by basis site τ. Prefer
+  // the τ-ordered `siteBasis` (cell-framework) so site r ↔ eigvec row r exactly;
+  // fall back to the per-reference-number layout for older results.
+  let natom, hsym, atomType, atomDic, uniqueRN;
+  if (bs.siteBasis && bs.siteBasis.length) {
+    natom = bs.siteBasis.length;
+    hsym = new Float64Array(natom * 3);
+    atomType = [];
+    atomDic = {};
+    for (let r = 0; r < natom; r++) {
+      const f = bs.siteBasis[r].frac;
+      for (let c = 0; c < 3; c++) hsym[r * 3 + c] = ((f[c] % 1) + 1) % 1;
+      atomType.push(r + 1);
+      const el = bs.siteBasis[r].element || 'X';
+      (atomDic[el] || (atomDic[el] = [])).push(r + 1);
+    }
+    uniqueRN = atomType.slice();
+  } else {
+    uniqueRN = bs.uniqueRN;
+    natom = uniqueRN.length;
+    const rnFirst = new Map();
+    for (let i = 0; i < bs.atomType.length; i++) {
+      if (!rnFirst.has(bs.atomType[i])) rnFirst.set(bs.atomType[i], i);
+    }
+    hsym = new Float64Array(natom * 3);
+    for (let r = 0; r < natom; r++) {
+      const ai = rnFirst.get(uniqueRN[r]);
+      for (let c = 0; c < 3; c++) hsym[r * 3 + c] = ((bs.hsym_xyz[ai * 3 + c] % 1) + 1) % 1;
+    }
+    atomDic = bs.atomDic;
+    atomType = Array.from(uniqueRN);
   }
 
   return {
@@ -41,9 +62,9 @@ export function fromResults(results, kpathMeta) {
     temperature: results.temperature,
     source: 'runner',
     baseStructure: {
-      atomDic: bs.atomDic, dim: [1, 1, 1],
+      atomDic, dim: [1, 1, 1],
       v1: A[0], v2: A[1], v3: A[2],
-      uniqueRN, atomType: Array.from(uniqueRN),
+      uniqueRN, atomType,
       hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
     },
   };

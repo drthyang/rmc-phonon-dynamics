@@ -7,7 +7,7 @@
 // prim→conv transform preserves the cartesian k-vector.
 
 import { analyzeBravais, primToConv, fracToCart } from '../src/math/bravais.js';
-import { buildBZModel } from '../src/math/highsym.js';
+import { buildBZModel, buildConventionalBZModel } from '../src/math/highsym.js';
 
 let fail = 0;
 const ok = (c, m) => { if (!c) { console.error('  FAIL ' + m); fail++; } else console.log('  ok   ' + m); };
@@ -62,6 +62,28 @@ check('ORCF1', cell(3, 5, 7, 90, 90, 90), FACE, 'ORCF');
 check('ORCF2', cell(3, 3.2, 3.4, 90, 90, 90), FACE, 'ORCF');
 check('MCL (β≠90)', cell(4, 5, 6, 90, 80, 90), P1, 'MCL');
 check('TRI', cell(4, 5, 6, 80, 85, 70), P1, 'TRI');
+
+// ── Conventional-cell BZ model (cell-framework default, P = I) ───────────────
+// The conventional path must NOT fold: FCC X is the conventional zone boundary
+// (½,0,0), not the primitive seekpath X that maps to the integer reciprocal
+// vector (0,1,0) ≡ Γ (which is what made Γ→X come out mirror-symmetric).
+console.log('\nConventional-cell BZ model (Γ→X de-fold):');
+{
+  const a = 4;
+  const Aconv = [[a, 0, 0], [0, a, 0], [0, 0, a]];
+  const br = analyzeBravais(Aconv, FACE);
+  ok(br.code === 'FCC', `FCC detected (code ${br.code})`);
+  const prim = buildBZModel(br);
+  const conv = buildConventionalBZModel(br);
+  const xPrim = prim.points.X.fracConv.map(x => Math.round(x * 1e6) / 1e6);
+  ok(xPrim.join(',') === '0,1,0', `primitive seekpath X folds to (0,1,0) ≡ Γ (got ${xPrim.join(',')})`);
+  ok(conv.points.X.fracConv.join(',') === '0.5,0,0', `conventional X = (½,0,0) genuine zone boundary (got ${conv.points.X.fracConv.join(',')})`);
+  // fracConv is the point itself (no transform) for every conventional point.
+  let identity = true;
+  for (const [, p] of Object.entries(conv.points)) if (p.fracConv !== p.frac) identity = false;
+  ok(identity, 'conventional fracConv === frac (no primitive fold)');
+  ok(conv.bz.vertices.length === 8 && conv.bz.faces.length === 6, `conventional cubic BZ is a cube (V=${conv.bz.vertices.length}, F=${conv.bz.faces.length})`);
+}
 
 console.log(`\n${fail === 0 ? '✅ high-sym tables OK (all points in BZ)' : `❌ ${fail} failed`}`);
 process.exit(fail ? 1 : 0);
