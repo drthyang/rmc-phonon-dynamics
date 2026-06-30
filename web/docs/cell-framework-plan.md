@@ -111,11 +111,16 @@ the reference and pooling the statistics is Phase 1.**
     Verified end-to-end in-browser on the GaTaSe ensemble: conventional cubic BZ
     renders, a GPU run produces **156 = 3·52** branches over 41 conventional
     k-points, viewer + per-site band character work, no console errors.
-  - **Remaining:** (1) the **reference-mode** knob (symmetrized-site) — only
-    per-atom is wired today; (2) surface `P` via the UI (Phase 2). The pipeline
-    already accepts `options.computationCell.P`. (NB: the primitive seekpath BZ
-    picker — `buildBZModel`, with W/K/U/L etc. — is no longer the runner default;
-    it returns as the *unfolded* primitive option in Phase 3.)
+  - **Done (reference mode):** `options.referenceMode` = `per-atom` (default,
+    `u = r − r̄_atom`, the validated behaviour) | `symmetrized` (`u = r − (R_n+bf_τ)`,
+    shared per-τ site with nearest-image wrap). Exposed as the "Reference site"
+    control on the runner. Node coverage in `cells_pipeline_test.mjs` [D]
+    (symmetrized ≠ per-atom under static disorder; identical for statistically
+    equal sites).
+  - **Remaining:** surface `P` via the UI (Phase 2). The pipeline already accepts
+    `options.computationCell.P`. (NB: the primitive seekpath BZ picker —
+    `buildBZModel`, with W/K/U/L etc. — is no longer the runner default; it returns
+    as the *unfolded* primitive option in Phase 3.)
 - **Phase 2 — UI cell selector + custom supercell** (`Conventional | Custom
   n₁×n₂×n₃`).
 - **Phase 3 — primitive cell via symmetry.** Derive primitive `P` from

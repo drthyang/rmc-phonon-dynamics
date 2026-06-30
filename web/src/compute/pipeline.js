@@ -1,7 +1,7 @@
 import { ComputeEngine } from './engine';
 import { eigh, eigenvaluesToMev } from '../math/diagonalize';
 import { connectBands } from '../math/band_connection';
-import { buildCellLabeling, IDENT } from '../math/cells';
+import { buildCellLabeling, vecMat3, IDENT } from '../math/cells';
 import { conventionalLattice } from '../math/reciprocal';
 import { ATOMIC_MASS, ENERGY_CONV, TWO_PI_PHASE } from '../constants';
 
@@ -48,7 +48,7 @@ export class PhononPipeline {
 
   // ── Shared setup: parse (cached) + displacement reference + masses/segments ──
   async _prepare(files, family, baseStructure, options = {}, batchSize = 50) {
-    const { referenceHandle = null } = options;
+    const { referenceHandle = null, referenceMode = 'per-atom' } = options;
     const numFiles = files.length;
 
     const els = Object.keys(baseStructure.atomDic).join(',');
@@ -140,16 +140,36 @@ export class PhononPipeline {
     const segSymbols = lab.tauElement.slice();
     const basis = lab.tauFrac.map((frac, t) => ({ frac, element: lab.tauElement[t] }));
 
+    // ── Displacement reference mode ─────────────────────────────────────────
+    // per-atom (default): u = r − r̄_atom — each atom about its own ensemble mean
+    //   (the validated behaviour; hsym_xyz is that per-atom mean).
+    // symmetrized: u = r − (R_n + bf_τ) — about the cell's symmetrized basis site
+    //   (shared across symmetry-equivalent sites); imposes the cell's symmetry on
+    //   the equilibrium. bf_τ is in L units → convert to conventional within-cell
+    //   fractions; the per-frame delta is wrapped to [-½,½) to handle the cell
+    //   origin. See docs/cell-framework-plan.md.
+    let refFrac = hsym_xyz, wrapRef = false;
+    if (referenceMode === 'symmetrized') {
+      const wrap01 = (x) => x - Math.floor(x);
+      const bfConv = lab.tauFrac.map(f => vecMat3(f, P).map(wrap01));
+      refFrac = new Float64Array(numAtoms * 3);
+      for (let i = 0; i < numAtoms; i++) {
+        const f = bfConv[typeIndices[i]];
+        refFrac[i * 3] = f[0]; refFrac[i * 3 + 1] = f[1]; refFrac[i * 3 + 2] = f[2];
+      }
+      wrapRef = true;
+    }
+
     return {
       parsedFrames, numFiles, numAtoms, hsym_xyz, firstFrameIds, reverseAtomDic,
       uniqueRN: tauRN, numTypes, typeIndices, masses, counts, segSymbols, basis, cellN,
-      v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
+      refFrac, wrapRef, v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
     };
   }
 
   // ── Ensemble-averaged S(k) at one kvec (radians/cell) ──────────────────────
   async _skAtKvec(kvec, prep) {
-    const { parsedFrames, numFiles, numAtoms, hsym_xyz, masses, typeIndices, counts, numTypes, cellN, v_super, dim, activeBatchSize } = prep;
+    const { parsedFrames, numFiles, numAtoms, refFrac, wrapRef, masses, typeIndices, counts, numTypes, cellN, v_super, dim, activeBatchSize } = prep;
     const D = 3 * numTypes;
     const Sk_real = new Float64Array(D * D);
     const Sk_imag = new Float64Array(D * D);
@@ -162,9 +182,11 @@ export class PhononPipeline {
         const offset = b * numAtoms * 3;
         for (let i = 0; i < numAtoms; i++) {
           const ix = i * 3, iy = i * 3 + 1, iz = i * 3 + 2;
-          const dx = (frame.xyz[ix] - hsym_xyz[ix]) / dim[0];
-          const dy = (frame.xyz[iy] - hsym_xyz[iy]) / dim[1];
-          const dz = (frame.xyz[iz] - hsym_xyz[iz]) / dim[2];
+          let rx = frame.xyz[ix] - refFrac[ix], ry = frame.xyz[iy] - refFrac[iy], rz = frame.xyz[iz] - refFrac[iz];
+          if (wrapRef) { rx -= Math.round(rx); ry -= Math.round(ry); rz -= Math.round(rz); } // nearest-image (period 1, within-cell frac)
+          const dx = rx / dim[0];
+          const dy = ry / dim[1];
+          const dz = rz / dim[2];
           dispBatch[offset + ix] = dx * v_super[0] + dy * v_super[3] + dz * v_super[6];
           dispBatch[offset + iy] = dx * v_super[1] + dy * v_super[4] + dz * v_super[7];
           dispBatch[offset + iz] = dx * v_super[2] + dy * v_super[5] + dz * v_super[8];

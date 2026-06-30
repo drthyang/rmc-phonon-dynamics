@@ -38,7 +38,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [structureName, setStructureName] = useState(null);
   const [baseStructure, setBaseStructure] = useState(null);
 
-  const [refMode, setRefMode] = useState('average');   // 'average' | 'file'
+  const [refMode, setRefMode] = useState('average');   // 'average' | 'file'  (reference SOURCE)
+  const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
   const [refName, setRefName] = useState('');
 
   const [temperature, setTemperature] = useState(5);
@@ -181,13 +182,13 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       }
 
       pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); pushLog(t); };
-      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol });
+      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol, referenceMode });
 
       let dos = null;
       if (runDos) {
         pushLog(`Computing phonon DOS · q-grid ${dosN}³…`);
         try {
-          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle });
+          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle, referenceMode });
           setDosEnergies(d.energies);
           dos = { energies: d.energies, gridN: d.gridN };
           pushLog(`Phonon DOS · ${d.nq} q-points × ${d.nModes} modes`);
@@ -338,8 +339,18 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 {refName && <div style={{ marginTop: 8, font: "11px 'Space Mono'", color: FAINT }}>selected <span style={{ color: ACCENTINK }}>{refName}</span></div>}
               </div>
             )}
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
+              <div style={{ font: "600 11px 'Space Grotesk'", letterSpacing: '.02em', color: DIM, marginBottom: 8 }}>REFERENCE SITE</div>
+              <Radio checked={referenceMode === 'per-atom'} onClick={() => setReferenceMode('per-atom')}>
+                Per-atom <span style={{ font: "11px 'Space Mono'", color: FAINT }}>default</span>
+              </Radio>
+              <Radio checked={referenceMode === 'symmetrized'} onClick={() => setReferenceMode('symmetrized')}>Symmetrized site</Radio>
+            </div>
             <div style={{ marginTop: 'auto', paddingTop: 14, font: "11px/1.7 'Spline Sans'", color: FAINT }}>
               Sets the equilibrium positions r₀ for the displacement field u = r − r₀ that builds the dynamical matrix.
+              {referenceMode === 'symmetrized'
+                ? ' Symmetrized: r₀ is the cell’s shared basis-site average (imposes the cell symmetry).'
+                : ' Per-atom: each atom about its own ensemble mean.'}
             </div>
           </div>
 

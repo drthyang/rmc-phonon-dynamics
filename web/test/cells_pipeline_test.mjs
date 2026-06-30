@@ -78,6 +78,35 @@ function skFromLabeling({ dim, v_super, frames }, masses, qfrac, lab) {
   return { Sre, Sim, D };
 }
 
+// S(k) with an explicit per-atom reference fraction + nearest-image wrap, mirroring
+// the pipeline's reference-mode displacement.
+function skWithRef({ dim, v_super, frames }, masses, qfrac, lab, refFracFlat, wrapRef) {
+  const n = masses.length;
+  const D = 3 * lab.nBasis;
+  const kvec = qfrac.map(q => q * TWO_PI_PHASE);
+  const Sre = new Float64Array(D * D), Sim = new Float64Array(D * D);
+  for (const fr of frames) {
+    const A = new Float64Array(D), B = new Float64Array(D);
+    for (let i = 0; i < n; i++) {
+      const r = [0, 1, 2].map(c => { let d = fr[i][c] - refFracFlat[i * 3 + c]; if (wrapRef) d -= Math.round(d); return d / dim[c]; });
+      const dc = [0, 1, 2].map(x => r[0] * v_super[0][x] + r[1] * v_super[1][x] + r[2] * v_super[2][x]);
+      const phase = lab.cellN[i * 3] * kvec[0] + lab.cellN[i * 3 + 1] * kvec[1] + lab.cellN[i * 3 + 2] * kvec[2];
+      const sm = Math.sqrt(masses[i]);
+      const cp = Math.cos(phase) * sm, sp = Math.sin(phase) * sm;
+      const s = lab.tau[i];
+      for (let c = 0; c < 3; c++) { A[s * 3 + c] += dc[c] * cp; B[s * 3 + c] += dc[c] * sp; }
+    }
+    for (let t = 0; t < lab.nBasis; t++) { const nf = 1 / Math.sqrt(Math.max(lab.counts[t], 1)); for (let c = 0; c < 3; c++) { A[t * 3 + c] *= nf; B[t * 3 + c] *= nf; } }
+    for (let i = 0; i < D; i++) for (let j = 0; j < D; j++) {
+      Sre[i * D + j] += A[i] * A[j] + B[i] * B[j];
+      Sim[i * D + j] += B[i] * A[j] - A[i] * B[j];
+    }
+  }
+  const inv = 1 / frames.length;
+  for (let i = 0; i < D * D; i++) { Sre[i] *= inv; Sim[i] *= inv; }
+  return { Sre, Sim, D };
+}
+
 // Baseline: the validated per-reference-number S(k) (copy of validate.mjs).
 function computeSkByRN(inputs, qfrac) {
   const { dim, v_super, masses_by_rn, atoms, frames } = inputs;
@@ -198,6 +227,50 @@ console.log('\n[C] S(k=integer recip vector) folds onto Γ; conventional X (½) 
   ok(approx(dFold, 0, 1e-9), `S([1,0,0]) == S(Γ)  — 2π periodicity, the spurious fold (|Δ|=${dFold.toExponential(2)})`);
   const dX = maxAbsDiff(gamma.Sre, convX.Sre, gamma.D * gamma.D);
   ok(dX > 1e-6, `S([0.5,0,0]) ≠ S(Γ)  — conventional X is a genuine point (|Δ|=${dX.toExponential(2)})`);
+}
+
+// ── D. Reference mode: per-atom vs symmetrized site ──────────────────────────
+console.log('\n[D] Reference mode — symmetrized pools equivalent sites; per-atom does not');
+{
+  const a = 4.0, dim = [2, 1, 1];
+  const v_super = [[a * 2, 0, 0], [0, a, 0], [0, 0, a]];
+  const A = Aconv(v_super, dim);
+  const cells = [[0, 0, 0], [1, 0, 0]];
+  const masses = [28, 28];
+
+  // Two symmetry-equivalent sites (one τ, two cells). buildCellLabeling needs
+  // average positions; skWithRef needs per-frame frames + the chosen reference.
+  const run = (c0x, c1x, identical = false) => {
+    let s = 11; const j = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
+    const base = [[c0x, 0, 0], [c1x, 0, 0]];
+    const frames = [];
+    for (let f = 0; f < 10; f++) {
+      const d0 = [0.03 * j(), 0.03 * j(), 0.03 * j()];
+      // identical → both equivalent sites get the SAME per-frame fluctuation, so
+      // their means are exactly equal (statistically identical sites).
+      const d1 = identical ? d0 : [0.03 * j(), 0.03 * j(), 0.03 * j()];
+      frames.push([[base[0][0] + d0[0], base[0][1] + d0[1], base[0][2] + d0[2]], [base[1][0] + d1[0], base[1][1] + d1[1], base[1][2] + d1[2]]]);
+    }
+    const mean = meanFrac(frames, 2);
+    const lab = buildCellLabeling(avgPositions(cells, mean, A), ['Si', 'Si'], masses, A, IDENT, { tol: 0.25 });
+    const perAtom = new Float64Array([mean[0][0], mean[0][1], mean[0][2], mean[1][0], mean[1][1], mean[1][2]]);
+    const wrap01 = x => x - Math.floor(x);
+    const bf = lab.tauFrac[0].map(wrap01);
+    const symm = new Float64Array([bf[0], bf[1], bf[2], bf[0], bf[1], bf[2]]);
+    const q = [0.3, 0, 0];
+    return { lab, pa: skWithRef({ dim, v_super, frames }, masses, q, lab, perAtom, false), sy: skWithRef({ dim, v_super, frames }, masses, q, lab, symm, true) };
+  };
+
+  // Static disorder: the two equivalent sites sit at different equilibria.
+  const dis = run(0.0, 0.1);
+  ok(dis.lab.nBasis === 1, `disordered: clustered to 1 basis site (got ${dis.lab.nBasis})`);
+  const dDis = maxAbsDiff(dis.pa.Sre, dis.sy.Sre, dis.pa.D * dis.pa.D);
+  ok(dDis > 1e-4, `disordered: per-atom ≠ symmetrized (|Δ|=${dDis.toExponential(2)})`);
+
+  // No disorder: statistically identical sites (same mean) → modes coincide.
+  const ord = run(0.05, 0.05, true);
+  const dOrd = maxAbsDiff(ord.pa.Sre, ord.sy.Sre, ord.pa.D * ord.pa.D);
+  ok(dOrd < 1e-9, `ordered: per-atom == symmetrized (|Δ|=${dOrd.toExponential(2)})`);
 }
 
 if (fails) { console.error(`\n❌ cell-framework pipeline: ${fails} check(s) failed`); process.exit(1); }
