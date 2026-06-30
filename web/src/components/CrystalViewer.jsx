@@ -210,7 +210,7 @@ export default function CrystalViewer({
 
     const span = Math.hypot(...matvec([nx, ny, nz]));
     // Arrow visual sizes (world units, scaled to the cell extent).
-    const arrowBaseW = span * 0.006;   // base shaft half-width; scaled by vectorScale per frame
+    const arrowBaseW = span * 0.006;   // fixed shaft half-width (rod radius); vector size scales only length
     controls.target.copy(center);
     camera.position.copy(center).add(new THREE.Vector3(span * 0.4, span * 0.3, span * 1.1 + 5));
     // Restore the previous view so appearance tweaks don't reset the camera.
@@ -273,9 +273,9 @@ export default function CrystalViewer({
             const L = len * vs;
             if (L > 1e-4 * span) {
               at.arrow.g.visible = true;
-              const shaftR = arrowBaseW * vs;            // shaft width scales with vector size
-              const headR = shaftR * 3;                  // arrowhead radius adjusts with the width
-              const idealHeadH = headR * 1.9;            // head length proportional to its radius
+              const shaftR = arrowBaseW;                 // fixed rod radius (independent of vector size)
+              const headR = shaftR * 3;                  // fixed arrowhead radius
+              const idealHeadH = headR * 1.9;            // fixed head length proportional to its radius
               const hH = Math.min(idealHeadH, L * 0.5);  // never longer than half the arrow
               const hR = headR * (hH / idealHeadH);      // keep proportions if the head is clamped
               const shaftLen = Math.max(L - hH, L * 0.02);
