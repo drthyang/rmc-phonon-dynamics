@@ -44,6 +44,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
   const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'primitive' | 'custom'
   const [customN, setCustomN] = useState([1, 1, 1]);   // P = diag(n) for a custom supercell
+  const [symTol, setSymTol] = useState(0.5);           // Å tolerance for symmetry detection (loose — basis is a single config)
   const [refName, setRefName] = useState('');
 
   const [temperature, setTemperature] = useState(5);
@@ -112,17 +113,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const nBasis = cellInfo.nBasis;
   const nBranches = 3 * nBasis;
 
-  // Detected symmetry of the AVERAGE structure (pure-JS, offline). Report-only for
-  // now: space-group operation count + how well it holds (residual Å) at a fixed
-  // tolerance — a traceable read on the average's symmetry. Elements label atoms
-  // (symmetry-equivalent sites share an element), so build rn→element first.
+  // Detected symmetry of the reference structure (pure-JS, offline). The basis is
+  // one representative config per site (not the ensemble mean), so its symmetry is
+  // tolerance-dependent — hence an adjustable tol: trace how the space-group order
+  // grows as you loosen it. Report-only (does not drive folding yet).
   const symInfo = useMemo(() => {
-    if (!bravais || !baseStructure?.basis || !baseStructure.atomDic) return null;
-    const rnToEl = {};
-    for (const [sym, idxs] of Object.entries(baseStructure.atomDic)) for (const idx of idxs) rnToEl[idx] = sym;
-    const basis = baseStructure.basis.map(s => ({ el: rnToEl[s.rn] ?? String(s.rn), frac: s.frac }));
-    return findSpaceGroupOps(bravais.A_conv, basis, 0.15);
-  }, [bravais, baseStructure]);
+    if (!bravais || !baseStructure?.basis) return null;
+    const basis = baseStructure.basis.map(s => ({ el: s.el, frac: s.frac }));
+    return findSpaceGroupOps(bravais.A_conv, basis, symTol);
+  }, [bravais, baseStructure, symTol]);
   const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
   // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
   // site). Only meaningful when the cell actually folds (primitive).
@@ -410,11 +409,18 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={cardTitle}>Run</span>
               {bravais && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM, textAlign: 'right' }}>
-                  Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
+                  <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
                   {symInfo && (
-                    <span title={`Symmetry of the average structure at 0.15 Å tolerance: ${symInfo.nSpace} space-group operations (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.`}>
-                      {'  ·  '}<span style={{ color: DIM }}>{symInfo.nSpace} sym-ops · ⌀{symInfo.maxResidual.toFixed(2)} Å</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                      title={`Space-group operations of the reference structure detected at ${symTol.toFixed(2)} Å tolerance: ${symInfo.nSpace} ops (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS. The basis is a single representative config, so loosen the tolerance to trace the underlying symmetry.`}>
+                      <span style={{ color: 'var(--faint)' }}>·</span>
+                      <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--warnInk)', fontWeight: 700 }}>{symInfo.nSpace}</span>
+                      <span>sym-ops @</span>
+                      <Stepper width={34} value={symTol.toFixed(2)}
+                        onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
+                        onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
+                      <span>Å</span>
                     </span>
                   )}
                 </span>
