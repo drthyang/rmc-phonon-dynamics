@@ -481,6 +481,29 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   </div>
                 );
               })()}
+
+              {/* impose symmetry: pool equivalent sites + enforce degeneracies */}
+              <label onClick={() => setImposeSymmetry(v => !v)}
+                title="Symmetrize S(k) over the detected space group: the symmetry-equivalent sites (the Wyckoff sites above) are pooled into one covariance each, and the symmetry-required branch degeneracies are enforced. Off = the raw per-site ensemble result."
+                style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, cursor: 'pointer' }}>
+                <span style={{ width: 17, height: 17, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: imposeSymmetry ? ACCENT : 'transparent', border: `2px solid ${imposeSymmetry ? ACCENT : 'var(--bar)'}` }}>
+                  {imposeSymmetry && <span style={{ color: '#fff', font: "700 11px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
+                </span>
+                <span style={{ font: "13px 'Spline Sans'", color: INK }}>Impose symmetry</span>
+                <span style={{ font: "11px 'Space Mono'", color: imposeSymmetry ? ACCENTINK : FAINT }}>
+                  pool {nBasis} sites → {symInfo.wyckoff.length} orbit{symInfo.wyckoff.length === 1 ? '' : 's'} · enforce degeneracies
+                </span>
+              </label>
+              {imposeSymmetry && (
+                <div style={{ marginTop: 8, marginLeft: 27, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {symInfo.wyckoff.map((w, i) => (
+                    <span key={i} title={`${w.el}: site symmetry ${w.site}`}
+                      style={{ font: "11px 'Space Mono'", color: ACCENTINK, background: 'var(--soft)', borderRadius: 5, padding: '2px 7px' }}>
+                      {w.el} {w.label} <span style={{ color: FAINT }}>×{w.mult} pooled</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </>) : <span style={{ font: "12px 'Spline Sans'", color: FAINT }}>Load a dataset to detect symmetry.</span>}
           </div>
 
@@ -502,8 +525,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 <span style={{ marginLeft: 'auto', flex: 'none', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
                   title={primitiveNoFold
                     ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this average has broken the ideal centering.`
-                    : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry the fold imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
-                  {nBasis} sites · {nBranches} branches{effFold === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
+                    : (foldsSites ? `The fold merges several conventional sites into each cell site; their average positions agree to ${residual.toFixed(3)} Å (RMS). Small = a clean fold; large = the fold is merging sites the data doesn't actually place together.${residualHigh ? ' Large — the data may not support this cell.' : ''}` : 'The full cell — no folding.')}>
+                  {nBasis} sites · {nBranches} branches{primitiveNoFold ? ' · avg not centered ⚠' : ''}{foldsSites && !primitiveNoFold ? ` · merged sites agree to ${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
                 </span>
               )}
             </div>
@@ -611,16 +634,6 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 <Stepper width={34} value={dosN} onInc={() => setDosN(n => Math.min(40, n + 1))} onDec={() => setDosN(n => Math.max(2, n - 1))} />
                 <span style={{ font: "12.5px 'Space Mono'", color: FAINT }}>³ = {dosN ** 3} pts</span>
               </span>
-            </label>
-
-            <label onClick={() => setImposeSymmetry(v => !v)}
-              title="Symmetrize S(k) over the detected space group (at the tolerance set in Cell & symmetry): pools symmetry-equivalent sites' statistics and enforces the symmetry-required branch degeneracies. Off = the raw ensemble result."
-              style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '11px 13px', cursor: 'pointer', marginBottom: 16 }}>
-              <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: imposeSymmetry ? ACCENT : 'transparent', border: `2px solid ${imposeSymmetry ? ACCENT : 'var(--bar)'}` }}>
-                {imposeSymmetry && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
-              </span>
-              <span style={{ font: "13px 'Spline Sans'", color: INK }}>Impose detected symmetry</span>
-              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: FAINT }}>pool sites + degeneracies{symInfo ? ` · ${symInfo.spaceGroup}` : ''}</span>
             </label>
 
             {/* launch */}
