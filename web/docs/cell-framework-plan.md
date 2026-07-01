@@ -1,12 +1,13 @@
 # Computation-cell framework — implementation plan
 
-Status: **Phases 0, 1, 2 complete.** Relabel-driven per-basis-site S(k) (default
+Status: **Phases 0–3 complete.** Relabel-driven per-basis-site S(k) (default
 `P = I` = zero regression), conventional default k-path (the Γ→X fix), reference
-mode, and a UI computation-cell selector (`Conventional | Custom n₁×n₂×n₃`, the
-path mapped `q_cell = P·q_conv`). Verified in-browser + `npm run validate`
-(`cells_pipeline_test.mjs` [A–E], `highsym_test.mjs`). **Next: Phase 3** — the
-primitive-cell option (unfolded dispersion) via `analyzeBravais` (`P = M`, reuse
-the primitive `buildBZModel`). This is the reference plan; build piece by piece.
+mode, and a UI computation-cell selector (`Conventional | Primitive | Custom
+n₁×n₂×n₃`, the path mapped `q_cell = P·q_conv`). Verified in-browser + `npm run
+validate` (`cells_pipeline_test.mjs` [A–F], `highsym_test.mjs`). **Next: Phase 4**
+— robust primitive folding on disorder-broken averages (symmetrized-reference
+relabel / tolerance / Niggli), per-cell high-sym paths, alloy site policy. This is
+the reference plan; build piece by piece.
 
 ## Problem
 
@@ -132,9 +133,18 @@ the reference and pooling the statistics is Phase 1.**
   prefers `bandRecip`. Large-`N` guard warns when `3·N_basis > 600`. Node coverage:
   `cells_pipeline_test.mjs` [E] (`q_cell = P·q_conv`; custom 2×1×1 folds conventional
   X onto the supercell Γ; genuine ½ point stays distinct).
-- **Phase 3 — primitive cell via symmetry.** Derive primitive `P` from
-  `analyzeBravais` (manual override fallback); add `Primitive` option → unfolded
-  dispersion.
+- **Phase 3 — primitive cell via symmetry. ✅ DONE.** `analyzeBravais` now returns
+  the centering matrix `M` (`A_prim = M·A_conv`); the runner's `Primitive` option
+  (shown only for centered lattices) sets `P = M`, and the generic `q_cell = P·q_conv`
+  machinery unfolds. Verified on ideal FCC (`cells_pipeline_test.mjs` [F]): `P = M`
+  collapses 4→1 sites, `q_cell = M·X(½,0,0) = (0,¼,¼)`, `S(X) ≠ S(Γ)`.
+  **Real-data caveat (→ Phase 4):** primitive folding only reduces the site count
+  when the *ensemble-average* positions still respect the centering. On the
+  disorder-broken GaTaSe average the primitive cell does NOT fold to ¼ (stays ~52
+  sites, not 13). Handled honestly, not silently: the runner relabels the reference
+  basis to show the TRUE site/branch count (flagging "avg not centered" when it
+  doesn't fold), and the pipeline's labeling-issue warning is capped. Robust folding
+  (relabel against a symmetrized reference / tolerance tuning / Niggli) is Phase 4.
 - **Phase 4 — polish.** High-sym path per cell, genuinely-lower-symmetry
   averages, mixed-occupancy/alloy site policy.
 

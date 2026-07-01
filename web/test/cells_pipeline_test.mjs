@@ -15,7 +15,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildCellLabeling, IDENT } from '../src/math/cells.js';
+import { buildCellLabeling, det3, IDENT } from '../src/math/cells.js';
+import { analyzeBravais } from '../src/math/bravais.js';
 import { TWO_PI_PHASE } from '../src/constants.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -302,6 +303,50 @@ console.log('\n[E] Custom supercell — conventional path folds into the superce
   ok(approx(dFold, 0, 1e-9), `conventional X folds onto supercell Γ — S==S(Γ) (|Δ|=${dFold.toExponential(2)})`);
   const dSub = maxAbsDiff(gamma.Sre, subX.Sre, gamma.D * gamma.D);
   ok(dSub > 1e-6, `supercell zone boundary (½) is a genuine point — S≠S(Γ) (|Δ|=${dSub.toExponential(2)})`);
+}
+
+// ── F. Primitive cell (Phase 3): unfolded dispersion via P = M ───────────────
+console.log('\n[F] Primitive cell — P = M (analyzeBravais) unfolds the FCC dispersion');
+{
+  const a = 4.04, N = 2;
+  const Aconv = [[a, 0, 0], [0, a, 0], [0, 0, a]];
+  const fccSites = [[0, 0, 0], [0.5, 0.5, 0], [0.5, 0, 0.5], [0, 0.5, 0.5]];
+  const cells = [], pos0 = [];
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) for (let k = 0; k < N; k++) for (const s of fccSites) {
+    cells.push([i, j, k]); pos0.push([s[0], s[1], s[2]]);
+  }
+  const masses = pos0.map(() => 26.98);
+  let s = 9; const jit = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
+  const frames = [];
+  for (let f = 0; f < 8; f++) frames.push(pos0.map(p => [p[0] + 0.03 * jit(), p[1] + 0.03 * jit(), p[2] + 0.03 * jit()]));
+  const mean = meanFrac(frames, pos0.length);
+
+  const br = analyzeBravais(Aconv, fccSites.map(f => ({ el: 'Al', frac: f })));
+  ok(br.centering === 'F', `analyzeBravais → F-centering (got ${br.centering})`);
+  const Mexp = [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+  let mOk = true;
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) if (Math.abs(br.M[r][c] - Mexp[r][c]) > 1e-9) mOk = false;
+  ok(mOk, 'analyzeBravais.M is the F-centering matrix');
+  ok(Math.abs(Math.abs(det3(br.M)) - 0.25) < 1e-9, `|det M| = ¼ → ¼ the basis sites (got ${Math.abs(det3(br.M)).toFixed(3)})`);
+
+  // dim/v_super for the 2×2×2 conventional supercell that holds these atoms.
+  const dim = [N, N, N], v_super = [[N * a, 0, 0], [0, N * a, 0], [0, 0, N * a]];
+  const A = Aconv;
+  const conv = buildCellLabeling(avgPositions(cells, mean, A), masses.map(() => 'Al'), masses, A, IDENT, { tol: 0.06 });
+  const prim = buildCellLabeling(avgPositions(cells, mean, A), masses.map(() => 'Al'), masses, A, br.M, { tol: 0.06 });
+  ok(conv.nBasis === 4 && prim.nBasis === 1, `conventional 4 sites (12 branches) → primitive 1 site (3 branches); got ${conv.nBasis}/${prim.nBasis}`);
+
+  const matVec = (P, q) => [0, 1, 2].map(r => P[r][0] * q[0] + P[r][1] * q[1] + P[r][2] * q[2]);
+  const qX = matVec(br.M, [0.5, 0, 0]);
+  ok(qX.map(x => +x.toFixed(3)).join(',') === '0,0.25,0.25', `q_cell = M·X(½,0,0) → (0,¼,¼) primitive coords (got ${qX.map(x => +x.toFixed(3)).join(',')})`);
+
+  // The conventional X point is a genuine interior point of the primitive cell —
+  // S(k) there ≠ S(Γ) (real dispersion, not a fold).
+  const inputs = { dim, v_super, frames };
+  const gamma = skFromLabeling(inputs, masses, matVec(br.M, [0, 0, 0]), prim);
+  const atX = skFromLabeling(inputs, masses, qX, prim);
+  const dX = maxAbsDiff(gamma.Sre, atX.Sre, gamma.D * gamma.D);
+  ok(dX > 1e-6, `primitive S(X) ≠ S(Γ) — unfolded, genuine point (|Δ|=${dX.toExponential(2)})`);
 }
 
 if (fails) { console.error(`\n❌ cell-framework pipeline: ${fails} check(s) failed`); process.exit(1); }

@@ -126,7 +126,10 @@ export class PhononPipeline {
     }
     const lab = buildCellLabeling(avgPos, elements, masses, Aconv, P, { tol: options.cellTol ?? 0.08 });
     if (lab.error) throw new Error(`Computation-cell labeling failed: ${lab.error}`);
-    if (lab.issues.length) console.warn('[cells] labeling issues:', lab.issues.join('; '));
+    if (lab.issues.length) console.warn(
+      `[cells] ${lab.issues.length} labeling issue(s) — the computation cell does not tile this ensemble average cleanly ` +
+      `(e.g. a primitive cell on a structure whose average has broken the ideal centering). First few: ` +
+      lab.issues.slice(0, 3).join('; ') + (lab.issues.length > 3 ? ' …' : ''));
 
     const numTypes = lab.nBasis;
     const typeIndices = lab.tau;

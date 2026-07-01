@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
-import { IDENT } from '../math/cells';
+import { IDENT, det3, vecMat3, buildCellLabeling } from '../math/cells';
 import { buildConventionalBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -41,7 +41,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
   const [refMode, setRefMode] = useState('average');   // 'average' | 'file'  (reference SOURCE)
   const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
-  const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'custom' (computation cell)
+  const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'primitive' | 'custom'
   const [customN, setCustomN] = useState([1, 1, 1]);   // P = diag(n) for a custom supercell
   const [refName, setRefName] = useState('');
 
@@ -83,14 +83,34 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // spurious Γ→X mirror symmetry the primitive seekpath path produced.
   const bzModel = useMemo(() => (bravais ? buildConventionalBZModel(bravais) : null), [bravais]);
 
-  // Computation cell: P = I (conventional) or diag(n) (custom supercell). The path
-  // is still picked on the conventional BZ; the pipeline maps q → P·q internally.
-  const compP = useMemo(() => (cellType === 'custom'
-    ? [[customN[0], 0, 0], [0, customN[1], 0], [0, 0, customN[2]]]
-    : IDENT), [cellType, customN]);
+  // Computation cell: P = I (conventional), M (primitive, unfolded) or diag(n)
+  // (custom supercell). The path is still picked on the conventional BZ; the
+  // pipeline maps q → P·q internally and groups S(k) by that cell's basis sites.
+  const compP = useMemo(() => {
+    if (cellType === 'custom') return [[customN[0], 0, 0], [0, customN[1], 0], [0, 0, customN[2]]];
+    if (cellType === 'primitive') return bravais?.M || IDENT;
+    return IDENT;
+  }, [cellType, customN, bravais]);
+  const isCentered = !!bravais && bravais.centering !== 'P';
   const nConvBasis = baseStructure?.basis?.length || 0;
-  const cellMult = cellType === 'custom' ? customN[0] * customN[1] * customN[2] : 1;
-  const nBranches = 3 * nConvBasis * cellMult;
+  // Actual basis-site count for the chosen cell. Custom supercells always multiply
+  // (n₁n₂n₃ × conventional). Conventional/primitive are SUB-cells, so we relabel
+  // the reference basis to get the TRUE fold — a primitive cell only reduces to
+  // ¼ (FCC) when the average positions still respect the centering; a disorder-
+  // broken RMC average may not fold, and the hint must show that honestly.
+  const cellInfo = useMemo(() => {
+    if (!bravais || nConvBasis === 0) return { nBasis: 0, ideal: 0 };
+    const idealMult = cellType === 'custom' ? customN[0] * customN[1] * customN[2] : Math.abs(det3(compP));
+    const ideal = Math.max(1, Math.round(nConvBasis * idealMult));
+    if (cellType === 'custom') return { nBasis: ideal, ideal };
+    const b = baseStructure.basis;
+    const avgPos = b.map(s => vecMat3(s.frac, bravais.A_conv));
+    const lab = buildCellLabeling(avgPos, b.map(s => s.rn), b.map(() => 1), bravais.A_conv, compP, { tol: 0.08 });
+    return { nBasis: lab.nBasis, ideal };
+  }, [bravais, baseStructure, nConvBasis, cellType, customN, compP]);
+  const nBasis = cellInfo.nBasis;
+  const nBranches = 3 * nBasis;
+  const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
 
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;
@@ -382,9 +402,10 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ ...eyebrow, marginBottom: 9 }}>COMPUTATION CELL</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-                {[['conventional', 'Conventional'], ['custom', 'Custom supercell']].map(([t, lbl]) => (
+                {[['conventional', 'Conventional'], ...(isCentered ? [['primitive', 'Primitive']] : []), ['custom', 'Custom supercell']].map(([t, lbl]) => (
                   <button key={t} onClick={() => setCellType(t)} className="rnr-btn"
-                    style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer' }}>{lbl}</button>
+                    title={t === 'primitive' ? 'Unfolded dispersion in the primitive cell' : undefined}
+                    style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer', borderRight: t === 'custom' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
                 ))}
               </div>
               {cellType === 'custom' && (
@@ -398,8 +419,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 </div>
               )}
               {nConvBasis > 0 && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: nBranches > 600 ? 'var(--warnInk)' : FAINT }}>
-                  {nConvBasis * cellMult} sites · {nBranches} branches{nBranches > 600 ? ' ⚠' : ''}
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold) ? 'var(--warnInk)' : FAINT }}
+                  title={primitiveNoFold ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.` : undefined}>
+                  {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{nBranches > 600 ? ' ⚠' : ''}
                 </span>
               )}
             </div>

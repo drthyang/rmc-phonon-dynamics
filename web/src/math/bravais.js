@@ -109,7 +109,10 @@ export function analyzeBravais(A_conv, basis) {
   const B_prim = scale3(mat3Transpose(mat3Inverse(A_prim)), TWO_PI);
   const T = matmul3(B_prim, mat3Inverse(B_conv));                    // k_conv = k_prim · T
 
-  return { system, centering, code: bravaisCode(system, centering), metric, A_conv, A_prim, B_conv, B_prim, T };
+  // M = conventional→primitive transform (A_prim = M·A_conv). Used as the
+  // computation-cell P for the primitive cell (cells.buildCellLabeling) so the
+  // dispersion is computed unfolded. M = I for primitive (P) lattices.
+  return { system, centering, code: bravaisCode(system, centering), metric, A_conv, A_prim, B_conv, B_prim, T, M };
 }
 
 // detectSystem in reciprocal.js takes (v1,v2,v3,dim); wrap for an A matrix.
