@@ -18,6 +18,9 @@ const INK = 'var(--ink)', DIM = 'var(--dim)', FAINT = 'var(--faint)';
 const ACCENT = 'var(--accent)', ACCENTINK = 'var(--accentInk)', BORDER = 'var(--border)';
 const cardTitle = { font: "600 13px 'Space Grotesk'", letterSpacing: '.01em', color: INK };
 const eyebrow = { font: "10px 'Space Mono'", letterSpacing: '.16em', color: FAINT };
+// Visible subsection heading with a small right-pointing triangle marker.
+const subHead = { display: 'flex', alignItems: 'center', gap: 7, font: "600 12.5px 'Space Grotesk'", letterSpacing: '.05em', color: INK, marginBottom: 11 };
+const subTri = { color: ACCENT, font: '9px sans-serif', flex: 'none', lineHeight: 1 };
 const stepBtn = { border: 'none', background: 'transparent', cursor: 'pointer', width: 24, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: DIM, fontSize: 9, lineHeight: 1 };
 
 const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
@@ -403,7 +406,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
           {/* 1 · base cell */}
           <div>
-            <div style={{ ...eyebrow, marginBottom: 9 }}>① BASE CELL</div>
+            <div style={subHead}><span style={subTri}>▶</span>BASE CELL</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
                 {[['unit', 'Unit cell'], ['custom', 'Custom supercell']].map(([t, lbl]) => (
@@ -426,7 +429,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
           {/* 2 · detected symmetry (auto) */}
           <div>
-            <div style={{ ...eyebrow, marginBottom: 9 }}>② SYMMETRY <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— of the base cell, auto-detected</span></div>
+            <div style={subHead}><span style={subTri}>▶</span>SYMMETRY <span style={{ letterSpacing: 0, fontWeight: 400, color: FAINT }}>— of the base cell, auto-detected</span></div>
             {symInfo ? (<>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'nowrap', height: 26, whiteSpace: 'nowrap', overflow: 'hidden' }}
                 title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nWyckoff sites (${symInfo.wyckoff.length}): ${symInfo.wyckoff.map(w => `${w.el} ${w.label}${w.label.includes('(') ? '' : ` (${w.site})`}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
@@ -482,7 +485,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
           {/* 3 · fold */}
           <div>
-            <div style={{ ...eyebrow, marginBottom: 9 }}>③ FOLD <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— how to reduce the cell for the calculation</span></div>
+            <div style={subHead}><span style={subTri}>▶</span>FOLD <span style={{ letterSpacing: 0, fontWeight: 400, color: FAINT }}>— how to reduce the cell for the calculation</span></div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'nowrap', height: 32, whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <div style={{ display: 'flex', flex: 'none', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
                 {[['conventional', 'Conventional'], ['primitive', 'Primitive']].map(([t, lbl]) => {
