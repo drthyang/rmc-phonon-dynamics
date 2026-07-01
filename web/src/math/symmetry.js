@@ -153,15 +153,19 @@ const isIdentityR = (R) => R[0][0] === 1 && R[1][1] === 1 && R[2][2] === 1
 export function classifyOperations(ops, tolFrac = 0.02) {
   const rotMap = new Map();
   const centerings = [];
+  const transSeen = new Set();          // distinct pure (identity-rotation) translations
   for (const { R, t } of ops) {
     const key = R.flat().join(',');
     if (!rotMap.has(key)) rotMap.set(key, R);
-    if (isIdentityR(R) && (t[0] > tolFrac || t[1] > tolFrac || t[2] > tolFrac)) centerings.push(t);
+    if (isIdentityR(R)) {
+      transSeen.add(t.map(x => Math.round((((x % 1) + 1) % 1) * 1000)).join(','));
+      if (t[0] > tolFrac || t[1] > tolFrac || t[2] > tolFrac) centerings.push(t);
+    }
   }
   const centering = matchCentering(centerings);
   const pointGroup = pointGroupOf([...rotMap.values()]);
   const sg = spaceGroupHM(centering, pointGroup);
-  return { centering, pointGroup, spaceGroup: sg.symbol, spaceGroupNumber: sg.number, nSpace: ops.length, nPoint: rotMap.size };
+  return { centering, pointGroup, spaceGroup: sg.symbol, spaceGroupNumber: sg.number, nSpace: ops.length, nPoint: rotMap.size, nTrans: transSeen.size };
 }
 
 const POINT_GROUP_ORDER = {
@@ -171,7 +175,6 @@ const POINT_GROUP_ORDER = {
   '622': 12, '6mm': 12, '-6m2': 12, '6/mmm': 24,
   '23': 12, 'm-3': 24, '432': 24, '-43m': 24, 'm-3m': 48,
 };
-const CENTERING_MULT = { P: 1, A: 2, B: 2, C: 2, I: 2, F: 4, R: 3 };
 // point group → crystal system → centerings that system allows.
 const PG_SYSTEM = {
   '1': 'tri', '-1': 'tri', '2': 'mono', 'm': 'mono', '2/m': 'mono',
@@ -182,12 +185,14 @@ const PG_SYSTEM = {
   '23': 'cub', 'm-3': 'cub', '432': 'cub', '-43m': 'cub', 'm-3m': 'cub',
 };
 const ALLOWED_CENTERING = { tri: 'P', mono: 'PC', orth: 'PCIFAB', tet: 'PI', trig: 'PR', hex: 'P', cub: 'PFI' };
-// A classified op set is a real space group only if (a) its op count matches the
-// point-group order × centering multiplicity (partial mid-transition sets don't),
-// and (b) the centering is compatible with the point group's crystal system.
+// A classified op set is a real space group only if (a) it closes: the op count
+// equals point-group order × the actual number of pure translations (partial
+// mid-transition sets don't — and a tiled supercell has extra translations, so we
+// count them rather than assuming a standard centering multiplicity), and (b) the
+// centering is compatible with the point group's crystal system.
 function isValidGroup(cls) {
-  const expect = (POINT_GROUP_ORDER[cls.pointGroup] || 0) * (CENTERING_MULT[cls.centering] || 1);
-  if (expect === 0 || cls.nSpace !== expect) return false;
+  const pg = POINT_GROUP_ORDER[cls.pointGroup] || 0;
+  if (pg === 0 || cls.nSpace !== pg * (cls.nTrans || 1)) return false;
   return (ALLOWED_CENTERING[PG_SYSTEM[cls.pointGroup]] || 'P').includes(cls.centering);
 }
 
