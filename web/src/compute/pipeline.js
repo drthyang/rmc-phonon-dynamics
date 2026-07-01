@@ -218,20 +218,12 @@ export class PhononPipeline {
     if (D > 600) console.warn(`[cells] large computation cell: ${prep.numTypes} basis sites → ${D}×${D} S(k); eigh is O(N³) and may be slow.`);
     const phononBands = [], phononEigvecs = [];
     const N = kPathPoints.length;
-    // The user always picks the path on the CONVENTIONAL BZ. Map each point into
-    // the computation cell's reciprocal before the Bloch phase: q_cell = P·q_conv
-    // (so the phase q_cell·n matches the cell index n in L units). For P = I this
-    // is the identity; for a custom supercell it folds, for the primitive cell it
-    // unfolds. qPoints stored in the result stay conventional (for the plot axis).
-    const P = prep.P;
-    const toCell = (q) => [
-      P[0][0] * q[0] + P[0][1] * q[1] + P[0][2] * q[2],
-      P[1][0] * q[0] + P[1][1] * q[1] + P[1][2] * q[2],
-      P[2][0] * q[0] + P[2][1] * q[1] + P[2][2] * q[2],
-    ];
+    // The k-path points are already in the computation cell's own reciprocal-
+    // fractional coords (the BZ picker builds the BZ for the chosen cell), so they
+    // feed straight into the Bloch phase q·n (n = the relabel cell index in L units).
     for (let k = 0; k < N; k++) {
       if (this._cancel) throw new Error('cancelled');
-      const q = toCell(kPathPoints[k]);
+      const q = kPathPoints[k];
       this.onProgress(35 + (k / N) * 50, `Computing S(k) for k-point ${k + 1}/${N}...`);
       const { Sk_real, Sk_imag } = await this._skAtKvec([q[0] * TWO_PI_PHASE, q[1] * TWO_PI_PHASE, q[2] * TWO_PI_PHASE], prep);
       const { eigenvalues, eigenvectors } = eigh(Sk_real, Sk_imag, D);

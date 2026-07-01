@@ -24,8 +24,10 @@ export default function BrillouinZoneViewer({ bzModel, system, onPathChange }) {
 
   const emit = (segs) => {
     if (!bzModel || !reportRef.current) return;
+    // Emit each point in the CELL's own reciprocal-fractional coords (conventional,
+    // primitive, or supercell) — the pipeline feeds these straight to the phase.
     const conv = {};
-    for (const [l, p] of Object.entries(bzModel.points)) conv[l] = p.fracConv;
+    for (const [l, p] of Object.entries(bzModel.points)) conv[l] = p.frac;
     reportRef.current(segs, conv);
   };
 

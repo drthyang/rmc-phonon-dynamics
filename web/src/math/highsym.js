@@ -15,7 +15,7 @@
 
 import { brillouinZone } from './brillouin.js';
 import { primToConv, fracToCart } from './bravais.js';
-import { highSymmetryPoints } from './reciprocal.js';
+import { highSymmetryPoints, reciprocalLattice, detectSystem } from './reciprocal.js';
 
 const T3 = 1 / 3;
 
@@ -210,4 +210,27 @@ export function buildConventionalBZModel(bravais) {
   const path = [];
   for (let i = 0; i < seq.length - 1; i++) if (points[seq[i]] && points[seq[i + 1]]) path.push([seq[i], seq[i + 1]]);
   return { code: 'conventional', variant: 'conventional', points, path, bz: brillouinZone(Bc) };
+}
+
+/**
+ * BZ model for a CUSTOM SUPERCELL L = diag(n)·A_conv. The supercell has its own
+ * (smaller) reciprocal cell and its own crystal system — e.g. a 1×1×2 cubic
+ * supercell is tetragonal — so the BZ shape and high-symmetry path follow it.
+ * Points are in the SUPERCELL's own reciprocal-fractional coords (fed straight to
+ * the phase; the pipeline relabels with the matching P = diag(n)).
+ */
+export function buildSupercellBZModel(bravais, n) {
+  const Ac = bravais.A_conv;
+  const L = [0, 1, 2].map(i => [Ac[i][0] * n[i], Ac[i][1] * n[i], Ac[i][2] * n[i]]); // diag(n)·A_conv
+  const B = reciprocalLattice(L);
+  const { system } = detectSystem(L[0], L[1], L[2], [1, 1, 1]);
+  const hs = highSymmetryPoints(system);
+  const points = {};
+  for (const [label, frac] of Object.entries(hs.points)) {
+    points[label] = { frac, fracConv: frac, cart: fracToCart(frac, B), display: displayLabel(label) };
+  }
+  const seq = hs.defaultPath || [];
+  const path = [];
+  for (let i = 0; i < seq.length - 1; i++) if (points[seq[i]] && points[seq[i + 1]]) path.push([seq[i], seq[i + 1]]);
+  return { code: `${n.join('×')} · ${system}`, variant: 'supercell', points, path, bz: brillouinZone(B) };
 }

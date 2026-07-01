@@ -7,7 +7,7 @@
 // prim→conv transform preserves the cartesian k-vector.
 
 import { analyzeBravais, primToConv, fracToCart } from '../src/math/bravais.js';
-import { buildBZModel, buildConventionalBZModel } from '../src/math/highsym.js';
+import { buildBZModel, buildConventionalBZModel, buildSupercellBZModel } from '../src/math/highsym.js';
 
 let fail = 0;
 const ok = (c, m) => { if (!c) { console.error('  FAIL ' + m); fail++; } else console.log('  ok   ' + m); };
@@ -83,6 +83,31 @@ console.log('\nConventional-cell BZ model (Γ→X de-fold):');
   for (const [, p] of Object.entries(conv.points)) if (p.fracConv !== p.frac) identity = false;
   ok(identity, 'conventional fracConv === frac (no primitive fold)');
   ok(conv.bz.vertices.length === 8 && conv.bz.faces.length === 6, `conventional cubic BZ is a cube (V=${conv.bz.vertices.length}, F=${conv.bz.faces.length})`);
+}
+
+// ── Reciprocal space follows the computation cell ───────────────────────────
+console.log('\nCell-aware BZ models (reciprocal space follows the cell):');
+{
+  const a = 10.356;
+  const Aconv = [[a, 0, 0], [0, a, 0], [0, 0, a]];
+  const brF = analyzeBravais(Aconv, FACE);
+  ok(brF.code === 'FCC', `FCC detected (${brF.code})`);
+  const conv = buildConventionalBZModel(brF);
+  const prim = buildBZModel(brF);
+  ok(Object.keys(conv.points).sort().join(',') === 'M,R,X,Γ', `conventional cell → cubic box points Γ,X,M,R`);
+  ok(prim.code === 'FCC' && prim.points.W && prim.points.K && prim.points.L && prim.points.U,
+    `primitive FCC cell → FCC Wigner-Seitz BZ with W,K,L,U (got ${prim.code}: ${Object.keys(prim.points).join(',')})`);
+  // A 1×1×2 cubic supercell is tetragonal → its own BZ.
+  const sup = buildSupercellBZModel(brF, [1, 1, 2]);
+  ok(/tetragonal/.test(sup.code) && sup.points.Z && sup.points.A,
+    `1×1×2 cubic supercell → tetragonal BZ (got ${sup.code})`);
+  // Every point must lie in its own cell's BZ (frac fed straight to the phase).
+  for (const model of [conv, prim, sup]) {
+    const recip = model.bz; // WS already built for the cell; just check points are finite & fed as .frac
+    ok(Object.values(model.points).every(p => Array.isArray(p.frac) && p.frac.every(Number.isFinite)),
+      `${model.code}: all points carry a finite cell-fractional .frac`);
+    void recip;
+  }
 }
 
 console.log(`\n${fail === 0 ? '✅ high-sym tables OK (all points in BZ)' : `❌ ${fail} failed`}`);

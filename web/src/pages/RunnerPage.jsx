@@ -4,7 +4,7 @@ import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal'
 import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, vecMat3, buildCellLabeling } from '../math/cells';
 import { findSpaceGroupOps, siteOrbits } from '../math/symmetry';
-import { buildConventionalBZModel, displayLabel } from '../math/highsym';
+import { buildConventionalBZModel, buildBZModel, buildSupercellBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
@@ -85,7 +85,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // Cell-framework default (Phase 1): compute over the CONVENTIONAL cell, so the
   // k-path uses conventional high-symmetry points (X at ½). This fixes the
   // spurious Γ→X mirror symmetry the primitive seekpath path produced.
-  const bzModel = useMemo(() => (bravais ? buildConventionalBZModel(bravais) : null), [bravais]);
+  // The reciprocal space follows the computation cell: conventional box, primitive
+  // Wigner-Seitz (seekpath W/K/U/L…), or the folded supercell BZ. Points are in the
+  // chosen cell's own reciprocal-fractional coords, fed straight to the phase.
+  const bzModel = useMemo(() => {
+    if (!bravais) return null;
+    if (cellType === 'primitive') return buildBZModel(bravais);
+    if (cellType === 'custom') return buildSupercellBZModel(bravais, customN);
+    return buildConventionalBZModel(bravais);
+  }, [bravais, cellType, customN]);
 
   // Computation cell: P = I (conventional), M (primitive, unfolded) or diag(n)
   // (custom supercell). The path is still picked on the conventional BZ; the

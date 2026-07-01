@@ -24,10 +24,9 @@ export function fromResults(results, kpathMeta) {
   // it is the chosen sub-/super-cell (siteBasis fractions are in L units).
   const Aconv = conventionalLattice(bs.v1, bs.v2, bs.v3, bs.dim);
   const A = (bs.compCell && bs.compCell.L) || Aconv;
-  // The band-path q-points stay in CONVENTIONAL coords (the user picks the path on
-  // the conventional BZ), so the plot's x-axis distances use the conventional
-  // reciprocal regardless of the computation cell.
-  const bandRecip = reciprocalLattice(Aconv);
+  // The band-path q-points are in the COMPUTATION cell's own reciprocal coords, so
+  // the plot's x-axis distances use that cell's reciprocal (= reciprocal of A).
+  const bandRecip = reciprocalLattice(A);
 
   // The S(k) rows / eigenvector components are ordered by basis site τ. Prefer
   // the τ-ordered `siteBasis` (cell-framework) so site r ↔ eigvec row r exactly;
