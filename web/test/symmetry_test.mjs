@@ -95,5 +95,30 @@ console.log('\nSite orbits:');
   ok(ors.length === 2 && ors.every(o => o.size === 1), `BCC-type AB → 2 orbits (A, B) (got ${ors.length})`);
 }
 
+// ── Space-group identification (H–M symbol + number) ────────────────────────
+console.log('\nSpace-group identification:');
+{
+  const sg = (A, basis, tol = 0.1) => { const r = findSpaceGroupOps(A, basis, tol); return `${r.spaceGroup} #${r.spaceGroupNumber}`; };
+  ok(sg(cubic, el([[0, 0, 0]])) === 'Pm-3m #221', `simple cubic → Pm-3m #221 (got ${sg(cubic, el([[0, 0, 0]]))})`);
+  const fcc = el([[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]]);
+  ok(sg(cubic, fcc) === 'Fm-3m #225', `FCC → Fm-3m #225 (got ${sg(cubic, fcc)})`);
+  ok(sg(cubic, el([[0, 0, 0], [0.5, 0.5, 0.5]])) === 'Im-3m #229', `BCC → Im-3m #229 (got ${sg(cubic, el([[0, 0, 0], [0.5, 0.5, 0.5]]))})`);
+  ok(sg([[4, 0, 0], [0, 4, 0], [0, 0, 5.5]], el([[0, 0, 0]])) === 'P4/mmm #123', `tetragonal P → P4/mmm #123`);
+  // GaTa₄Se₈ is F-43m (No. 216) — the real target.
+  {
+    const A = [[10.356, 0, 0], [0, 10.356, 0], [0, 0, 10.356]];
+    const Fv = [[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+    const prim = [['Ga', [0, 0, 0]], ['Ta', [0.6, 0.6, 0.6]], ['Ta', [0.6, 0.9, 0.9]], ['Ta', [0.9, 0.6, 0.9]], ['Ta', [0.9, 0.9, 0.6]],
+      ['Se', [0.36, 0.36, 0.36]], ['Se', [0.36, 0.14, 0.14]], ['Se', [0.14, 0.36, 0.14]], ['Se', [0.14, 0.14, 0.36]],
+      ['Se', [0.86, 0.86, 0.86]], ['Se', [0.86, 0.64, 0.64]], ['Se', [0.64, 0.86, 0.64]], ['Se', [0.64, 0.64, 0.86]]];
+    const basis = [];
+    for (const [e, f] of prim) for (const t of Fv) basis.push({ el: e, frac: [(f[0] + t[0]) % 1, (f[1] + t[1]) % 1, (f[2] + t[2]) % 1] });
+    ok(sg(A, basis) === 'F-43m #216', `GaTa₄Se₈ → F-43m #216 (got ${sg(A, basis)})`);
+  }
+  // A proper subgroup of the lattice (what the tolerance ladder produces) must be
+  // classified from the actual operations, not the cubic metric.
+  ok(sg(cubic, el([[0, 0, 0], [0.13, 0.27, 0.41]])) === 'P-1 #2', `generic 2-atom pair → P-1 #2 (got ${sg(cubic, el([[0, 0, 0], [0.13, 0.27, 0.41]]))})`);
+}
+
 console.log(`\n${fails === 0 ? '✅ symmetry finder OK' : `❌ ${fails} failed`}`);
 process.exit(fails ? 1 : 0);

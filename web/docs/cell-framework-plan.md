@@ -182,8 +182,24 @@ the reference and pooling the statistics is Phase 1.**
     the offline constraint). **Stage 2 (next): drive the folding from these ops** —
     derive `P`/the orbits from the detected operations instead of the centering-only
     heuristic, and symmetrize accordingly.
-  - **Remaining:** Stage 2 (operation-driven folding); optional fold-tolerance knob;
-    per-cell high-sym path; mixed-occupancy/alloy site policy.
+  - **Symmetry-driven folding (FINDSYM-like) — in progress.** Target agreed with
+    the user: detect the space group of the (cell-first) average → a LINEAR
+    tolerance ladder `P1 → … → F-43m` labeled with full H–M symbols → the user
+    picks a rung → it drives the fold: **centering ⇒ cell & branch count**
+    (GaTa₄Se₈ → 13 sites, 39 branches), **point-group orbits ⇒ pool the equivalent
+    sites' statistics + enforce degeneracies** (39 branches stay — the asymmetric
+    unit of 4 is NOT the branch count; 4 atoms can't carry 13 atoms' vibrations).
+    - **Piece 1 DONE — space-group identifier.** `symmetry.js`: `classifyRotation`
+      (det/trace → fold type), `pointGroupOf` (rotation content → point-group H–M,
+      class derived from the ops so lattice *subgroups* on the ladder classify
+      right), `matchCentering`, `spaceGroupHM` (→ symbol + number). `findSpaceGroupOps`
+      now returns `{centering, pointGroup, spaceGroup, spaceGroupNumber}`; runner
+      shows the H–M symbol. Verified (`symmetry_test.mjs`): Pm-3m #221, Fm-3m #225,
+      Im-3m #229, P4/mmm #123, **GaTa₄Se₈ F-43m #216**, generic pair P-1 #2.
+      Symmorphic labels; non-symmorphic (screw/glide) refinement is a follow-up —
+      the fold is driven by exact ops/orbits, never the label string.
+    - **Next pieces:** 2 tolerance ladder, 3 cell-first detection, 4 select→drive P,
+      5 symmetrized pooling + degeneracy in the pipeline, 6 transparency UI.
 
 ## Validation
 

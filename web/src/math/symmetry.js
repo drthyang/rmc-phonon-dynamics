@@ -115,7 +115,8 @@ function mappingResidual(R, t, basis, byEl, A, tol) {
  *   nSpace : total {R|t} (= point-group order × #centering-type cosets for the cell).
  */
 export function findSpaceGroupOps(A, basis, tol = 0.1, metricTol = 1e-2) {
-  if (!basis || basis.length === 0) return { ops: [], nSpace: 0, nPoint: 0, order: 0, maxResidual: 0 };
+  if (!basis || basis.length === 0) return { ops: [], nSpace: 0, nPoint: 0, order: 0, maxResidual: 0, centering: 'P', pointGroup: '1', spaceGroup: 'P1', spaceGroupNumber: 1 };
+  const tolFrac = tol / Math.sqrt((A[0][0] ** 2 + A[0][1] ** 2 + A[0][2] ** 2)); // ~ tol in cell fractions
   const pointOps = latticePointOps(A, metricTol);
   const byEl = new Map();
   for (const s of basis) { if (!byEl.has(s.el)) byEl.set(s.el, []); byEl.get(s.el).push(s); }
@@ -142,7 +143,105 @@ export function findSpaceGroupOps(A, basis, tol = 0.1, metricTol = 1e-2) {
     }
     if (tSeen.length) rotSeen.add(R.flat().join(','));
   }
-  return { ops, nSpace: ops.length, nPoint: rotSeen.size, order: ops.length, maxResidual };
+  // Distinct rotation parts (the point group) + centering (identity-rotation
+  // translations) → the Hermann–Mauguin space-group symbol.
+  const isIdentity = (R) => R[0][0] === 1 && R[1][1] === 1 && R[2][2] === 1
+    && R[0][1] === 0 && R[0][2] === 0 && R[1][0] === 0 && R[1][2] === 0 && R[2][0] === 0 && R[2][1] === 0;
+  const rotMap = new Map();
+  const centerings = [];
+  for (const { R, t } of ops) {
+    const key = R.flat().join(',');
+    if (!rotMap.has(key)) rotMap.set(key, R);
+    if (isIdentity(R) && (t[0] > tolFrac || t[1] > tolFrac || t[2] > tolFrac)) centerings.push(t);
+  }
+  const centering = matchCentering(centerings);
+  const pointGroup = pointGroupOf([...rotMap.values()]);
+  const sg = spaceGroupHM(centering, pointGroup);
+
+  return { ops, nSpace: ops.length, nPoint: rotSeen.size, order: ops.length, maxResidual, centering, pointGroup, spaceGroup: sg.symbol, spaceGroupNumber: sg.number };
+}
+
+// Match a set of fractional centering translations against the Bravais centerings.
+const CENTERING_SETS = {
+  F: [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]],
+  I: [[0.5, 0.5, 0.5]],
+  A: [[0, 0.5, 0.5]], B: [[0.5, 0, 0.5]], C: [[0.5, 0.5, 0]],
+};
+function matchCentering(translations, tol = 0.1) {
+  const has = (v) => translations.some(t => Math.abs(((t[0] - v[0] + 0.5) % 1) - 0.5) < tol
+    && Math.abs(((t[1] - v[1] + 0.5) % 1) - 0.5) < tol && Math.abs(((t[2] - v[2] + 0.5) % 1) - 0.5) < tol);
+  for (const [letter, vecs] of Object.entries(CENTERING_SETS)) if (vecs.every(has)) return letter;
+  return 'P';
+}
+
+/* ── Space-group identification ──────────────────────────────────────────────
+ * Classify the detected operations into a point group + centering → Hermann–
+ * Mauguin symbol. Rotation TYPE is basis-independent (det & trace are similarity
+ * invariants): proper (det +1) trace 3,2,1,0,−1 → 1,6,4,3,2-fold; improper
+ * (det −1) trace −3,1,−1,0,−2 → inversion, mirror m, −4, −3, −6. The point group
+ * is then fixed by (crystal system, order, has-inversion, which proper folds).
+ * Symmorphic H–M = centering letter + point-group symbol (correct for GaTa4Se8
+ * F-43m and most cases; non-symmorphic screw/glide refinement is a follow-up). */
+
+export function classifyRotation(R) {
+  const d = det3(R), t = R[0][0] + R[1][1] + R[2][2];
+  if (d === 1) return t === 3 ? '1' : t === 2 ? '6' : t === 1 ? '4' : t === 0 ? '3' : '2';
+  return t === -3 ? '-1' : t === 1 ? 'm' : t === -1 ? '-4' : t === 0 ? '-3' : '-6';
+}
+
+// The distinct rotation parts of a space group → its point-group H–M symbol.
+// The crystal CLASS is derived from the rotation content itself (not the lattice
+// metric), so a structure whose symmetry is a proper subgroup of its lattice — the
+// generic case along the tolerance ladder — is classified correctly.
+export function pointGroupOf(rotations) {
+  const h = { '1': 0, '2': 0, '3': 0, '4': 0, '6': 0, '-1': 0, 'm': 0, '-3': 0, '-4': 0, '-6': 0 };
+  for (const R of rotations) h[classifyRotation(R)]++;
+  const order = rotations.length, inv = h['-1'] > 0, nm = h.m;
+  if (h['3'] >= 8) {                                     // cubic: 4 three-fold axes
+    if (order === 12) return '23';
+    if (order === 48) return 'm-3m';
+    return inv ? 'm-3' : (h['4'] > 0 ? '432' : '-43m');
+  }
+  if (h['6'] > 0 || h['-6'] > 0) {                       // hexagonal
+    if (order === 24) return '6/mmm';
+    if (order === 12) return inv ? '6/m' : (h['6'] > 0 ? (nm > 0 ? '6mm' : '622') : '-6m2');
+    return h['6'] > 0 ? '6' : '-6';
+  }
+  if (h['4'] > 0 || h['-4'] > 0) {                       // tetragonal
+    if (order === 16) return '4/mmm';
+    if (order === 8) return inv ? '4/m' : (h['4'] > 0 ? (nm > 0 ? '4mm' : '422') : '-42m');
+    return h['4'] > 0 ? '4' : '-4';
+  }
+  if (h['3'] > 0 || h['-3'] > 0) {                       // trigonal
+    if (order === 12) return '-3m';
+    if (order === 6) return inv ? '-3' : (nm > 0 ? '3m' : '32');
+    return '3';
+  }
+  if (h['2'] > 0 || nm > 0) {                            // ortho / mono
+    if (order === 8) return 'mmm';
+    if (order === 4) return inv ? '2/m' : (h['2'] >= 3 ? '222' : 'mm2');
+    return h['2'] > 0 ? '2' : 'm';
+  }
+  return inv ? '-1' : '1';                               // triclinic
+}
+
+// Symmorphic space-group number for centering + point group (common groups).
+const SG_NUMBER = {
+  'P1': 1, 'P-1': 2, 'P2': 3, 'Pm': 6, 'P2/m': 10, 'C2/m': 12,
+  'P222': 16, 'Pmm2': 25, 'Pmmm': 47, 'Cmmm': 65, 'Fmmm': 69, 'Immm': 71,
+  'P4': 75, 'P-4': 81, 'P4/m': 83, 'P422': 89, 'P4mm': 99, 'P-42m': 111, 'P4/mmm': 123,
+  'I4': 79, 'I4/mmm': 139,
+  'P3': 143, 'P-3': 147, 'P32': 149, 'P3m': 156, 'P-3m': 162, 'R3': 146, 'R-3m': 166,
+  'P6': 168, 'P6/m': 175, 'P622': 177, 'P6mm': 183, 'P6/mmm': 191,
+  'P23': 195, 'F23': 196, 'I23': 197, 'Pm-3': 200, 'Fm-3': 202, 'Im-3': 204,
+  'P432': 207, 'F432': 209, 'I432': 211, 'P-43m': 215, 'F-43m': 216, 'I-43m': 217,
+  'Pm-3m': 221, 'Fm-3m': 225, 'Im-3m': 229,
+};
+
+// Combine centering letter + point group into the (symmorphic) H–M symbol + number.
+export function spaceGroupHM(centering, pointGroup) {
+  const symbol = (centering || 'P') + pointGroup;
+  return { symbol, number: SG_NUMBER[symbol] || null };
 }
 
 /**

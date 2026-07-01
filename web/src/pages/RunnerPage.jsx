@@ -435,12 +435,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
                   {symInfo && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                      title={`Space-group operations of the reference structure at ${symTol.toFixed(2)} Å tolerance: ${symInfo.nSpace} ops (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
+                      title={`Detected space group at ${symTol.toFixed(2)} Å tolerance: ${symInfo.spaceGroup}`
+                        + (symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : '')
+                        + `, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
                         + `Symmetry orbits (${symInfo.orbits.length}): ` + symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')
-                        + `\nThe basis is a single representative config, so loosen the tolerance to trace the underlying symmetry.`}>
+                        + (symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the underlying symmetry.')}>
                       <span style={{ color: 'var(--faint)' }}>·</span>
-                      <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--warnInk)', fontWeight: 700 }}>{symInfo.nSpace}</span>
-                      <span>sym-ops · {symInfo.orbits.length} orbits @</span>
+                      <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--dim)', fontWeight: 700 }}>{symInfo.spaceGroup}</span>
+                      {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
+                      <span>· {symInfo.orbits.length} orbits @</span>
                       <Stepper width={34} value={symTol.toFixed(2)}
                         onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
                         onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
