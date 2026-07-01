@@ -3,7 +3,7 @@
 // Verify the pure-JS symmetry-operation finder against known space groups.
 // Run: node test/symmetry_test.mjs   (part of `npm run validate`)
 
-import { latticePointOps, findSpaceGroupOps, siteOrbits } from '../src/math/symmetry.js';
+import { latticePointOps, findSpaceGroupOps, siteOrbits, symmetryLadder } from '../src/math/symmetry.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
@@ -118,6 +118,26 @@ console.log('\nSpace-group identification:');
   // A proper subgroup of the lattice (what the tolerance ladder produces) must be
   // classified from the actual operations, not the cubic metric.
   ok(sg(cubic, el([[0, 0, 0], [0.13, 0.27, 0.41]])) === 'P-1 #2', `generic 2-atom pair → P-1 #2 (got ${sg(cubic, el([[0, 0, 0], [0.13, 0.27, 0.41]]))})`);
+}
+
+// ── Tolerance ladder (P1 → … → full group) ──────────────────────────────────
+console.log('\nSymmetry-vs-tolerance ladder:');
+{
+  const A = [[10.356, 0, 0], [0, 10.356, 0], [0, 0, 10.356]];
+  const Fv = [[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+  const prim = [['Ga', [0, 0, 0]], ['Ta', [0.6, 0.6, 0.6]], ['Ta', [0.6, 0.9, 0.9]], ['Ta', [0.9, 0.6, 0.9]], ['Ta', [0.9, 0.9, 0.6]],
+    ['Se', [0.36, 0.36, 0.36]], ['Se', [0.36, 0.14, 0.14]], ['Se', [0.14, 0.36, 0.14]], ['Se', [0.14, 0.14, 0.36]],
+    ['Se', [0.86, 0.86, 0.86]], ['Se', [0.86, 0.64, 0.64]], ['Se', [0.64, 0.86, 0.64]], ['Se', [0.64, 0.64, 0.86]]];
+  const mk = (nz) => { let s = 1; const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5; const b = []; for (const [e, f] of prim) for (const t of Fv) b.push({ el: e, frac: [(f[0] + t[0]) % 1 + r() * nz, (f[1] + t[1]) % 1 + r() * nz, (f[2] + t[2]) % 1 + r() * nz] }); return b; };
+
+  const clean = symmetryLadder(A, mk(0), 1.0);
+  ok(clean.length === 1 && clean[0].spaceGroup === 'F-43m', `clean GaTa₄Se₈ → single F-43m rung from tol 0 (got ${clean.map(b => b.spaceGroup).join('→')})`);
+
+  const noisy = symmetryLadder(A, mk(0.03), 1.0);
+  ok(noisy[0].spaceGroup === 'P1' && noisy[noisy.length - 1].spaceGroup === 'F-43m',
+    `noisy → ladder starts P1, ends F-43m (got ${noisy.map(b => b.spaceGroup).join('→')})`);
+  ok(noisy.every((b, i) => i === 0 || b.nSpace > noisy[i - 1].nSpace), 'ladder is monotonic in operation count');
+  ok(noisy.every((b, i) => i === 0 || b.from === noisy[i - 1].to), 'ladder brick ranges are contiguous');
 }
 
 console.log(`\n${fails === 0 ? '✅ symmetry finder OK' : `❌ ${fails} failed`}`);

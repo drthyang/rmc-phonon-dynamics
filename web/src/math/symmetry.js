@@ -143,22 +143,82 @@ export function findSpaceGroupOps(A, basis, tol = 0.1, metricTol = 1e-2) {
     }
     if (tSeen.length) rotSeen.add(R.flat().join(','));
   }
-  // Distinct rotation parts (the point group) + centering (identity-rotation
-  // translations) → the Hermann–Mauguin space-group symbol.
-  const isIdentity = (R) => R[0][0] === 1 && R[1][1] === 1 && R[2][2] === 1
-    && R[0][1] === 0 && R[0][2] === 0 && R[1][0] === 0 && R[1][2] === 0 && R[2][0] === 0 && R[2][1] === 0;
+  return { ops, order: ops.length, maxResidual, ...classifyOperations(ops, tolFrac) };
+}
+
+const isIdentityR = (R) => R[0][0] === 1 && R[1][1] === 1 && R[2][2] === 1
+  && R[0][1] === 0 && R[0][2] === 0 && R[1][0] === 0 && R[1][2] === 0 && R[2][0] === 0 && R[2][1] === 0;
+
+/** Classify a set of operations {R,t} into point group + centering → H–M symbol. */
+export function classifyOperations(ops, tolFrac = 0.02) {
   const rotMap = new Map();
   const centerings = [];
   for (const { R, t } of ops) {
     const key = R.flat().join(',');
     if (!rotMap.has(key)) rotMap.set(key, R);
-    if (isIdentity(R) && (t[0] > tolFrac || t[1] > tolFrac || t[2] > tolFrac)) centerings.push(t);
+    if (isIdentityR(R) && (t[0] > tolFrac || t[1] > tolFrac || t[2] > tolFrac)) centerings.push(t);
   }
   const centering = matchCentering(centerings);
   const pointGroup = pointGroupOf([...rotMap.values()]);
   const sg = spaceGroupHM(centering, pointGroup);
+  return { centering, pointGroup, spaceGroup: sg.symbol, spaceGroupNumber: sg.number, nSpace: ops.length, nPoint: rotMap.size };
+}
 
-  return { ops, nSpace: ops.length, nPoint: rotSeen.size, order: ops.length, maxResidual, centering, pointGroup, spaceGroup: sg.symbol, spaceGroupNumber: sg.number };
+const POINT_GROUP_ORDER = {
+  '1': 1, '-1': 2, '2': 2, 'm': 2, '2/m': 4, '222': 4, 'mm2': 4, 'mmm': 8,
+  '4': 4, '-4': 4, '4/m': 8, '422': 8, '4mm': 8, '-42m': 8, '4/mmm': 16,
+  '3': 3, '-3': 6, '32': 6, '3m': 6, '-3m': 12, '6': 6, '-6': 6, '6/m': 12,
+  '622': 12, '6mm': 12, '-6m2': 12, '6/mmm': 24,
+  '23': 12, 'm-3': 24, '432': 24, '-43m': 24, 'm-3m': 48,
+};
+const CENTERING_MULT = { P: 1, A: 2, B: 2, C: 2, I: 2, F: 4, R: 3 };
+// point group → crystal system → centerings that system allows.
+const PG_SYSTEM = {
+  '1': 'tri', '-1': 'tri', '2': 'mono', 'm': 'mono', '2/m': 'mono',
+  '222': 'orth', 'mm2': 'orth', 'mmm': 'orth',
+  '4': 'tet', '-4': 'tet', '4/m': 'tet', '422': 'tet', '4mm': 'tet', '-42m': 'tet', '4/mmm': 'tet',
+  '3': 'trig', '-3': 'trig', '32': 'trig', '3m': 'trig', '-3m': 'trig',
+  '6': 'hex', '-6': 'hex', '6/m': 'hex', '622': 'hex', '6mm': 'hex', '-6m2': 'hex', '6/mmm': 'hex',
+  '23': 'cub', 'm-3': 'cub', '432': 'cub', '-43m': 'cub', 'm-3m': 'cub',
+};
+const ALLOWED_CENTERING = { tri: 'P', mono: 'PC', orth: 'PCIFAB', tet: 'PI', trig: 'PR', hex: 'P', cub: 'PFI' };
+// A classified op set is a real space group only if (a) its op count matches the
+// point-group order × centering multiplicity (partial mid-transition sets don't),
+// and (b) the centering is compatible with the point group's crystal system.
+function isValidGroup(cls) {
+  const expect = (POINT_GROUP_ORDER[cls.pointGroup] || 0) * (CENTERING_MULT[cls.centering] || 1);
+  if (expect === 0 || cls.nSpace !== expect) return false;
+  return (ALLOWED_CENTERING[PG_SYSTEM[cls.pointGroup]] || 'P').includes(cls.centering);
+}
+
+/**
+ * Symmetry-vs-tolerance ladder in ONE detection pass. Detect at the loosest
+ * tolerance (all candidate ops with their residuals), then threshold: an op holds
+ * at tolerance t iff its residual ≤ t. Distinct thresholds where the qualifying set
+ * changes → the rungs, each a space group over a tolerance range (merged when the
+ * group repeats). Monotonic: looser tol ⇒ higher symmetry (P1 → … → full group).
+ *
+ * @returns {{from:number, to:number, spaceGroup:string, spaceGroupNumber:number|null,
+ *            pointGroup:string, nSpace:number}[]} bricks, tight→loose.
+ */
+export function symmetryLadder(A, basis, tolMax = 1.5, metricTol = 1e-2) {
+  const full = findSpaceGroupOps(A, basis, tolMax, metricTol);
+  if (!full.ops.length) return [];
+  const tolFrac = tolMax / Math.sqrt(A[0][0] ** 2 + A[0][1] ** 2 + A[0][2] ** 2);
+  const thresholds = [...new Set(full.ops.map(o => o.residual))].sort((a, b) => a - b);
+  const bricks = [];
+  for (let i = 0; i < thresholds.length; i++) {
+    const r = thresholds[i];
+    const to = i + 1 < thresholds.length ? thresholds[i + 1] : tolMax;  // full group holds for all looser tol
+    const cls = classifyOperations(full.ops.filter(o => o.residual <= r + 1e-9), tolFrac);
+    // Skip partial op sets that aren't a closed group; extend the current rung.
+    if (!isValidGroup(cls)) { if (bricks.length) bricks[bricks.length - 1].to = to; continue; }
+    const last = bricks[bricks.length - 1];
+    if (last && last.spaceGroup === cls.spaceGroup) { last.to = to; last.nSpace = cls.nSpace; }
+    else bricks.push({ from: r, to, spaceGroup: cls.spaceGroup, spaceGroupNumber: cls.spaceGroupNumber, pointGroup: cls.pointGroup, nSpace: cls.nSpace });
+  }
+  if (bricks.length) bricks[0].from = 0;
+  return bricks;
 }
 
 // Match a set of fractional centering translations against the Bravais centerings.

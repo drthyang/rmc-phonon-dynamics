@@ -3,7 +3,7 @@ import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '..
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, matMul3, vecMat3, buildCellLabeling } from '../math/cells';
-import { findSpaceGroupOps, siteOrbits } from '../math/symmetry';
+import { findSpaceGroupOps, siteOrbits, symmetryLadder } from '../math/symmetry';
 import { buildConventionalBZModel, buildBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -125,6 +125,10 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     const orbits = siteOrbits(Lbase, baseBasis, sg.ops, symTol);
     return { ...sg, orbits, onAverage: !!avgBasis };
   }, [Lbase, baseBasis, symTol, avgBasis]);
+
+  // The whole symmetry-vs-tolerance ladder (P1 → … → full group) in one pass — the
+  // brick strip. Independent of the current symTol.
+  const symLadder = useMemo(() => (Lbase && baseBasis ? symmetryLadder(Lbase, baseBasis, 1.0) : []), [Lbase, baseBasis]);
 
   // Primitive fold is only meaningful when the base cell is centered.
   const primitiveAvail = !!bravaisBase && bravaisBase.centering !== 'P';
@@ -418,7 +422,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           {/* 2 · detected symmetry (auto) */}
           <div>
             <div style={{ ...eyebrow, marginBottom: 9 }}>② SYMMETRY <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— of the base cell, auto-detected</span></div>
-            {symInfo ? (
+            {symInfo ? (<>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'wrap' }}
                 title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nOrbits (${symInfo.orbits.length}): ${symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
                 <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM }}>{symInfo.spaceGroup}</span>
@@ -439,7 +443,37 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   </button>
                 </span>
               </div>
-            ) : <span style={{ font: "12px 'Spline Sans'", color: FAINT }}>Load a dataset to detect symmetry.</span>}
+
+              {/* symmetry-vs-tolerance ladder — colored bricks, click to select tolerance */}
+              {symLadder.length > 0 && (() => {
+                const ladderMax = symLadder[symLadder.length - 1].to || 1;
+                const maxOps = Math.max(...symLadder.map(b => b.nSpace));
+                return (
+                  <div style={{ marginTop: 11, position: 'relative' }}>
+                    <div style={{ display: 'flex', height: 30, borderRadius: 6, overflow: 'hidden', border: `1px solid ${BORDER}` }}>
+                      {symLadder.map((b, i) => {
+                        const w = Math.max(3, (b.to - b.from) / ladderMax * 100);
+                        const level = maxOps > 1 ? Math.log(b.nSpace) / Math.log(maxOps) : 0;
+                        const active = symTol >= b.from && symTol < b.to;
+                        return (
+                          <div key={i} onClick={() => setSymTol(Math.max(0.05, Math.min(1.5, +(((b.from + b.to) / 2)).toFixed(2))))}
+                            title={`${b.spaceGroup}${b.spaceGroupNumber ? ` (No. ${b.spaceGroupNumber})` : ''} — holds for tolerance ${b.from.toFixed(2)}–${b.to.toFixed(2)} Å (${b.nSpace} operations). Click to select.`}
+                            style={{ width: w + '%', minWidth: 0, background: `hsl(219 ${12 + level * 58}% ${86 - level * 34}%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: i < symLadder.length - 1 ? '1px solid rgba(255,255,255,.6)' : 'none', boxShadow: active ? `inset 0 0 0 2px ${ACCENT}` : 'none' }}>
+                            <span style={{ font: "700 10px 'Noto Sans', sans-serif", color: level > 0.55 ? '#fff' : INK, whiteSpace: 'nowrap', padding: '0 4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.spaceGroup}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ position: 'absolute', top: 0, height: 30, width: 2, background: ACCENT, left: `calc(${Math.min(1, symTol / ladderMax) * 100}% - 1px)`, pointerEvents: 'none', boxShadow: '0 0 0 1px rgba(255,255,255,.7)' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, font: "9px 'Space Mono'", color: FAINT }}>
+                      <span>0</span>
+                      <span>symmetry vs. tolerance (Å) — click a brick</span>
+                      <span>{ladderMax.toFixed(1)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </>) : <span style={{ font: "12px 'Spline Sans'", color: FAINT }}>Load a dataset to detect symmetry.</span>}
           </div>
 
           {/* 3 · fold */}
