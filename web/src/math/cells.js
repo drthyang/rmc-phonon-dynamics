@@ -138,6 +138,24 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
   let nCells = sortedBasis.length ? sortedBasis[0].count : 0, bestFreq = -1;
   for (const [c, f] of freq) if (f > bestFreq || (f === bestFreq && c > nCells)) { bestFreq = f; nCells = c; }
 
+  // Symmetry residual: per basis site, the RMS cartesian distance (Å) of its
+  // folded members from the shared symmetrized site (R_n + bf_τ). ≈ 0 for a clean
+  // fold; grows with the static offset the cell choice averages over — i.e. how
+  // much symmetry the cell is imposing. maxResidual flags cells that fold sites
+  // the data doesn't actually support as equivalent.
+  const resSq = new Float64Array(sortedBasis.length);
+  for (let i = 0; i < atoms.length; i++) {
+    const a = assign[i], bf = sortedBasis[a.tau].frac, f = fr[i];
+    // Minimal-image offset from the symmetrized site (n snaps boundary sites, so
+    // wrap each component to [-½,½) before measuring the cartesian distance).
+    const df = [f[0] - a.n[0] - bf[0], f[1] - a.n[1] - bf[1], f[2] - a.n[2] - bf[2]];
+    df[0] -= Math.round(df[0]); df[1] -= Math.round(df[1]); df[2] -= Math.round(df[2]);
+    const dc = vecMat3(df, L);
+    resSq[a.tau] += dc[0] * dc[0] + dc[1] * dc[1] + dc[2] * dc[2];
+  }
+  let maxResidual = 0;
+  const residuals = sortedBasis.map((b, t) => { const r = Math.sqrt(resSq[t] / Math.max(1, b.count)); if (r > maxResidual) maxResidual = r; return r; });
+
   // Validation: each basis appears once per cell; one element per basis site.
   const issues = [];
   for (const b of sortedBasis) {
@@ -146,8 +164,8 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
   }
 
   return {
-    basis: sortedBasis.map(b => ({ frac: b.frac, element: b.element, mass: b.mass, count: b.count })),
-    assign, nBasis: sortedBasis.length, nCells, issues,
+    basis: sortedBasis.map((b, t) => ({ frac: b.frac, element: b.element, mass: b.mass, count: b.count, residual: residuals[t] })),
+    assign, nBasis: sortedBasis.length, nCells, issues, maxResidual,
   };
 }
 
@@ -202,5 +220,5 @@ export function buildCellLabeling(avgPos, elements, masses, Aconv, P = IDENT, op
     tauMass[t] = r.basis[t].mass;
     tauFrac[t] = r.basis[t].frac;
   }
-  return { L, nBasis: r.nBasis, nCells: r.nCells, basis: r.basis, tau, cellN, counts, tauElement, tauMass, tauFrac, issues: r.issues };
+  return { L, nBasis: r.nBasis, nCells: r.nCells, basis: r.basis, tau, cellN, counts, tauElement, tauMass, tauFrac, issues: r.issues, maxResidual: r.maxResidual };
 }

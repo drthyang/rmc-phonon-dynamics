@@ -87,17 +87,28 @@ ok(atoms.length === 4 * N * N * N, `built ${4 * N * N * N} atoms`);
     ['Se', [0.36, 0.36, 0.36]], ['Se', [0.36, 0.14, 0.14]], ['Se', [0.14, 0.36, 0.14]], ['Se', [0.14, 0.14, 0.36]],
     ['Se', [0.86, 0.86, 0.86]], ['Se', [0.86, 0.64, 0.64]], ['Se', [0.64, 0.86, 0.64]], ['Se', [0.64, 0.64, 0.86]],
   ];
-  const Nc = 2, atoms13 = [];
-  for (let i = 0; i < Nc; i++) for (let j = 0; j < Nc; j++) for (let k = 0; k < Nc; k++)
-    for (const [el, f] of prim) for (const t of Fv)
-      atoms13.push({ pos: [(i + (f[0] + t[0]) % 1) * a, (j + (f[1] + t[1]) % 1) * a, (k + (f[2] + t[2]) % 1) * a], element: el, mass: 1 });
-  // P = M (FCC conventional→primitive).
-  const M = [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+  const M = [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]]; // P = M (FCC conv→prim)
   const L = cellVectors(Aconv, M);
-  const r = relabelAtoms(atoms13, L, { tol: 0.08 });
+  const buildF = (dispA = 0) => {
+    let s = 7; const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5;
+    const out = [];
+    const Nc = 2;
+    for (let i = 0; i < Nc; i++) for (let j = 0; j < Nc; j++) for (let k = 0; k < Nc; k++)
+      for (const [el, f] of prim) for (const t of Fv)
+        out.push({ pos: [(i + (f[0] + t[0]) % 1) * a + rnd() * 2 * dispA, (j + (f[1] + t[1]) % 1) * a + rnd() * 2 * dispA, (k + (f[2] + t[2]) % 1) * a + rnd() * 2 * dispA], element: el, mass: 1 });
+    return out;
+  };
+  const r = relabelAtoms(buildF(0), L, { tol: 0.08 });
   ok(r.nBasis === 13, `multi-site F: folds to 13 primitive sites (got ${r.nBasis})`);
-  ok(r.nCells === Nc * Nc * Nc * 4, `multi-site F: nCells = ${Nc ** 3 * 4} true cells, not inflated distinct-n (got ${r.nCells})`);
+  ok(r.nCells === 2 * 2 * 2 * 4, `multi-site F: nCells = 32 true cells, not inflated distinct-n (got ${r.nCells})`);
   ok(r.issues.length === 0, `multi-site F: no spurious issues${r.issues.length ? ': ' + r.issues.slice(0, 2).join('; ') : ''}`);
+  ok(r.maxResidual < 1e-9, `multi-site F: ideal fold → ~0 symmetry residual (got ${r.maxResidual.toExponential(1)} Å)`);
+
+  // Symmetry residual tracks the static offset the fold averages over: displace
+  // each atom by up to ±0.05 Å → residual should land in that ballpark.
+  const rd = relabelAtoms(buildF(0.05), L, { tol: 0.08 });
+  ok(rd.nBasis === 13, `disordered F still folds to 13 (got ${rd.nBasis})`);
+  ok(rd.maxResidual > 0.01 && rd.maxResidual < 0.1, `disordered F: residual reflects ~0.05 Å offset (got ${rd.maxResidual.toFixed(3)} Å)`);
 }
 
 if (fails) { console.error(`\n❌ cells: ${fails} check(s) failed`); process.exit(1); }

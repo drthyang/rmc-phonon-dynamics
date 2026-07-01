@@ -160,9 +160,16 @@ the reference and pooling the statistics is Phase 1.**
     13-site F cell folds cleanly to 13 at every supercell size and disorder ≤ σ0.02,
     and the real GaTaSe ensemble folds to 13 too — the **folding code is correct**.
     Regression: `cells_test.mjs` multi-site-F case.
-  - **Remaining:** optional fold-tolerance knob + symmetry-residual readout;
-    per-cell high-sym path; genuinely-lower-symmetry averages; mixed-occupancy/
-    alloy site policy.
+  - **Done — symmetry-residual readout.** `relabelAtoms` now returns a per-site
+    residual + `maxResidual`: the RMS cartesian distance (Å, minimal-image) of a
+    folded site's members from their shared symmetrized position `R_n + bf_τ`. ≈ 0
+    for a clean fold, and it grows with the static offset the cell averages over —
+    a direct measure of *how much symmetry the cell choice imposes* (the plan's
+    symmetry-vs-statistics knob, quantified). The runner shows it in the cell hint
+    (`… · ⌀0.NN Å`), warn-colored above 0.3 Å. Test: `cells_test.mjs` (ideal → ~0,
+    ±0.05 Å disorder → ~0.05 Å).
+  - **Remaining:** optional fold-tolerance knob; per-cell high-sym path;
+    genuinely-lower-symmetry averages; mixed-occupancy/alloy site policy.
 
 ## Validation
 

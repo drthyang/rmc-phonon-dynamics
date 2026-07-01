@@ -102,15 +102,20 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     if (!bravais || nConvBasis === 0) return { nBasis: 0, ideal: 0 };
     const idealMult = cellType === 'custom' ? customN[0] * customN[1] * customN[2] : Math.abs(det3(compP));
     const ideal = Math.max(1, Math.round(nConvBasis * idealMult));
-    if (cellType === 'custom') return { nBasis: ideal, ideal };
+    if (cellType === 'custom') return { nBasis: ideal, ideal, residual: 0 };
     const b = baseStructure.basis;
     const avgPos = b.map(s => vecMat3(s.frac, bravais.A_conv));
     const lab = buildCellLabeling(avgPos, b.map(s => s.rn), b.map(() => 1), bravais.A_conv, compP, { tol: 0.08 });
-    return { nBasis: lab.nBasis, ideal };
+    return { nBasis: lab.nBasis, ideal, residual: lab.maxResidual || 0 };
   }, [bravais, baseStructure, nConvBasis, cellType, customN, compP]);
   const nBasis = cellInfo.nBasis;
   const nBranches = 3 * nBasis;
   const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
+  // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
+  // site). Only meaningful when the cell actually folds (primitive).
+  const foldsSites = nBasis < nConvBasis;
+  const residual = cellInfo.residual || 0;
+  const residualHigh = foldsSites && residual > 0.3;
 
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;
@@ -420,9 +425,11 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 </div>
               )}
               {nConvBasis > 0 && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold) ? 'var(--warnInk)' : FAINT }}
-                  title={primitiveNoFold ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.` : undefined}>
-                  {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{nBranches > 600 ? ' ⚠' : ''}
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
+                  title={primitiveNoFold
+                    ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.`
+                    : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry this cell imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
+                  {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
                 </span>
               )}
             </div>
