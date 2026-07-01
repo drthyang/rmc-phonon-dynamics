@@ -423,14 +423,13 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           <div>
             <div style={{ ...eyebrow, marginBottom: 9 }}>② SYMMETRY <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— of the base cell, auto-detected</span></div>
             {symInfo ? (<>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'wrap' }}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'nowrap', height: 26, whiteSpace: 'nowrap', overflow: 'hidden' }}
                 title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nOrbits (${symInfo.orbits.length}): ${symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
-                <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM }}>{symInfo.spaceGroup}</span>
-                {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
-                <span style={{ color: 'var(--faint)' }}>·</span>
-                <span>{symInfo.orbits.length} orbits</span>
-                <span style={{ color: 'var(--faint)' }}>({symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')})</span>
-                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM, flex: 'none' }}>{symInfo.spaceGroup}</span>
+                {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)', flex: 'none' }}>#{symInfo.spaceGroupNumber}</span>}
+                <span style={{ color: 'var(--faint)', flex: 'none' }}>·</span>
+                <span style={{ flex: 'none' }}>{symInfo.orbits.length} orbits</span>
+                <span style={{ marginLeft: 'auto', flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ color: FAINT }}>tolerance</span>
                   <Stepper width={34} value={symTol.toFixed(2)}
                     onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
@@ -479,8 +478,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           {/* 3 · fold */}
           <div>
             <div style={{ ...eyebrow, marginBottom: 9 }}>③ FOLD <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— how to reduce the cell for the calculation</span></div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'nowrap', height: 32, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', flex: 'none', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
                 {[['conventional', 'Conventional'], ['primitive', 'Primitive']].map(([t, lbl]) => {
                   const disabled = t === 'primitive' && !primitiveAvail;
                   return (
@@ -491,7 +490,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 })}
               </div>
               {nConvBasis > 0 && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
+                <span style={{ marginLeft: 'auto', flex: 'none', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
                   title={primitiveNoFold
                     ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this average has broken the ideal centering.`
                     : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry the fold imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
