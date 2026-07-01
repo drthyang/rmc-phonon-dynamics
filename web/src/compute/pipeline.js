@@ -2,6 +2,8 @@ import { ComputeEngine } from './engine';
 import { eigh, eigenvaluesToMev } from '../math/diagonalize';
 import { connectBands } from '../math/band_connection';
 import { buildCellLabeling, vecMat3, IDENT } from '../math/cells';
+import { findSpaceGroupOps } from '../math/symmetry';
+import { operationReps, symmetrizeSk } from '../math/symmetrize';
 import { conventionalLattice } from '../math/reciprocal';
 import { ATOMIC_MASS, ENERGY_CONV, TWO_PI_PHASE } from '../constants';
 
@@ -163,10 +165,21 @@ export class PhononPipeline {
       wrapRef = true;
     }
 
+    // Optional: symmetry operation reps for S(k) symmetrization (orbit pooling +
+    // degeneracies). Detect the COMPUTATION cell's space group (the τ basis in L)
+    // at the selected tolerance; symmetrizeSk projects S(k) onto its little group.
+    let symReps = null;
+    if (options.symmetrize) {
+      const tauBasis = lab.tauFrac.map((frac, t) => ({ frac, el: lab.tauElement[t] }));
+      const sg = findSpaceGroupOps(lab.L, tauBasis, options.symTol ?? 0.15);
+      symReps = operationReps(lab.L, tauBasis, sg.ops);
+      if (symReps.length > 1) console.log(`[symmetrize] computation cell ${sg.spaceGroup}: ${symReps.length} operations pooled`);
+    }
+
     return {
       parsedFrames, numFiles, numAtoms, hsym_xyz, firstFrameIds, reverseAtomDic,
       uniqueRN: tauRN, numTypes, typeIndices, masses, counts, segSymbols, basis, cellN,
-      refFrac, wrapRef, P, cellL: lab.L, v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
+      refFrac, wrapRef, P, cellL: lab.L, symReps, v_super, dim: baseStructure.dim, activeBatchSize: Math.min(batchSize, numFiles),
     };
   }
 
@@ -226,7 +239,8 @@ export class PhononPipeline {
       const q = kPathPoints[k];
       this.onProgress(35 + (k / N) * 50, `Computing S(k) for k-point ${k + 1}/${N}...`);
       const { Sk_real, Sk_imag } = await this._skAtKvec([q[0] * TWO_PI_PHASE, q[1] * TWO_PI_PHASE, q[2] * TWO_PI_PHASE], prep);
-      const { eigenvalues, eigenvectors } = eigh(Sk_real, Sk_imag, D);
+      const S = prep.symReps ? symmetrizeSk(Sk_real, Sk_imag, prep.numTypes, q, prep.symReps) : { re: Sk_real, im: Sk_imag };
+      const { eigenvalues, eigenvectors } = eigh(S.re, S.im, D);
       phononBands.push(eigenvaluesToMev(eigenvalues, temperature, ENERGY_CONV));
       phononEigvecs.push(eigenvectors);
     }
@@ -258,7 +272,8 @@ export class PhononPipeline {
       if (g % 4 === 0) this.onProgress(35 + (g / nq) * 60, `DOS grid point ${g + 1}/${nq} (${gridN}³)...`);
       const q = grid[g];
       const { Sk_real, Sk_imag } = await this._skAtKvec([q[0] * TWO_PI_PHASE, q[1] * TWO_PI_PHASE, q[2] * TWO_PI_PHASE], prep);
-      const { eigenvalues } = eigh(Sk_real, Sk_imag, D);
+      const S = prep.symReps ? symmetrizeSk(Sk_real, Sk_imag, prep.numTypes, q, prep.symReps) : { re: Sk_real, im: Sk_imag };
+      const { eigenvalues } = eigh(S.re, S.im, D);
       energies.set(eigenvaluesToMev(eigenvalues, temperature, ENERGY_CONV), g * D);
     }
     this.onProgress(100, 'DOS done');

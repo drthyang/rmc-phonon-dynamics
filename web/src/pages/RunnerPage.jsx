@@ -46,6 +46,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
   const [refMode, setRefMode] = useState('average');   // 'average' | 'file'  (reference SOURCE)
   const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
+  const [imposeSymmetry, setImposeSymmetry] = useState(false); // pool orbits + enforce degeneracies in S(k)
   const [baseCell, setBaseCell] = useState('unit');    // 'unit' | 'custom' — the cell we analyze
   const [customN, setCustomN] = useState([1, 1, 1]);   // custom supercell = diag(n)·A_conv
   const [fold, setFold] = useState('conventional');    // 'conventional' | 'primitive' — derived from symmetry
@@ -297,13 +298,13 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       }
 
       pipeline.onProgress = (p, t) => { setProgress(p); setProgressText(t); pushLog(t); };
-      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol, referenceMode, computationCell: { P: compP } });
+      const res = await pipeline.runCalculation(runFiles, configFamily, baseStructure, qFrac, temperature, 50, { referenceHandle, degenerateTol, referenceMode, computationCell: { P: compP }, symmetrize: imposeSymmetry, symTol });
 
       let dos = null;
       if (runDos) {
         pushLog(`Computing phonon DOS · q-grid ${dosN}³…`);
         try {
-          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle, referenceMode, computationCell: { P: compP } });
+          const d = await pipeline.computeDOSGrid(runFiles, configFamily, baseStructure, dosN, temperature, 50, { referenceHandle, referenceMode, computationCell: { P: compP }, symmetrize: imposeSymmetry, symTol });
           setDosEnergies(d.energies);
           dos = { energies: d.energies, gridN: d.gridN };
           pushLog(`Phonon DOS · ${d.nq} q-points × ${d.nModes} modes`);
@@ -610,6 +611,16 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 <Stepper width={34} value={dosN} onInc={() => setDosN(n => Math.min(40, n + 1))} onDec={() => setDosN(n => Math.max(2, n - 1))} />
                 <span style={{ font: "12.5px 'Space Mono'", color: FAINT }}>³ = {dosN ** 3} pts</span>
               </span>
+            </label>
+
+            <label onClick={() => setImposeSymmetry(v => !v)}
+              title="Symmetrize S(k) over the detected space group (at the tolerance set in Cell & symmetry): pools symmetry-equivalent sites' statistics and enforces the symmetry-required branch degeneracies. Off = the raw ensemble result."
+              style={{ display: 'flex', alignItems: 'center', gap: 11, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '11px 13px', cursor: 'pointer', marginBottom: 16 }}>
+              <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: imposeSymmetry ? ACCENT : 'transparent', border: `2px solid ${imposeSymmetry ? ACCENT : 'var(--bar)'}` }}>
+                {imposeSymmetry && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
+              </span>
+              <span style={{ font: "13px 'Spline Sans'", color: INK }}>Impose detected symmetry</span>
+              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: FAINT }}>pool sites + degeneracies{symInfo ? ` · ${symInfo.spaceGroup}` : ''}</span>
             </label>
 
             {/* launch */}
