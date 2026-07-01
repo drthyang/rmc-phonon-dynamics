@@ -45,6 +45,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'primitive' | 'custom'
   const [customN, setCustomN] = useState([1, 1, 1]);   // P = diag(n) for a custom supercell
   const [symTol, setSymTol] = useState(0.5);           // Å tolerance for symmetry detection (loose — basis is a single config)
+  const [avgBasis, setAvgBasis] = useState(null);      // ensemble-average basis (clean → tight-tol symmetry), null until requested
+  const [symBusy, setSymBusy] = useState(false);
   const [refName, setRefName] = useState('');
 
   const [temperature, setTemperature] = useState(5);
@@ -119,11 +121,29 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // grows as you loosen it. Report-only (does not drive folding yet).
   const symInfo = useMemo(() => {
     if (!bravais || !baseStructure?.basis) return null;
-    const basis = baseStructure.basis.map(s => ({ el: s.el, frac: s.frac }));
+    const src = avgBasis || baseStructure.basis;
+    const basis = src.map(s => ({ el: s.el, frac: s.frac }));
     const sg = findSpaceGroupOps(bravais.A_conv, basis, symTol);
     const orbits = siteOrbits(bravais.A_conv, basis, sg.ops, symTol);
-    return { ...sg, orbits };
-  }, [bravais, baseStructure, symTol]);
+    return { ...sg, orbits, onAverage: !!avgBasis };
+  }, [bravais, baseStructure, symTol, avgBasis]);
+
+  // A new dataset invalidates any previously-computed average basis.
+  useEffect(() => { setAvgBasis(null); }, [baseStructure]);
+
+  // Detect symmetry on the ENSEMBLE AVERAGE (clean positions → tight tolerance)
+  // instead of the single-config reference basis.
+  const detectOnAverage = async () => {
+    if (!pipeline || !filesList.length || !configFamily || !baseStructure) return;
+    setSymBusy(true);
+    try {
+      const basis = await pipeline.computeAverageBasis(filesList, configFamily, baseStructure, 60);
+      setAvgBasis(basis);
+      setSymTol(0.15);   // the average is clean — start tight
+    } catch (e) {
+      pushLog(`Symmetry-on-average failed: ${e.message}`);
+    } finally { setSymBusy(false); }
+  };
   const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
   // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
   // site). Only meaningful when the cell actually folds (primitive).
@@ -425,6 +445,11 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                         onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
                         onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
                       <span>Å</span>
+                      <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
+                        title="Detect symmetry on the ensemble average (all configs) instead of one representative — clean positions reveal the symmetry at a tight tolerance."
+                        style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
+                        {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
+                      </button>
                     </span>
                   )}
                 </span>

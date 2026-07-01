@@ -272,4 +272,37 @@ export class PhononPipeline {
     this.onProgress(100, 'DOS done');
     return { energies, gridN, nq, nModes: D };
   }
+
+  /**
+   * Ensemble-average basis for symmetry detection: one representative site per
+   * reference number, circular-averaged over ALL cells and a sample of configs
+   * (within-cell fractional). Much cleaner than the single-config
+   * baseStructure.basis, so the detected symmetry shows at a tight tolerance.
+   * @returns {Promise<{rn:number, el:string, frac:number[]}[]>} sorted by rn.
+   */
+  async computeAverageBasis(files, family, baseStructure, sampleSize = 60) {
+    const sample = files.slice(0, Math.min(sampleSize, files.length));
+    const frames = await Promise.all(sample.map(f => this.parseFile(f, family, baseStructure.atomDic, baseStructure.dim, 0)));
+    if (!frames.length) return [];
+    const numAtoms = frames[0].xyz.length / 3;
+    const rnIds = frames[0].atomType;
+    const reverseAtomDic = {};
+    for (const [sym, idxs] of Object.entries(baseStructure.atomDic)) idxs.forEach(idx => { reverseAtomDic[idx] = sym; });
+    // Circular mean of the within-cell fraction, pooled over every atom of each
+    // reference number × every frame (handles the 0/1 boundary).
+    const TAU = 2 * Math.PI;
+    const acc = new Map();   // rn -> { sc:[3], ss:[3], el }
+    for (const fr of frames) {
+      for (let i = 0; i < numAtoms; i++) {
+        const rn = rnIds[i];
+        let a = acc.get(rn);
+        if (!a) { a = { sc: [0, 0, 0], ss: [0, 0, 0], el: reverseAtomDic[rn] }; acc.set(rn, a); }
+        for (let c = 0; c < 3; c++) { const ph = TAU * fr.xyz[i * 3 + c]; a.sc[c] += Math.cos(ph); a.ss[c] += Math.sin(ph); }
+      }
+    }
+    const wrap01 = (x) => x - Math.floor(x);
+    return [...acc.entries()].sort((p, q) => p[0] - q[0]).map(([rn, a]) => ({
+      rn, el: a.el, frac: [0, 1, 2].map(c => wrap01(Math.atan2(a.ss[c], a.sc[c]) / TAU)),
+    }));
+  }
 }
