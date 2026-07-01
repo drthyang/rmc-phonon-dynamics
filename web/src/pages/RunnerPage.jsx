@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
-import { analyzeBravais } from '../math/bravais';
-import { IDENT, det3, vecMat3, buildCellLabeling } from '../math/cells';
+import { analyzeBravais, centeringMatrix } from '../math/bravais';
+import { IDENT, det3, matMul3, vecMat3, buildCellLabeling } from '../math/cells';
 import { findSpaceGroupOps, siteOrbits } from '../math/symmetry';
 import { buildConventionalBZModel, buildBZModel, buildSupercellBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
@@ -43,8 +43,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
   const [refMode, setRefMode] = useState('average');   // 'average' | 'file'  (reference SOURCE)
   const [referenceMode, setReferenceMode] = useState('per-atom'); // 'per-atom' | 'symmetrized' (cell reference)
-  const [cellType, setCellType] = useState('conventional'); // 'conventional' | 'primitive' | 'custom'
-  const [customN, setCustomN] = useState([1, 1, 1]);   // P = diag(n) for a custom supercell
+  const [baseCell, setBaseCell] = useState('unit');    // 'unit' | 'custom' — the cell we analyze
+  const [customN, setCustomN] = useState([1, 1, 1]);   // custom supercell = diag(n)·A_conv
+  const [fold, setFold] = useState('conventional');    // 'conventional' | 'primitive' — derived from symmetry
   const [symTol, setSymTol] = useState(0.5);           // Å tolerance for symmetry detection (loose — basis is a single config)
   const [avgBasis, setAvgBasis] = useState(null);      // ensemble-average basis (clean → tight-tol symmetry), null until requested
   const [symBusy, setSymBusy] = useState(false);
@@ -86,56 +87,77 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // Cell-framework default (Phase 1): compute over the CONVENTIONAL cell, so the
   // k-path uses conventional high-symmetry points (X at ½). This fixes the
   // spurious Γ→X mirror symmetry the primitive seekpath path produced.
-  // The reciprocal space follows the computation cell: conventional box, primitive
-  // Wigner-Seitz (seekpath W/K/U/L…), or the folded supercell BZ. Points are in the
-  // chosen cell's own reciprocal-fractional coords, fed straight to the phase.
+  // ── Cell & symmetry ────────────────────────────────────────────────────────
+  // Flow: pick the BASE CELL (the crystallographic unit cell, or a custom
+  // n₁×n₂×n₃ supercell) → detect its symmetry (space group) → choose the
+  // conventional or primitive FOLD (primitive derived from the detected centering).
+  const nConvBasis = baseStructure?.basis?.length || 0;
+  const Pbase = useMemo(() => (baseCell === 'custom'
+    ? [[customN[0], 0, 0], [0, customN[1], 0], [0, 0, customN[2]]] : IDENT), [baseCell, customN]);
+  const Lbase = useMemo(() => (bravais ? matMul3(Pbase, bravais.A_conv) : null), [bravais, Pbase]);
+
+  // Basis of the base cell (tile the reference basis across the supercell), in the
+  // base cell's own fractional coords — the input for its symmetry detection.
+  const baseBasis = useMemo(() => {
+    const src = avgBasis || baseStructure?.basis;
+    if (!src) return null;
+    const n = baseCell === 'custom' ? customN : [1, 1, 1];
+    const out = [];
+    for (let i = 0; i < n[0]; i++) for (let j = 0; j < n[1]; j++) for (let k = 0; k < n[2]; k++)
+      for (const s of src) out.push({ el: s.el, frac: [(i + s.frac[0]) / n[0], (j + s.frac[1]) / n[1], (k + s.frac[2]) / n[2]] });
+    return out;
+  }, [baseStructure, avgBasis, baseCell, customN]);
+
+  // Symmetry (space group + orbits) of the BASE CELL, auto-detected at `symTol`.
+  // Detecting on the chosen cell means a supercell shows its own group (e.g. a
+  // 1×1×2 cubic supercell reads tetragonal).
+  const symInfo = useMemo(() => {
+    if (!Lbase || !baseBasis) return null;
+    const sg = findSpaceGroupOps(Lbase, baseBasis, symTol);
+    const orbits = siteOrbits(Lbase, baseBasis, sg.ops, symTol);
+    return { ...sg, orbits, onAverage: !!avgBasis };
+  }, [Lbase, baseBasis, symTol, avgBasis]);
+
+  // Primitive fold is only meaningful when the detected symmetry is centered.
+  const primitiveAvail = !!symInfo && symInfo.centering !== 'P';
+  const effFold = (fold === 'primitive' && primitiveAvail) ? 'primitive' : 'conventional';
+
+  // Computation cell L_comp = P·A_conv. Conventional fold = the base cell itself;
+  // primitive fold = fold the base cell by its DETECTED centering (drives P from
+  // the symmetry, not a hardcoded heuristic).
+  const compP = useMemo(() => {
+    if (effFold === 'primitive' && symInfo) return matMul3(centeringMatrix(symInfo.centering), Pbase);
+    return Pbase;
+  }, [effFold, symInfo, Pbase]);
+
+  // The reciprocal space follows the computation cell.
   const bzModel = useMemo(() => {
     if (!bravais) return null;
-    if (cellType === 'primitive') return buildBZModel(bravais);
-    if (cellType === 'custom') return buildSupercellBZModel(bravais, customN);
+    if (effFold === 'primitive') return buildBZModel(bravais);        // primitive WS BZ (W/K/U/L…)
+    if (baseCell === 'custom') return buildSupercellBZModel(bravais, customN);
     return buildConventionalBZModel(bravais);
-  }, [bravais, cellType, customN]);
+  }, [bravais, effFold, baseCell, customN]);
 
-  // Computation cell: P = I (conventional), M (primitive, unfolded) or diag(n)
-  // (custom supercell). The path is still picked on the conventional BZ; the
-  // pipeline maps q → P·q internally and groups S(k) by that cell's basis sites.
-  const compP = useMemo(() => {
-    if (cellType === 'custom') return [[customN[0], 0, 0], [0, customN[1], 0], [0, 0, customN[2]]];
-    if (cellType === 'primitive') return bravais?.M || IDENT;
-    return IDENT;
-  }, [cellType, customN, bravais]);
-  const isCentered = !!bravais && bravais.centering !== 'P';
-  const nConvBasis = baseStructure?.basis?.length || 0;
-  // Actual basis-site count for the chosen cell. Custom supercells always multiply
-  // (n₁n₂n₃ × conventional). Conventional/primitive are SUB-cells, so we relabel
-  // the reference basis to get the TRUE fold — a primitive cell only reduces to
-  // ¼ (FCC) when the average positions still respect the centering; a disorder-
-  // broken RMC average may not fold, and the hint must show that honestly.
+  // Basis-site / branch count for the computation cell (det|P|·conventional). For
+  // the primitive fold, relabel to get the TRUE fold + symmetry residual (a
+  // disorder-broken average may not fold to the ideal count).
   const cellInfo = useMemo(() => {
-    if (!bravais || nConvBasis === 0) return { nBasis: 0, ideal: 0 };
-    const idealMult = cellType === 'custom' ? customN[0] * customN[1] * customN[2] : Math.abs(det3(compP));
-    const ideal = Math.max(1, Math.round(nConvBasis * idealMult));
-    if (cellType === 'custom') return { nBasis: ideal, ideal, residual: 0 };
-    const b = baseStructure.basis;
-    const avgPos = b.map(s => vecMat3(s.frac, bravais.A_conv));
-    const lab = buildCellLabeling(avgPos, b.map(s => s.rn), b.map(() => 1), bravais.A_conv, compP, { tol: 0.08 });
-    return { nBasis: lab.nBasis, ideal, residual: lab.maxResidual || 0 };
-  }, [bravais, baseStructure, nConvBasis, cellType, customN, compP]);
+    if (!bravais || nConvBasis === 0) return { nBasis: 0, ideal: 0, residual: 0 };
+    const ideal = Math.max(1, Math.round(nConvBasis * Math.abs(det3(compP))));
+    if (effFold === 'primitive') {
+      const b = baseStructure.basis;
+      const avgPos = b.map(s => vecMat3(s.frac, bravais.A_conv));
+      const lab = buildCellLabeling(avgPos, b.map(s => s.rn), b.map(() => 1), bravais.A_conv, compP, { tol: 0.08 });
+      return { nBasis: lab.nBasis, ideal, residual: lab.maxResidual || 0 };
+    }
+    return { nBasis: ideal, ideal, residual: 0 };
+  }, [bravais, baseStructure, nConvBasis, effFold, compP]);
   const nBasis = cellInfo.nBasis;
   const nBranches = 3 * nBasis;
-
-  // Detected symmetry of the reference structure (pure-JS, offline). The basis is
-  // one representative config per site (not the ensemble mean), so its symmetry is
-  // tolerance-dependent — hence an adjustable tol: trace how the space-group order
-  // grows as you loosen it. Report-only (does not drive folding yet).
-  const symInfo = useMemo(() => {
-    if (!bravais || !baseStructure?.basis) return null;
-    const src = avgBasis || baseStructure.basis;
-    const basis = src.map(s => ({ el: s.el, frac: s.frac }));
-    const sg = findSpaceGroupOps(bravais.A_conv, basis, symTol);
-    const orbits = siteOrbits(bravais.A_conv, basis, sg.ops, symTol);
-    return { ...sg, orbits, onAverage: !!avgBasis };
-  }, [bravais, baseStructure, symTol, avgBasis]);
+  const primitiveNoFold = effFold === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
+  const foldsSites = nBasis < nConvBasis;
+  const residual = cellInfo.residual || 0;
+  const residualHigh = foldsSites && residual > 0.3;
 
   // A new dataset invalidates any previously-computed average basis.
   useEffect(() => { setAvgBasis(null); }, [baseStructure]);
@@ -153,12 +175,6 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       pushLog(`Symmetry-on-average failed: ${e.message}`);
     } finally { setSymBusy(false); }
   };
-  const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
-  // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
-  // site). Only meaningful when the cell actually folds (primitive).
-  const foldsSites = nBasis < nConvBasis;
-  const residual = cellInfo.residual || 0;
-  const residualHigh = foldsSites && residual > 0.3;
 
   const previewStruct = useMemo(() => {
     if (!baseStructure?.basis) return null;
@@ -366,66 +382,82 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
       {/* ════════ GROUP 2 · CELL & SYMMETRY ════════ */}
       <section>
-        <GroupHeader n="2" title="Cell & symmetry" desc="Choose the computation cell — the reciprocal space & the fold follow it" />
-        <div className="rnr-card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={cardTitle}>Detected symmetry</span>
-            {bravais && (
-              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
-                <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
-                {symInfo && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                    title={`Detected space group at ${symTol.toFixed(2)} Å tolerance: ${symInfo.spaceGroup}`
-                      + (symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : '')
-                      + `, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
-                      + `Symmetry orbits (${symInfo.orbits.length}): ` + symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')
-                      + (symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the underlying symmetry.')}>
-                    <span style={{ color: 'var(--faint)' }}>·</span>
-                    <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--dim)', fontWeight: 700 }}>{symInfo.spaceGroup}</span>
-                    {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
-                    <span>· {symInfo.orbits.length} orbits @</span>
-                    <Stepper width={34} value={symTol.toFixed(2)}
-                      onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
-                      onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
-                    <span>Å</span>
-                    <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
-                      title="Detect symmetry on the ensemble average (all configs) instead of one representative — clean positions reveal the symmetry at a tight tolerance."
-                      style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
-                      {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
-                    </button>
-                  </span>
-                )}
-              </span>
-            )}
+        <GroupHeader n="2" title="Cell & symmetry" desc="Pick the cell → its symmetry is detected → choose the fold" />
+        <div className="rnr-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* 1 · base cell */}
+          <div>
+            <div style={{ ...eyebrow, marginBottom: 9 }}>① BASE CELL</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+                {[['unit', 'Unit cell'], ['custom', 'Custom supercell']].map(([t, lbl]) => (
+                  <button key={t} onClick={() => setBaseCell(t)} className="rnr-btn"
+                    style={{ background: baseCell === t ? ACCENT : 'transparent', color: baseCell === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer', borderRight: t === 'custom' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
+                ))}
+              </div>
+              {baseCell === 'custom' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {[0, 1, 2].map(i => (
+                    <Stepper key={i} width={28} value={customN[i]}
+                      onInc={() => setCustomN(n => n.map((x, j) => j === i ? Math.min(8, x + 1) : x))}
+                      onDec={() => setCustomN(n => n.map((x, j) => j === i ? Math.max(1, x - 1) : x))} />
+                  ))}
+                  <span style={{ font: "11px 'Space Mono'", color: FAINT }}>× unit</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div style={{ ...eyebrow, marginBottom: 9 }}>COMPUTATION CELL</div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-              {[['conventional', 'Conventional'], ...(isCentered ? [['primitive', 'Primitive']] : []), ['custom', 'Custom supercell']].map(([t, lbl]) => (
-                <button key={t} onClick={() => setCellType(t)} className="rnr-btn"
-                  title={t === 'primitive' ? 'Unfolded dispersion in the primitive cell' : undefined}
-                  style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer', borderRight: t === 'custom' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
-              ))}
-            </div>
-            {cellType === 'custom' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {[0, 1, 2].map(i => (
-                  <Stepper key={i} width={28} value={customN[i]}
-                    onInc={() => setCustomN(n => n.map((x, j) => j === i ? Math.min(8, x + 1) : x))}
-                    onDec={() => setCustomN(n => n.map((x, j) => j === i ? Math.max(1, x - 1) : x))} />
-                ))}
-                <span style={{ font: "11px 'Space Mono'", color: FAINT }}>× conv.</span>
+          {/* 2 · detected symmetry (auto) */}
+          <div>
+            <div style={{ ...eyebrow, marginBottom: 9 }}>② SYMMETRY <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— of the base cell, auto-detected</span></div>
+            {symInfo ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'wrap' }}
+                title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nOrbits (${symInfo.orbits.length}): ${symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
+                <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM }}>{symInfo.spaceGroup}</span>
+                {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
+                <span style={{ color: 'var(--faint)' }}>·</span>
+                <span>{symInfo.orbits.length} orbits</span>
+                <span style={{ color: 'var(--faint)' }}>({symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')})</span>
+                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: FAINT }}>tolerance</span>
+                  <Stepper width={34} value={symTol.toFixed(2)}
+                    onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
+                    onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
+                  <span style={{ color: FAINT }}>Å</span>
+                  <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
+                    title="Detect on the ensemble average (all configs) instead of one representative config — clean positions reveal the symmetry at a tight tolerance."
+                    style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
+                    {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
+                  </button>
+                </span>
               </div>
-            )}
-            {nConvBasis > 0 && (
-              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
-                title={primitiveNoFold
-                  ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.`
-                  : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry this cell imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
-                {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
-              </span>
-            )}
+            ) : <span style={{ font: "12px 'Spline Sans'", color: FAINT }}>Load a dataset to detect symmetry.</span>}
+          </div>
+
+          {/* 3 · fold */}
+          <div>
+            <div style={{ ...eyebrow, marginBottom: 9 }}>③ FOLD <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— how to reduce the cell for the calculation</span></div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+                {[['conventional', 'Conventional'], ['primitive', 'Primitive']].map(([t, lbl]) => {
+                  const disabled = t === 'primitive' && !primitiveAvail;
+                  return (
+                    <button key={t} onClick={() => !disabled && setFold(t)} className="rnr-btn" disabled={disabled}
+                      title={t === 'primitive' ? (primitiveAvail ? `Fold by the detected ${symInfo?.centering}-centering → primitive cell` : 'No centering detected — primitive = conventional') : 'The base cell as-is (no fold)'}
+                      style={{ background: effFold === t ? ACCENT : 'transparent', color: disabled ? 'var(--faint)' : effFold === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: disabled ? 'default' : 'pointer', borderRight: t === 'primitive' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
+                  );
+                })}
+              </div>
+              {nConvBasis > 0 && (
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
+                  title={primitiveNoFold
+                    ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this average has broken the ideal centering.`
+                    : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry the fold imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
+                  {nBasis} sites · {nBranches} branches{effFold === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -507,7 +539,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               <span style={cardTitle}>Run</span>
               {bravais && nConvBasis > 0 && (
                 <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM }}>
-                  {cellType} cell · <span style={{ color: ACCENTINK, fontWeight: 700 }}>{nBranches} branches</span>
+                  {baseCell === 'custom' ? `${customN.join('×')} ` : ''}{effFold} · <span style={{ color: ACCENTINK, fontWeight: 700 }}>{nBranches} branches</span>
                 </span>
               )}
             </div>

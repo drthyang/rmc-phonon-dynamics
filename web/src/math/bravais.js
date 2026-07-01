@@ -27,6 +27,11 @@ function matmul3(M, A) {
 }
 function scale3(A, s) { return A.map(r => r.map(v => v * s)); }
 
+/** Conventional→primitive transform M for a centering letter (A_prim = M·A_conv). */
+export function centeringMatrix(letter) {
+  return CENTERING_M[letter] || CENTERING_M.P;
+}
+
 // Centering -> conventional→primitive transform M (A_prim = M · A_conv).
 const CENTERING_M = {
   P: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
