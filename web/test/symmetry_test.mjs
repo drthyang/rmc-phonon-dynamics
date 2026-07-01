@@ -3,7 +3,7 @@
 // Verify the pure-JS symmetry-operation finder against known space groups.
 // Run: node test/symmetry_test.mjs   (part of `npm run validate`)
 
-import { latticePointOps, findSpaceGroupOps } from '../src/math/symmetry.js';
+import { latticePointOps, findSpaceGroupOps, siteOrbits } from '../src/math/symmetry.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
@@ -72,6 +72,27 @@ console.log('\nGaTa₄Se₈ (F-43m):');
   ok(r.nPoint === 24, `GaTa₄Se₈ → point group -43m (Td), order 24 (got ${r.nPoint})`);
   ok(r.nSpace === 96, `GaTa₄Se₈ → 96 conventional ops = 24 × 4 F-centering (got ${r.nSpace})`);
   ok(r.maxResidual < 1e-9, `GaTa₄Se₈ ideal → 0 residual (got ${r.maxResidual.toExponential(1)})`);
+
+  // Wyckoff orbits: F-43m GaTa₄Se₈ = Ga 4a + Ta 16e + Se 16e + Se 16e (52 sites).
+  const orbits = siteOrbits(A, basis, r.ops, 0.1);
+  const sig = orbits.map(o => `${o.element}${o.size}`).sort().join(' ');
+  ok(orbits.length === 4, `GaTa₄Se₈ → 4 Wyckoff orbits (got ${orbits.length})`);
+  ok(sig === 'Ga4 Se16 Se16 Ta16', `orbits = Ga×4, Ta×16, Se×16, Se×16 (got ${sig})`);
+}
+
+// ── Site orbits on simpler cells ────────────────────────────────────────────
+console.log('\nSite orbits:');
+{
+  const fcc = el([[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]]);
+  const rf = findSpaceGroupOps(cubic, fcc, 0.1);
+  const of = siteOrbits(cubic, fcc, rf.ops, 0.1);
+  ok(of.length === 1 && of[0].size === 4, `FCC (all equivalent) → 1 orbit of 4 (got ${of.length}×${of[0]?.size})`);
+
+  // Rock-salt AB: two elements → two orbits, one per sublattice.
+  const rs = [{ el: 'A', frac: [0, 0, 0] }, { el: 'B', frac: [0.5, 0.5, 0.5] }];
+  const rrs = findSpaceGroupOps(cubic, rs, 0.1);
+  const ors = siteOrbits(cubic, rs, rrs.ops, 0.1);
+  ok(ors.length === 2 && ors.every(o => o.size === 1), `BCC-type AB → 2 orbits (A, B) (got ${ors.length})`);
 }
 
 console.log(`\n${fails === 0 ? '✅ symmetry finder OK' : `❌ ${fails} failed`}`);

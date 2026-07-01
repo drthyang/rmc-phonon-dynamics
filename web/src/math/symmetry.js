@@ -144,3 +144,37 @@ export function findSpaceGroupOps(A, basis, tol = 0.1, metricTol = 1e-2) {
   }
   return { ops, nSpace: ops.length, nPoint: rotSeen.size, order: ops.length, maxResidual };
 }
+
+/**
+ * Partition the basis into symmetry orbits under the operations `ops`: two sites
+ * are in the same orbit if some {R|t} maps one onto the other (same element,
+ * within `tol` Å). Orbits = the Wyckoff structure of the (average) crystal — the
+ * sets of sites the detected symmetry says are equivalent. This is what a later
+ * stage pools/symmetrizes; here it is a report.
+ *
+ * @returns {{ index:number[], element:string, size:number }[]} orbits, largest first.
+ */
+export function siteOrbits(A, basis, ops, tol = 0.1) {
+  const n = basis.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+
+  const byEl = new Map();
+  basis.forEach((s, i) => { if (!byEl.has(s.el)) byEl.set(s.el, []); byEl.get(s.el).push(i); });
+
+  for (const { R, t } of ops) {
+    for (let i = 0; i < n; i++) {
+      const img = applyR(R, basis[i].frac);
+      img[0] = wrap01(img[0] + t[0]); img[1] = wrap01(img[1] + t[1]); img[2] = wrap01(img[2] + t[2]);
+      let best = -1, bestD = tol;
+      for (const j of byEl.get(basis[i].el)) { const d = cartDist(img, basis[j].frac, A); if (d < bestD) { bestD = d; best = j; } }
+      if (best >= 0) union(i, best);
+    }
+  }
+  const groups = new Map();
+  for (let i = 0; i < n; i++) { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); }
+  return [...groups.values()]
+    .map(index => ({ index, element: basis[index[0]].el, size: index.length }))
+    .sort((a, b) => b.size - a.size);
+}

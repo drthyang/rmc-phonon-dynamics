@@ -3,7 +3,7 @@ import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '..
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, vecMat3, buildCellLabeling } from '../math/cells';
-import { findSpaceGroupOps } from '../math/symmetry';
+import { findSpaceGroupOps, siteOrbits } from '../math/symmetry';
 import { buildConventionalBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -120,7 +120,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const symInfo = useMemo(() => {
     if (!bravais || !baseStructure?.basis) return null;
     const basis = baseStructure.basis.map(s => ({ el: s.el, frac: s.frac }));
-    return findSpaceGroupOps(bravais.A_conv, basis, symTol);
+    const sg = findSpaceGroupOps(bravais.A_conv, basis, symTol);
+    const orbits = siteOrbits(bravais.A_conv, basis, sg.ops, symTol);
+    return { ...sg, orbits };
   }, [bravais, baseStructure, symTol]);
   const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
   // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
@@ -413,10 +415,12 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
                   {symInfo && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                      title={`Space-group operations of the reference structure detected at ${symTol.toFixed(2)} Å tolerance: ${symInfo.nSpace} ops (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS. The basis is a single representative config, so loosen the tolerance to trace the underlying symmetry.`}>
+                      title={`Space-group operations of the reference structure at ${symTol.toFixed(2)} Å tolerance: ${symInfo.nSpace} ops (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
+                        + `Symmetry orbits (${symInfo.orbits.length}): ` + symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')
+                        + `\nThe basis is a single representative config, so loosen the tolerance to trace the underlying symmetry.`}>
                       <span style={{ color: 'var(--faint)' }}>·</span>
                       <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--warnInk)', fontWeight: 700 }}>{symInfo.nSpace}</span>
-                      <span>sym-ops @</span>
+                      <span>sym-ops · {symInfo.orbits.length} orbits @</span>
                       <Stepper width={34} value={symTol.toFixed(2)}
                         onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
                         onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
