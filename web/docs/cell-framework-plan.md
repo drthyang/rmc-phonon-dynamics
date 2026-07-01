@@ -168,8 +168,22 @@ the reference and pooling the statistics is Phase 1.**
     symmetry-vs-statistics knob, quantified). The runner shows it in the cell hint
     (`… · ⌀0.NN Å`), warn-colored above 0.3 Å. Test: `cells_test.mjs` (ideal → ~0,
     ±0.05 Å disorder → ~0.05 Å).
-  - **Remaining:** optional fold-tolerance knob; per-cell high-sym path;
-    genuinely-lower-symmetry averages; mixed-occupancy/alloy site policy.
+  - **Done — symmetry finder (Stage 1, report-only).** `math/symmetry.js`: a pure,
+    fully-offline space-group operation finder (no WASM / no server). Point ops =
+    integer matrices (entries {-1,0,1}, |det|=1) preserving the metric `RᵀGR=G`;
+    space ops add the translations `t` that map the basis onto itself within a
+    cartesian tolerance. Returns op counts + the residual (Å) of the fit, so
+    symmetry is traceable **as a function of tolerance** — which pairs with the
+    per-site residual readout. Verified against canonical groups (`symmetry_test.mjs`,
+    in `npm run validate`): Pm-3m→48, Fm-3m→192, Im-3m→96, and the real GaTa₄Se₈
+    → point group -43m (Td, order 24) × 4 F-centering = 96 (F-43m, No. 216), ~0
+    residual, 18 ms on 52 sites. Shown next to the Bravais label as `N sym-ops · ⌀Å`.
+    This is the intended replacement for FINDSYM/spglib in a static app (chosen for
+    the offline constraint). **Stage 2 (next): drive the folding from these ops** —
+    derive `P`/the orbits from the detected operations instead of the centering-only
+    heuristic, and symmetrize accordingly.
+  - **Remaining:** Stage 2 (operation-driven folding); optional fold-tolerance knob;
+    per-cell high-sym path; mixed-occupancy/alloy site policy.
 
 ## Validation
 

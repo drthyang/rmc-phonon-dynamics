@@ -3,6 +3,7 @@ import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '..
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, vecMat3, buildCellLabeling } from '../math/cells';
+import { findSpaceGroupOps } from '../math/symmetry';
 import { buildConventionalBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -110,6 +111,18 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   }, [bravais, baseStructure, nConvBasis, cellType, customN, compP]);
   const nBasis = cellInfo.nBasis;
   const nBranches = 3 * nBasis;
+
+  // Detected symmetry of the AVERAGE structure (pure-JS, offline). Report-only for
+  // now: space-group operation count + how well it holds (residual Å) at a fixed
+  // tolerance — a traceable read on the average's symmetry. Elements label atoms
+  // (symmetry-equivalent sites share an element), so build rn→element first.
+  const symInfo = useMemo(() => {
+    if (!bravais || !baseStructure?.basis || !baseStructure.atomDic) return null;
+    const rnToEl = {};
+    for (const [sym, idxs] of Object.entries(baseStructure.atomDic)) for (const idx of idxs) rnToEl[idx] = sym;
+    const basis = baseStructure.basis.map(s => ({ el: rnToEl[s.rn] ?? String(s.rn), frac: s.frac }));
+    return findSpaceGroupOps(bravais.A_conv, basis, 0.15);
+  }, [bravais, baseStructure]);
   const primitiveNoFold = cellType === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
   // How much symmetry the fold imposes (RMS Å of folded sites from the symmetrized
   // site). Only meaningful when the cell actually folds (primitive).
@@ -396,7 +409,16 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           <div className="rnr-card" style={{ flex: 1, minWidth: 0, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={cardTitle}>Run</span>
-              {bravais && <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM }}>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>}
+              {bravais && (
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM, textAlign: 'right' }}>
+                  Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span>
+                  {symInfo && (
+                    <span title={`Symmetry of the average structure at 0.15 Å tolerance: ${symInfo.nSpace} space-group operations (point group order ${symInfo.nPoint}), holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.`}>
+                      {'  ·  '}<span style={{ color: DIM }}>{symInfo.nSpace} sym-ops · ⌀{symInfo.maxResidual.toFixed(2)} Å</span>
+                    </span>
+                  )}
+                </span>
+              )}
             </div>
 
             <div style={{ ...eyebrow, marginBottom: 9 }}>PARAMETERS</div>
