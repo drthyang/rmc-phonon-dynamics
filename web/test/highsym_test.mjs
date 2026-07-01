@@ -101,6 +101,17 @@ console.log('\nCell-aware BZ models (reciprocal space follows the cell):');
   const sup = buildSupercellBZModel(brF, [1, 1, 2]);
   ok(/tetragonal/.test(sup.code) && sup.points.Z && sup.points.A,
     `1×1×2 cubic supercell → tetragonal BZ (got ${sup.code})`);
+
+  // Base-cell analysis: a 1×1×2 FCC supercell is BCT, and its PRIMITIVE fold must
+  // give the body-centered-tetragonal BZ (N,P,Σ…), NOT the FCC cubic one.
+  const Lbase = [[a, 0, 0], [0, a, 0], [0, 0, 2 * a]];
+  const tiled = [];
+  for (let k = 0; k < 2; k++) for (const s of FACE) tiled.push({ el: s.el, frac: [s.frac[0], s.frac[1], (k + s.frac[2]) / 2] });
+  const brBase = analyzeBravais(Lbase, tiled);
+  ok(brBase.code === 'BCT', `1×1×2 FCC base cell → BCT (got ${brBase.code})`);
+  const primBZ = buildBZModel(brBase);
+  ok(primBZ.code === 'BCT' && primBZ.points.N && primBZ.points.P,
+    `1×1×2 primitive fold → BCT Wigner-Seitz BZ, not FCC (got ${primBZ.code}: ${Object.keys(primBZ.points).join(',')})`);
   // Every point must lie in its own cell's BZ (frac fed straight to the phase).
   for (const model of [conv, prim, sup]) {
     const recip = model.bz; // WS already built for the cell; just check points are finite & fed as .frac

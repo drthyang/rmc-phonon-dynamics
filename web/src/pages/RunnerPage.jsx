@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '../io/readers';
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
-import { analyzeBravais, centeringMatrix } from '../math/bravais';
+import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, matMul3, vecMat3, buildCellLabeling } from '../math/cells';
 import { findSpaceGroupOps, siteOrbits } from '../math/symmetry';
-import { buildConventionalBZModel, buildBZModel, buildSupercellBZModel, displayLabel } from '../math/highsym';
+import { buildConventionalBZModel, buildBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
@@ -108,9 +108,17 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     return out;
   }, [baseStructure, avgBasis, baseCell, customN]);
 
-  // Symmetry (space group + orbits) of the BASE CELL, auto-detected at `symTol`.
-  // Detecting on the chosen cell means a supercell shows its own group (e.g. a
-  // 1×1×2 cubic supercell reads tetragonal).
+  // Bravais analysis of the BASE CELL itself (its own lattice + tiled basis). For
+  // the unit cell this is the crystal's Bravais (FCC…); for a custom supercell it
+  // is the supercell's own type (e.g. a 1×1×2 cubic supercell is BCT). Everything
+  // downstream — the primitive transform, the BZ, the fold — derives from THIS, so
+  // conventional/primitive follow the chosen cell rather than the unit cell.
+  const bravaisBase = useMemo(() => {
+    if (!Lbase || !baseBasis) return bravais;
+    try { return analyzeBravais(Lbase, baseBasis); } catch { return bravais; }
+  }, [Lbase, baseBasis, bravais]);
+
+  // Symmetry (space group + orbits) of the base cell, auto-detected at `symTol`.
   const symInfo = useMemo(() => {
     if (!Lbase || !baseBasis) return null;
     const sg = findSpaceGroupOps(Lbase, baseBasis, symTol);
@@ -118,40 +126,39 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     return { ...sg, orbits, onAverage: !!avgBasis };
   }, [Lbase, baseBasis, symTol, avgBasis]);
 
-  // Primitive fold is only meaningful when the detected symmetry is centered.
-  const primitiveAvail = !!symInfo && symInfo.centering !== 'P';
+  // Primitive fold is only meaningful when the base cell is centered.
+  const primitiveAvail = !!bravaisBase && bravaisBase.centering !== 'P';
   const effFold = (fold === 'primitive' && primitiveAvail) ? 'primitive' : 'conventional';
 
-  // Computation cell L_comp = P·A_conv. Conventional fold = the base cell itself;
-  // primitive fold = fold the base cell by its DETECTED centering (drives P from
-  // the symmetry, not a hardcoded heuristic).
-  const compP = useMemo(() => {
-    if (effFold === 'primitive' && symInfo) return matMul3(centeringMatrix(symInfo.centering), Pbase);
-    return Pbase;
-  }, [effFold, symInfo, Pbase]);
+  // Computation cell L_comp = P·A_conv. Conventional = the base cell itself;
+  // primitive = fold the base cell by ITS centering (M_base derived from the base
+  // cell's Bravais). For a 1×1×2 (BCT) this gives the tetragonal-I primitive, not
+  // the FCC primitive — it imposes the supercell's own (lower) symmetry.
+  const compP = useMemo(() => (effFold === 'primitive' && bravaisBase
+    ? matMul3(bravaisBase.M, Pbase) : Pbase), [effFold, bravaisBase, Pbase]);
 
-  // The reciprocal space follows the computation cell.
+  // Reciprocal space of the computation cell: the base cell's own box (conventional)
+  // or its primitive Wigner-Seitz zone (primitive) — both from the base Bravais.
   const bzModel = useMemo(() => {
-    if (!bravais) return null;
-    if (effFold === 'primitive') return buildBZModel(bravais);        // primitive WS BZ (W/K/U/L…)
-    if (baseCell === 'custom') return buildSupercellBZModel(bravais, customN);
-    return buildConventionalBZModel(bravais);
-  }, [bravais, effFold, baseCell, customN]);
+    if (!bravaisBase) return null;
+    return effFold === 'primitive' ? buildBZModel(bravaisBase) : buildConventionalBZModel(bravaisBase);
+  }, [bravaisBase, effFold]);
 
   // Basis-site / branch count for the computation cell (det|P|·conventional). For
-  // the primitive fold, relabel to get the TRUE fold + symmetry residual (a
-  // disorder-broken average may not fold to the ideal count).
+  // the UNIT primitive fold, relabel to get the TRUE fold + symmetry residual (a
+  // disorder-broken average may not fold to the ideal count); other cells use the
+  // exact volume ratio.
   const cellInfo = useMemo(() => {
     if (!bravais || nConvBasis === 0) return { nBasis: 0, ideal: 0, residual: 0 };
     const ideal = Math.max(1, Math.round(nConvBasis * Math.abs(det3(compP))));
-    if (effFold === 'primitive') {
+    if (effFold === 'primitive' && baseCell === 'unit') {
       const b = baseStructure.basis;
       const avgPos = b.map(s => vecMat3(s.frac, bravais.A_conv));
       const lab = buildCellLabeling(avgPos, b.map(s => s.rn), b.map(() => 1), bravais.A_conv, compP, { tol: 0.08 });
       return { nBasis: lab.nBasis, ideal, residual: lab.maxResidual || 0 };
     }
     return { nBasis: ideal, ideal, residual: 0 };
-  }, [bravais, baseStructure, nConvBasis, effFold, compP]);
+  }, [bravais, baseStructure, nConvBasis, effFold, baseCell, compP]);
   const nBasis = cellInfo.nBasis;
   const nBranches = 3 * nBasis;
   const primitiveNoFold = effFold === 'primitive' && cellInfo.ideal > 0 && nBasis > cellInfo.ideal * 1.5;
@@ -444,7 +451,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   const disabled = t === 'primitive' && !primitiveAvail;
                   return (
                     <button key={t} onClick={() => !disabled && setFold(t)} className="rnr-btn" disabled={disabled}
-                      title={t === 'primitive' ? (primitiveAvail ? `Fold by the detected ${symInfo?.centering}-centering → primitive cell` : 'No centering detected — primitive = conventional') : 'The base cell as-is (no fold)'}
+                      title={t === 'primitive' ? (primitiveAvail ? `Fold the base cell by its ${bravaisBase?.centering}-centering → ${bravaisBase?.code} primitive` : 'Base cell is primitive (no centering) — primitive = conventional') : 'The base cell as-is (no fold)'}
                       style={{ background: effFold === t ? ACCENT : 'transparent', color: disabled ? 'var(--faint)' : effFold === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: disabled ? 'default' : 'pointer', borderRight: t === 'primitive' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
                   );
                 })}
