@@ -26,8 +26,9 @@ const sub = (n) => String(n).split('').map(c => SUB[c] || c).join('');
 /**
  * Runner page (Cobalt redesign) — three numbered groups:
  *   1 · Data & assessment   (folder, crystal preview, fit quality)
- *   2 · Reciprocal space & k-path   (Brillouin zone, editable segments)
- *   3 · Run calculation   (displacement reference, parameters, launch + log)
+ *   2 · Cell & symmetry   (computation cell selector, detected space group)
+ *   3 · Reciprocal space & k-path   (Brillouin zone — follows the cell)
+ *   4 · Run calculation   (displacement reference, parameters, launch + log)
  *
  * The compute/io/math layers are untouched; this only reshapes the UI around
  * the same data shapes and the live PhononPipeline.
@@ -363,9 +364,75 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           excludeBad={excludeBad} onExcludeChange={setExcludeBad} />
       </section>
 
-      {/* ════════ GROUP 2 · RECIPROCAL SPACE & k-PATH ════════ */}
+      {/* ════════ GROUP 2 · CELL & SYMMETRY ════════ */}
       <section>
-        <GroupHeader n="2" title="Reciprocal space & k-path" desc="Click high-symmetry points to build the path" />
+        <GroupHeader n="2" title="Cell & symmetry" desc="Choose the computation cell — the reciprocal space & the fold follow it" />
+        <div className="rnr-card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <span style={cardTitle}>Detected symmetry</span>
+            {bravais && (
+              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
+                <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
+                {symInfo && (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    title={`Detected space group at ${symTol.toFixed(2)} Å tolerance: ${symInfo.spaceGroup}`
+                      + (symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : '')
+                      + `, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
+                      + `Symmetry orbits (${symInfo.orbits.length}): ` + symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')
+                      + (symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the underlying symmetry.')}>
+                    <span style={{ color: 'var(--faint)' }}>·</span>
+                    <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--dim)', fontWeight: 700 }}>{symInfo.spaceGroup}</span>
+                    {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
+                    <span>· {symInfo.orbits.length} orbits @</span>
+                    <Stepper width={34} value={symTol.toFixed(2)}
+                      onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
+                      onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
+                    <span>Å</span>
+                    <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
+                      title="Detect symmetry on the ensemble average (all configs) instead of one representative — clean positions reveal the symmetry at a tight tolerance."
+                      style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
+                      {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
+                    </button>
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+
+          <div style={{ ...eyebrow, marginBottom: 9 }}>COMPUTATION CELL</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+              {[['conventional', 'Conventional'], ...(isCentered ? [['primitive', 'Primitive']] : []), ['custom', 'Custom supercell']].map(([t, lbl]) => (
+                <button key={t} onClick={() => setCellType(t)} className="rnr-btn"
+                  title={t === 'primitive' ? 'Unfolded dispersion in the primitive cell' : undefined}
+                  style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer', borderRight: t === 'custom' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
+              ))}
+            </div>
+            {cellType === 'custom' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {[0, 1, 2].map(i => (
+                  <Stepper key={i} width={28} value={customN[i]}
+                    onInc={() => setCustomN(n => n.map((x, j) => j === i ? Math.min(8, x + 1) : x))}
+                    onDec={() => setCustomN(n => n.map((x, j) => j === i ? Math.max(1, x - 1) : x))} />
+                ))}
+                <span style={{ font: "11px 'Space Mono'", color: FAINT }}>× conv.</span>
+              </div>
+            )}
+            {nConvBasis > 0 && (
+              <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
+                title={primitiveNoFold
+                  ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.`
+                  : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry this cell imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
+                {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ════════ GROUP 3 · RECIPROCAL SPACE & k-PATH ════════ */}
+      <section>
+        <GroupHeader n="3" title="Reciprocal space & k-path" desc="Click high-symmetry points to build the path" />
         <div style={{ display: 'flex', gap: 14, height: 420 }}>
           {/* k-path segments (left, 340 — aligns with the other left-column cards) */}
           <div className="rnr-card" style={{ width: 340, padding: 18, display: 'flex', flexDirection: 'column' }}>
@@ -398,9 +465,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
         </div>
       </section>
 
-      {/* ════════ GROUP 3 · RUN ════════ */}
+      {/* ════════ GROUP 4 · RUN ════════ */}
       <section>
-        <GroupHeader n="3" title="Run calculation" />
+        <GroupHeader n="4" title="Run calculation" />
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
           {/* displacement reference */}
           <div className="rnr-card" style={{ width: 340, display: 'flex', flexDirection: 'column', padding: 18 }}>
@@ -438,31 +505,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
           <div className="rnr-card" style={{ flex: 1, minWidth: 0, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={cardTitle}>Run</span>
-              {bravais && (
-                <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }}>
-                  <span>Bravais <span style={{ color: ACCENTINK, fontWeight: 700 }}>{bravais.code} {bravais.system}</span></span>
-                  {symInfo && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                      title={`Detected space group at ${symTol.toFixed(2)} Å tolerance: ${symInfo.spaceGroup}`
-                        + (symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : '')
-                        + `, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS.\n`
-                        + `Symmetry orbits (${symInfo.orbits.length}): ` + symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')
-                        + (symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the underlying symmetry.')}>
-                      <span style={{ color: 'var(--faint)' }}>·</span>
-                      <span style={{ color: symInfo.nSpace > 1 ? ACCENTINK : 'var(--dim)', fontWeight: 700 }}>{symInfo.spaceGroup}</span>
-                      {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)' }}>#{symInfo.spaceGroupNumber}</span>}
-                      <span>· {symInfo.orbits.length} orbits @</span>
-                      <Stepper width={34} value={symTol.toFixed(2)}
-                        onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
-                        onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
-                      <span>Å</span>
-                      <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
-                        title="Detect symmetry on the ensemble average (all configs) instead of one representative — clean positions reveal the symmetry at a tight tolerance."
-                        style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
-                        {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
-                      </button>
-                    </span>
-                  )}
+              {bravais && nConvBasis > 0 && (
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM }}>
+                  {cellType} cell · <span style={{ color: ACCENTINK, fontWeight: 700 }}>{nBranches} branches</span>
                 </span>
               )}
             </div>
@@ -471,35 +516,6 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ display: 'grid', gridTemplateColumns: '150px 150px', gap: 12, marginBottom: 16 }}>
               <Field label="T (K)" value={temperature} onChange={v => setTemperature(v)} step={1} />
               <Field label="degen tol" value={degenerateTol} onChange={v => setDegenerateTol(v)} step={0.001} />
-            </div>
-
-            <div style={{ ...eyebrow, marginBottom: 9 }}>COMPUTATION CELL</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-                {[['conventional', 'Conventional'], ...(isCentered ? [['primitive', 'Primitive']] : []), ['custom', 'Custom supercell']].map(([t, lbl]) => (
-                  <button key={t} onClick={() => setCellType(t)} className="rnr-btn"
-                    title={t === 'primitive' ? 'Unfolded dispersion in the primitive cell' : undefined}
-                    style={{ background: cellType === t ? ACCENT : 'transparent', color: cellType === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: 'pointer', borderRight: t === 'custom' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
-                ))}
-              </div>
-              {cellType === 'custom' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {[0, 1, 2].map(i => (
-                    <Stepper key={i} width={28} value={customN[i]}
-                      onInc={() => setCustomN(n => n.map((x, j) => j === i ? Math.min(8, x + 1) : x))}
-                      onDec={() => setCustomN(n => n.map((x, j) => j === i ? Math.max(1, x - 1) : x))} />
-                  ))}
-                  <span style={{ font: "11px 'Space Mono'", color: FAINT }}>× conv.</span>
-                </div>
-              )}
-              {nConvBasis > 0 && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
-                  title={primitiveNoFold
-                    ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this ensemble average has broken the ideal centering.`
-                    : (foldsSites ? `Folded sites sit ${residual.toFixed(3)} Å (RMS) from their symmetrized position — how much symmetry this cell imposes.${residualHigh ? ' Large: the data may not support this symmetry.' : ''}` : undefined)}>
-                  {nBasis} sites · {nBranches} branches{cellType === 'primitive' ? (primitiveNoFold ? ' · avg not centered ⚠' : ' · unfolded') : ''}{foldsSites && !primitiveNoFold ? ` · ⌀${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
-                </span>
-              )}
             </div>
 
             <div style={{ ...eyebrow, marginBottom: 9 }}>OPTIONS</div>
