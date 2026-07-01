@@ -126,12 +126,22 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
     assign[i] = { tau, n: [Math.round(f[0] - onBoundary(bf[0])), Math.round(f[1] - onBoundary(bf[1])), Math.round(f[2] - onBoundary(bf[2]))] };
   }
 
-  const nCells = new Set(assign.map(a => a.n.join(','))).size;
+  // True cells-per-site = the MODAL basis count. A sheared sub-lattice (e.g. the
+  // FCC primitive cell over a rectangular RMC supercell) gives each site a
+  // different set of cell indices n, so a naive count of distinct n over-counts
+  // (13 vs 4, 62 vs 32, …). The physics only needs n consistent WITHIN a site
+  // (it is), and every site occurs once per cell, so the count they share is the
+  // real cell total; sites off that mode are the genuine issues (partial
+  // occupancy / a mislabel), not sheared-index bookkeeping.
+  const freq = new Map();
+  for (const b of sortedBasis) freq.set(b.count, (freq.get(b.count) || 0) + 1);
+  let nCells = sortedBasis.length ? sortedBasis[0].count : 0, bestFreq = -1;
+  for (const [c, f] of freq) if (f > bestFreq || (f === bestFreq && c > nCells)) { bestFreq = f; nCells = c; }
 
   // Validation: each basis appears once per cell; one element per basis site.
   const issues = [];
   for (const b of sortedBasis) {
-    if (b.count !== nCells) issues.push(`basis @ [${b.frac.map(x => x.toFixed(3)).join(', ')}] appears ${b.count}× (expected ${nCells})`);
+    if (b.count !== nCells) issues.push(`basis @ [${b.frac.map(x => x.toFixed(3)).join(', ')}] appears ${b.count}× (cell count ${nCells})`);
     if (b._els.size > 1) issues.push(`basis @ [${b.frac.map(x => x.toFixed(3)).join(', ')}] mixes elements: ${[...b._els].join('/')}`);
   }
 

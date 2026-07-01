@@ -75,5 +75,30 @@ ok(atoms.length === 4 * N * N * N, `built ${4 * N * N * N} atoms`);
   ok(r.nBasis === 4 && r.nCells === 8, `jittered conventional still 4 sites / 8 cells (got ${r.nBasis}/${r.nCells})`);
 }
 
+// ── Multi-site F primitive over a supercell: nCells must be the TRUE cell count,
+// not the (inflated) number of distinct sheared cell-indices. A GaTa₄Se₈-like
+// 13-site F cell folds cleanly; a naive distinct-n count reported ~62 for a 2×2×2
+// box (32 cells × sheared offsets) and wrongly flagged every basis site. ──
+{
+  const Fv = [[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+  const prim = [
+    ['Ga', [0, 0, 0]],
+    ['Ta', [0.6, 0.6, 0.6]], ['Ta', [0.6, 0.9, 0.9]], ['Ta', [0.9, 0.6, 0.9]], ['Ta', [0.9, 0.9, 0.6]],
+    ['Se', [0.36, 0.36, 0.36]], ['Se', [0.36, 0.14, 0.14]], ['Se', [0.14, 0.36, 0.14]], ['Se', [0.14, 0.14, 0.36]],
+    ['Se', [0.86, 0.86, 0.86]], ['Se', [0.86, 0.64, 0.64]], ['Se', [0.64, 0.86, 0.64]], ['Se', [0.64, 0.64, 0.86]],
+  ];
+  const Nc = 2, atoms13 = [];
+  for (let i = 0; i < Nc; i++) for (let j = 0; j < Nc; j++) for (let k = 0; k < Nc; k++)
+    for (const [el, f] of prim) for (const t of Fv)
+      atoms13.push({ pos: [(i + (f[0] + t[0]) % 1) * a, (j + (f[1] + t[1]) % 1) * a, (k + (f[2] + t[2]) % 1) * a], element: el, mass: 1 });
+  // P = M (FCC conventional→primitive).
+  const M = [[0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]];
+  const L = cellVectors(Aconv, M);
+  const r = relabelAtoms(atoms13, L, { tol: 0.08 });
+  ok(r.nBasis === 13, `multi-site F: folds to 13 primitive sites (got ${r.nBasis})`);
+  ok(r.nCells === Nc * Nc * Nc * 4, `multi-site F: nCells = ${Nc ** 3 * 4} true cells, not inflated distinct-n (got ${r.nCells})`);
+  ok(r.issues.length === 0, `multi-site F: no spurious issues${r.issues.length ? ': ' + r.issues.slice(0, 2).join('; ') : ''}`);
+}
+
 if (fails) { console.error(`\n❌ cells: ${fails} check(s) failed`); process.exit(1); }
 console.log('\n✅ cells framework (Phase 0) OK');

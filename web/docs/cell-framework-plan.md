@@ -138,15 +138,31 @@ the reference and pooling the statistics is Phase 1.**
   (shown only for centered lattices) sets `P = M`, and the generic `q_cell = P·q_conv`
   machinery unfolds. Verified on ideal FCC (`cells_pipeline_test.mjs` [F]): `P = M`
   collapses 4→1 sites, `q_cell = M·X(½,0,0) = (0,¼,¼)`, `S(X) ≠ S(Γ)`.
-  **Real-data caveat (→ Phase 4):** primitive folding only reduces the site count
-  when the *ensemble-average* positions still respect the centering. On the
-  disorder-broken GaTaSe average the primitive cell does NOT fold to ¼ (stays ~52
-  sites, not 13). Handled honestly, not silently: the runner relabels the reference
-  basis to show the TRUE site/branch count (flagging "avg not centered" when it
-  doesn't fold), and the pipeline's labeling-issue warning is capped. Robust folding
-  (relabel against a symmetrized reference / tolerance tuning / Niggli) is Phase 4.
-- **Phase 4 — polish.** High-sym path per cell, genuinely-lower-symmetry
-  averages, mixed-occupancy/alloy site policy.
+  **Verified end-to-end on real data:** the GaTaSe ensemble (Ga₄Ta₁₆Se₃₂, 8×8×8
+  supercell) folds correctly to **13 primitive sites → 39 branches**; the viewer
+  shows the primitive (rhombohedral) cell and a visibly unfolded, sparser
+  dispersion. (An earlier "stays at 52 sites" observation was a UI-testing artifact
+  — clicking Run before the Primitive state settled ran the conventional cell, `P=I`,
+  52 sites × 8³; the "512×" in that stale warning is the conventional signature.)
+  The runner still relabels the reference basis to show the TRUE site/branch count
+  and flags "avg not centered" *if* a dataset's average genuinely breaks the
+  centering — a real safety, just not triggered by GaTaSe.
+- **Phase 4 — polish (in progress).**
+  - **Done — `nCells` / labeling diagnostics fix.** `relabelAtoms` counted the
+    *distinct* cell-index tuples for `nCells`, which a sheared sub-lattice (the FCC
+    primitive cell over a rectangular RMC supercell) inflates — each basis site
+    gets its own offset set of `n`, so distinct-`n` ≫ the true cell count (13 vs 4,
+    62 vs 32). That made the validation flag *every* basis site even on a perfect
+    fold (the earlier warning flood — which fires even on a CORRECT 13-site fold,
+    since that fold is itself a sheared sub-lattice). Now `nCells` = the **modal
+    per-site count**; the physics is unchanged (`n` only needs to be consistent
+    within a site, which it is). Diagnosis (scratchpad): a synthetic GaTa₄Se₈-like
+    13-site F cell folds cleanly to 13 at every supercell size and disorder ≤ σ0.02,
+    and the real GaTaSe ensemble folds to 13 too — the **folding code is correct**.
+    Regression: `cells_test.mjs` multi-site-F case.
+  - **Remaining:** optional fold-tolerance knob + symmetry-residual readout;
+    per-cell high-sym path; genuinely-lower-symmetry averages; mixed-occupancy/
+    alloy site policy.
 
 ## Validation
 
