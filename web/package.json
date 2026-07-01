@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "validate": "node test/validate.mjs && node test/bz_test.mjs && node test/viewermodel_test.mjs && node test/dos_test.mjs && node test/highsym_test.mjs && node test/cells_test.mjs && node test/cells_pipeline_test.mjs && node test/symmetry_test.mjs && node test/synthetic_dispersion_test.mjs",
+    "validate": "node test/validate.mjs && node test/bz_test.mjs && node test/viewermodel_test.mjs && node test/dos_test.mjs && node test/highsym_test.mjs && node test/cells_test.mjs && node test/cells_pipeline_test.mjs && node test/symmetry_test.mjs && node test/symmetrize_test.mjs && node test/synthetic_dispersion_test.mjs",
     "gen-reference": "python3 test/reference_sk.py",
     "ins-debug": "node test/ins_debug.mjs"
   },
