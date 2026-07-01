@@ -3,7 +3,7 @@
 // Verify the pure-JS symmetry-operation finder against known space groups.
 // Run: node test/symmetry_test.mjs   (part of `npm run validate`)
 
-import { latticePointOps, findSpaceGroupOps, siteOrbits, symmetryLadder } from '../src/math/symmetry.js';
+import { latticePointOps, findSpaceGroupOps, siteOrbits, symmetryLadder, wyckoffLetter } from '../src/math/symmetry.js';
 
 let fails = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'} ${m}`); if (!c) fails++; };
@@ -78,6 +78,10 @@ console.log('\nGaTa₄Se₈ (F-43m):');
   const sig = orbits.map(o => `${o.element}${o.size}`).sort().join(' ');
   ok(orbits.length === 4, `GaTa₄Se₈ → 4 Wyckoff orbits (got ${orbits.length})`);
   ok(sig === 'Ga4 Se16 Se16 Ta16', `orbits = Ga×4, Ta×16, Se×16, Se×16 (got ${sig})`);
+  // Site symmetry + Wyckoff letters: Ga 4a (-43m), Ta/Se 16e (3m).
+  const label = (o) => `${o.element} ${o.size}${wyckoffLetter(216, 'F', o.size, o.site, o.rep) || `(${o.site})`}`;
+  const labels = orbits.map(label).sort().join(', ');
+  ok(labels === 'Ga 4a, Se 16e, Se 16e, Ta 16e', `Wyckoff labels: Ga 4a, Ta 16e, Se 16e, Se 16e (got ${labels})`);
 }
 
 // ── Site orbits on simpler cells ────────────────────────────────────────────

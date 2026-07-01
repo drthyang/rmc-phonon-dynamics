@@ -3,7 +3,7 @@ import { listConfigs, readBaseStructure, findStructureFile, listRmc6f } from '..
 import { conventionalLattice, buildKPathFromSegments } from '../math/reciprocal';
 import { analyzeBravais } from '../math/bravais';
 import { IDENT, det3, matMul3, vecMat3, buildCellLabeling } from '../math/cells';
-import { findSpaceGroupOps, siteOrbits, symmetryLadder } from '../math/symmetry';
+import { findSpaceGroupOps, siteOrbits, symmetryLadder, wyckoffLetter } from '../math/symmetry';
 import { buildConventionalBZModel, buildBZModel, displayLabel } from '../math/highsym';
 import { phononDOS } from '../math/dos';
 import { DEFAULT_COLORS } from '../constants';
@@ -123,7 +123,12 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     if (!Lbase || !baseBasis) return null;
     const sg = findSpaceGroupOps(Lbase, baseBasis, symTol);
     const orbits = siteOrbits(Lbase, baseBasis, sg.ops, symTol);
-    return { ...sg, orbits, onAverage: !!avgBasis };
+    // Wyckoff label per orbit: multiplicity + letter (when known) or site symmetry.
+    const wyckoff = orbits.map(o => {
+      const L = wyckoffLetter(sg.spaceGroupNumber, sg.centering, o.size, o.site, o.rep);
+      return { el: o.element, label: `${o.size}${L || ` (${o.site})`}`, site: o.site, mult: o.size };
+    });
+    return { ...sg, orbits, wyckoff, onAverage: !!avgBasis };
   }, [Lbase, baseBasis, symTol, avgBasis]);
 
   // The whole symmetry-vs-tolerance ladder (P1 → … → full group) in one pass — the
@@ -424,12 +429,12 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ ...eyebrow, marginBottom: 9 }}>② SYMMETRY <span style={{ letterSpacing: 0, textTransform: 'none', color: 'var(--faint)' }}>— of the base cell, auto-detected</span></div>
             {symInfo ? (<>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'nowrap', height: 26, whiteSpace: 'nowrap', overflow: 'hidden' }}
-                title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nOrbits (${symInfo.orbits.length}): ${symInfo.orbits.map(o => `${o.element}×${o.size}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
+                title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nWyckoff sites (${symInfo.wyckoff.length}): ${symInfo.wyckoff.map(w => `${w.el} ${w.label}${w.label.includes('(') ? '' : ` (${w.site})`}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
                 <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM, flex: 'none' }}>{symInfo.spaceGroup}</span>
                 {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)', flex: 'none' }}>#{symInfo.spaceGroupNumber}</span>}
                 <span style={{ color: 'var(--faint)', flex: 'none' }}>·</span>
-                <span style={{ flex: 'none' }}>{symInfo.orbits.length} orbits</span>
-                <span style={{ marginLeft: 'auto', flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: DIM }}>{symInfo.wyckoff.map(w => `${w.el} ${w.label}`).join('  ·  ')}</span>
+                <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ color: FAINT }}>tolerance</span>
                   <Stepper width={34} value={symTol.toFixed(2)}
                     onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}

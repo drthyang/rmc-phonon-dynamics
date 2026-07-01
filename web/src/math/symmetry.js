@@ -317,7 +317,11 @@ export function spaceGroupHM(centering, pointGroup) {
  * sets of sites the detected symmetry says are equivalent. This is what a later
  * stage pools/symmetrizes; here it is a report.
  *
- * @returns {{ index:number[], element:string, size:number }[]} orbits, largest first.
+ * Each orbit also carries its multiplicity (size), site-symmetry point group (the
+ * stabilizer of a representative — robust, no tables), and a representative frac.
+ *
+ * @returns {{ index:number[], element:string, size:number, site:string, rep:number[] }[]}
+ *   orbits, largest first.
  */
 export function siteOrbits(A, basis, ops, tol = 0.1) {
   const n = basis.length;
@@ -340,6 +344,64 @@ export function siteOrbits(A, basis, ops, tol = 0.1) {
   const groups = new Map();
   for (let i = 0; i < n; i++) { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); }
   return [...groups.values()]
-    .map(index => ({ index, element: basis[index[0]].el, size: index.length }))
+    .map(index => {
+      const rep = basis[index[0]];
+      // Site symmetry = rotation parts of the ops that FIX the representative point.
+      const stab = []; const seen = new Set();
+      for (const { R, t } of ops) {
+        const img = applyR(R, rep.frac);
+        img[0] = wrap01(img[0] + t[0]); img[1] = wrap01(img[1] + t[1]); img[2] = wrap01(img[2] + t[2]);
+        if (cartDist(img, rep.frac, A) < tol) { const k = R.flat().join(','); if (!seen.has(k)) { seen.add(k); stab.push(R); } }
+      }
+      return { index, element: rep.el, size: index.length, site: pointGroupOf(stab), rep: rep.frac };
+    })
     .sort((a, b) => b.size - a.size);
+}
+
+// ── Wyckoff letters (common groups; letter omitted when not confident) ───────
+// [letter, multiplicity, site symmetry, fixed-coord or null (free position)].
+const WYCKOFF = {
+  216: [ // F-43m
+    ['a', 4, '-43m', [0, 0, 0]], ['b', 4, '-43m', [0.5, 0.5, 0.5]],
+    ['c', 4, '-43m', [0.25, 0.25, 0.25]], ['d', 4, '-43m', [0.75, 0.75, 0.75]],
+    ['e', 16, '3m', null], ['i', 96, '1', null],
+  ],
+  225: [ // Fm-3m
+    ['a', 4, 'm-3m', [0, 0, 0]], ['b', 4, 'm-3m', [0.5, 0.5, 0.5]],
+    ['c', 8, '-43m', [0.25, 0.25, 0.25]], ['f', 32, '3m', null], ['l', 192, '1', null],
+  ],
+  229: [ // Im-3m
+    ['a', 2, 'm-3m', [0, 0, 0]], ['b', 6, '4/mmm', [0, 0.5, 0.5]],
+    ['c', 8, '-3m', [0.25, 0.25, 0.25]], ['f', 16, '3m', null], ['n', 96, '1', null],
+  ],
+  221: [ // Pm-3m
+    ['a', 1, 'm-3m', [0, 0, 0]], ['b', 1, 'm-3m', [0.5, 0.5, 0.5]],
+    ['c', 3, '4/mmm', [0, 0.5, 0.5]], ['d', 3, '4/mmm', [0.5, 0, 0]],
+    ['g', 8, '3m', null], ['n', 48, '1', null],
+  ],
+};
+const CEN_VECS = {
+  P: [[0, 0, 0]], I: [[0, 0, 0], [0.5, 0.5, 0.5]],
+  F: [[0, 0, 0], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]],
+  C: [[0, 0, 0], [0.5, 0.5, 0]], A: [[0, 0, 0], [0, 0.5, 0.5]], B: [[0, 0, 0], [0.5, 0, 0.5]],
+};
+
+/**
+ * Wyckoff letter for an orbit (multiplicity + site symmetry + representative),
+ * or null when not confidently determined (unlisted group, non-standard setting,
+ * or ambiguous). Special positions are matched modulo the centering.
+ */
+export function wyckoffLetter(sgNumber, centering, mult, site, rep) {
+  const table = WYCKOFF[sgNumber];
+  if (!table) return null;
+  const cands = table.filter(p => p[1] === mult && p[2] === site);
+  if (cands.length === 1 && !cands[0][3]) return cands[0][0];   // unique free position
+  const cens = CEN_VECS[centering] || CEN_VECS.P;
+  const hit = cands.filter(p => p[3] && cens.some(c => {
+    const near = (a, b) => { const d = ((a - b) % 1 + 1.5) % 1 - 0.5; return Math.abs(d) < 0.15; };
+    return near(rep[0], p[3][0] + c[0]) && near(rep[1], p[3][1] + c[1]) && near(rep[2], p[3][2] + c[2]);
+  }));
+  if (hit.length === 1) return hit[0][0];
+  if (cands.length === 1) return cands[0][0];
+  return null;
 }
