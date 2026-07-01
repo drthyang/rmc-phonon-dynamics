@@ -209,7 +209,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
       let referenceHandle = null;
       if (refMode === 'file') {
         const item = rmc6fList.find(r => r.name === refName);
-        if (!item) { setProgressText('Select an equilibrium .rmc6f for the file reference.'); setIsProcessing(false); return; }
+        if (!item) { setProgressText('Select an equilibrium .rmc6f for the file reference.'); return; }
         referenceHandle = item.handle;
       }
 
@@ -232,6 +232,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     } catch (e) {
       if (e.message === 'cancelled') { setProgressText('Cancelled.'); pushLog('■ Cancelled by user'); }
       else { console.error(e); setProgressText('Error: ' + e.message); pushLog('Error: ' + e.message); }
+    } finally {
       setIsProcessing(false);
     }
   };
