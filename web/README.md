@@ -28,12 +28,18 @@ Then in the app:
    `Frac*.txt` configs **plus** a companion `.rmc6f` (needed for the lattice and
    reference-number → element map). The repo's `data/5K_ini/` and
    `data/ensemble_20A_5K/` work.
-2. The detected crystal system and high-symmetry points appear; build a
-   **k-path** by clicking spheres (or use **Default**).
-3. Set **Temperature** and **points per segment**, then **Run Calculation**.
-4. Inspect the **band structure**; **click a band point** to drive the **3D
+2. In **Cell & symmetry**: pick the **base cell** (unit cell or a custom
+   n₁×n₂×n₃ supercell); its **space group** is auto-detected and shown with a
+   tolerance ladder (`P1 → … → F-43m`) and Wyckoff labels — press **avg** to
+   detect on the ensemble mean. Choose the **fold** (Conventional | Primitive),
+   and optionally **Impose symmetry** to pool symmetry-equivalent sites and
+   enforce branch degeneracies.
+3. The **Brillouin zone** follows the chosen cell; build a **k-path** by clicking
+   high-symmetry points (or use **Default**).
+4. Set **Temperature** and **points per segment**, then **Run Calculation**.
+5. Inspect the **band structure**; **click a band point** to drive the **3D
    mode** viewer. **Export band.yaml** for phonopy-compatible output.
-5. In the **Simulated INS** panel, set the energy window and **Run INS** to get
+6. In the **Simulated INS** panel, set the energy window and **Run INS** to get
    S(|Q|,E) + DOS; **Export S(Q,E) CSV**.
 
 ## Validate the science

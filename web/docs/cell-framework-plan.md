@@ -1,12 +1,15 @@
 # Computation-cell framework — implementation plan
 
-Status: **Phases 0–3 complete.** Relabel-driven per-basis-site S(k) (default
-`P = I` = zero regression), conventional default k-path (the Γ→X fix), reference
-mode, and a UI computation-cell selector (`Conventional | Primitive | Custom
-n₁×n₂×n₃`, the path mapped `q_cell = P·q_conv`). Verified in-browser + `npm run
-validate` (`cells_pipeline_test.mjs` [A–F], `highsym_test.mjs`). **Next: Phase 4**
-— robust primitive folding on disorder-broken averages (symmetrized-reference
-relabel / tolerance / Niggli), per-cell high-sym paths, alloy site policy. This is
+Status: **Phases 0–3 complete; Phase 4 (symmetry) largely landed** on branch
+`feat/cell-framework-phase4`. Relabel-driven per-basis-site S(k) (default `P = I` =
+zero regression), the Γ→X fix, reference mode, a computation-cell selector, and a
+FINDSYM-like symmetry stack: offline space-group finder (H–M symbol/number),
+tolerance ladder (brick strip), Wyckoff labels, cell-first detection, reciprocal
+space + primitive fold that follow the chosen cell, and S(k) symmetrization (orbit
+pooling + enforced degeneracies, opt-in). See **Phase 4** below for the detailed
+map and what remains. Verified via `npm run validate` (`cells_pipeline_test.mjs`
+[A–F], `highsym_test.mjs`, `symmetry_test.mjs`, `symmetrize_test.mjs`,
+`synthetic_dispersion_test.mjs`) + in-browser. This is
 the reference plan; build piece by piece.
 
 ## Problem
@@ -182,13 +185,17 @@ the reference and pooling the statistics is Phase 1.**
     the offline constraint). **Stage 2 (next): drive the folding from these ops** —
     derive `P`/the orbits from the detected operations instead of the centering-only
     heuristic, and symmetrize accordingly.
-  - **Symmetry-driven folding (FINDSYM-like) — in progress.** Target agreed with
-    the user: detect the space group of the (cell-first) average → a LINEAR
-    tolerance ladder `P1 → … → F-43m` labeled with full H–M symbols → the user
-    picks a rung → it drives the fold: **centering ⇒ cell & branch count**
-    (GaTa₄Se₈ → 13 sites, 39 branches), **point-group orbits ⇒ pool the equivalent
-    sites' statistics + enforce degeneracies** (39 branches stay — the asymmetric
-    unit of 4 is NOT the branch count; 4 atoms can't carry 13 atoms' vibrations).
+  - **Symmetry-driven folding (FINDSYM-like) — landed (opt-in), physics pending
+    in-browser validation.** Agreed model: detect the space group of the (cell-first)
+    base cell → a LINEAR tolerance ladder `P1 → … → F-43m` (full H–M) → the fold
+    (**centering ⇒ cell & branch count**; GaTa₄Se₈ → 13/39) and, when "Impose
+    symmetry" is on, the **point-group orbits ⇒ pool the equivalent sites' stats +
+    enforce degeneracies** (39 branches STAY — the 4-orbit asymmetric unit is not the
+    branch count; 4 atoms can't carry 13 atoms' vibrations). UI (section 2 "Cell &
+    symmetry"): ① base cell (Unit | Custom n₁×n₂×n₃) → ② symmetry (auto-detected on
+    the base cell; ladder brick strip, tolerance, "avg" on the ensemble mean, Wyckoff
+    labels, Impose-symmetry toggle with per-orbit pooling chips) → ③ fold
+    (Conventional | Primitive, from the base cell's own Bravais).
     - **Piece 1 DONE — space-group identifier.** `symmetry.js`: `classifyRotation`
       (det/trace → fold type), `pointGroupOf` (rotation content → point-group H–M,
       class derived from the ops so lattice *subgroups* on the ladder classify
@@ -198,8 +205,40 @@ the reference and pooling the statistics is Phase 1.**
       Im-3m #229, P4/mmm #123, **GaTa₄Se₈ F-43m #216**, generic pair P-1 #2.
       Symmorphic labels; non-symmorphic (screw/glide) refinement is a follow-up —
       the fold is driven by exact ops/orbits, never the label string.
-    - **Next pieces:** 2 tolerance ladder, 3 cell-first detection, 4 select→drive P,
-      5 symmetrized pooling + degeneracy in the pipeline, 6 transparency UI.
+    - **Piece 2 DONE — tolerance ladder.** `symmetryLadder` builds the whole ladder
+      in one detection pass (threshold the ops by residual), filtered to real groups
+      (op count = point-group order × #translations, centering ↔ system compatible).
+      Runner shows it as a colored brick strip (axis = tolerance), click a brick to
+      set the tolerance.
+    - **Piece 3 DONE — cell-first detection.** Symmetry is detected on the CHOSEN
+      cell (`analyzeBravais`/`findSpaceGroupOps` on `L_base` + the tiled basis), so a
+      1×1×2 cubic supercell reads its own tetragonal group; the "avg" toggle detects
+      on the ensemble average (`pipeline.computeAverageBasis`) → tight tolerance.
+    - **Piece 4 DONE — fold from detected symmetry.** `compP` = the base cell's own
+      `M` (`bravaisBase = analyzeBravais(L_base, baseBasis)`), and the reciprocal
+      space follows it: conventional box, primitive WS BZ (unit → FCC W/K/U/L; 1×1×2
+      → BCT). The internal `q = P·q_conv` transform is gone (points are in the cell's
+      own reciprocal frac). Wyckoff labels via `siteOrbits` (site symmetry + rep) +
+      `wyckoffLetter` (common cubic groups; site-symmetry fallback otherwise).
+    - **Piece 5 LANDED (opt-in), physics unvalidated.** `math/symmetrize.js`:
+      `symmetrizeSk` projects S(k) onto the little group of k
+      (`S_sym=(1/|G_k|)Σ Γ(g)SΓ(g)†`), pooling equivalent sites and enforcing
+      degeneracies; `operationReps` gives per-op perm + cell shift + `Rcart=LᵀRL⁻ᵀ`.
+      Pipeline detects the computation cell's group at `symTol` and symmetrizes before
+      `eigh` when the toggle is on (gated: off = byte-identical). Machinery
+      Node-verified (`symmetrize_test.mjs`: pooling, Hermiticity, idempotency,
+      identity=no-op, C4z→xx=yy degeneracy). **TODO: validate end-to-end in-browser**
+      (acoustic→0 at Γ, degeneracies at high-sym k, cleaner bands vs off); the
+      least-tested convention is the little-group/phase sign (`Rᵀk≡k`, `e^{2πi k·Δ}`)
+      — flip if degeneracies land at wrong k.
+    - **Piece 6 — transparency UI** partly done (ladder strip, Wyckoff labels, pooling
+      chips). **Remaining Phase 4:** validate piece-5 physics; reconcile "Impose
+      symmetry" with the REFERENCE SITE knob (companion concepts); cell-aware pooling
+      multiplicities in the chips; full/standard-setting + non-symmorphic H–M and
+      Wyckoff tables beyond the common cubic groups; alloy/mixed-occupancy policy.
+
+Other viewer fix landed this branch: full CPK element-color table (any structure is
+colored, not gray) with GaTaSe's tuned colors preserved.
 
 ## Validation
 
