@@ -126,6 +126,15 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
     assign[i] = { tau, n: [Math.round(f[0] - onBoundary(bf[0])), Math.round(f[1] - onBoundary(bf[1])), Math.round(f[2] - onBoundary(bf[2]))] };
   }
 
+  // Label-space site fraction: the frac such that atom position = n + fracLabel
+  // EXACTLY for the n assigned above. The boundary snap gives sites with a
+  // component in (1−snap, 1) a label shifted +1 in that component, so their
+  // label-space fraction is frac − 1 (slightly negative). Anything that combines
+  // the cell index n with a site fraction — the S(k) symmetrization phases in
+  // particular — MUST use this, not `frac`; mixing the two is a per-site gauge
+  // error of one lattice vector (wrong Bloch phases away from Γ).
+  for (const b of sortedBasis) b.fracLabel = b.frac.map(x => (x > 1 - snap ? x - 1 : x));
+
   // True cells-per-site = the MODAL basis count. A sheared sub-lattice (e.g. the
   // FCC primitive cell over a rectangular RMC supercell) gives each site a
   // different set of cell indices n, so a naive count of distinct n over-counts
@@ -164,7 +173,7 @@ export function relabelAtoms(atoms, L, { tol = 0.05 } = {}) {
   }
 
   return {
-    basis: sortedBasis.map((b, t) => ({ frac: b.frac, element: b.element, mass: b.mass, count: b.count, residual: residuals[t] })),
+    basis: sortedBasis.map((b, t) => ({ frac: b.frac, fracLabel: b.fracLabel, element: b.element, mass: b.mass, count: b.count, residual: residuals[t] })),
     assign, nBasis: sortedBasis.length, nCells, issues, maxResidual,
   };
 }
@@ -200,7 +209,7 @@ export function buildCellLabeling(avgPos, elements, masses, Aconv, P = IDENT, op
   const L = cellVectors(Aconv, P);
   const atoms = avgPos.map((pos, i) => ({ pos, element: elements[i], mass: masses[i] }));
   const r = relabelAtoms(atoms, L, opts);
-  if (r.error) return { error: r.error, L, nBasis: 0, nCells: 0, basis: [], tau: new Uint32Array(0), cellN: new Float32Array(0), counts: new Float32Array(0), tauElement: [], tauMass: [], tauFrac: [], issues: r.issues };
+  if (r.error) return { error: r.error, L, nBasis: 0, nCells: 0, basis: [], tau: new Uint32Array(0), cellN: new Float32Array(0), counts: new Float32Array(0), tauElement: [], tauMass: [], tauFrac: [], tauFracLabel: [], issues: r.issues };
 
   const n = atoms.length;
   const tau = new Uint32Array(n);
@@ -214,11 +223,13 @@ export function buildCellLabeling(avgPos, elements, masses, Aconv, P = IDENT, op
   const tauElement = new Array(r.nBasis);
   const tauMass = new Array(r.nBasis);
   const tauFrac = new Array(r.nBasis);
+  const tauFracLabel = new Array(r.nBasis);
   for (let t = 0; t < r.nBasis; t++) {
     counts[t] = r.basis[t].count;
     tauElement[t] = r.basis[t].element;
     tauMass[t] = r.basis[t].mass;
     tauFrac[t] = r.basis[t].frac;
+    tauFracLabel[t] = r.basis[t].fracLabel;
   }
-  return { L, nBasis: r.nBasis, nCells: r.nCells, basis: r.basis, tau, cellN, counts, tauElement, tauMass, tauFrac, issues: r.issues, maxResidual: r.maxResidual };
+  return { L, nBasis: r.nBasis, nCells: r.nCells, basis: r.basis, tau, cellN, counts, tauElement, tauMass, tauFrac, tauFracLabel, issues: r.issues, maxResidual: r.maxResidual };
 }

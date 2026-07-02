@@ -86,8 +86,18 @@ export class PhononPipeline {
       }
       hsym_xyz.set(ref.xyz);
     } else {
-      for (let i = 0; i < parsedFrames.length; i++) { const xyz = parsedFrames[i].xyz; for (let j = 0; j < xyz.length; j++) hsym_xyz[j] += xyz[j]; }
-      for (let j = 0; j < hsym_xyz.length; j++) hsym_xyz[j] /= parsedFrames.length;
+      // Circular mean per component (period 1). Within-cell fractions of an atom
+      // whose site sits on a cell boundary wrap between ~0 and ~1 frame-to-frame;
+      // an arithmetic mean lands near 0.5 (garbage reference). The circular mean
+      // is centred on the true site and agrees with the arithmetic mean for
+      // atoms away from the boundary.
+      const TAU = 2 * Math.PI;
+      const sc = new Float64Array(numAtoms * 3), ss = new Float64Array(numAtoms * 3);
+      for (let i = 0; i < parsedFrames.length; i++) {
+        const xyz = parsedFrames[i].xyz;
+        for (let j = 0; j < xyz.length; j++) { const ph = TAU * xyz[j]; sc[j] += Math.cos(ph); ss[j] += Math.sin(ph); }
+      }
+      for (let j = 0; j < hsym_xyz.length; j++) { const a = Math.atan2(ss[j], sc[j]) / TAU; hsym_xyz[j] = a - Math.floor(a); }
     }
 
     // Per-atom element / mass (reference-number → element map).
@@ -147,13 +157,16 @@ export class PhononPipeline {
 
     // ── Displacement reference mode ─────────────────────────────────────────
     // per-atom (default): u = r − r̄_atom — each atom about its own ensemble mean
-    //   (the validated behaviour; hsym_xyz is that per-atom mean).
+    //   (the validated behaviour; hsym_xyz is that per-atom circular mean).
     // symmetrized: u = r − (R_n + bf_τ) — about the cell's symmetrized basis site
     //   (shared across symmetry-equivalent sites); imposes the cell's symmetry on
     //   the equilibrium. bf_τ is in L units → convert to conventional within-cell
-    //   fractions; the per-frame delta is wrapped to [-½,½) to handle the cell
-    //   origin. See docs/cell-framework-plan.md.
-    let refFrac = hsym_xyz, wrapRef = false;
+    //   fractions. See docs/cell-framework-plan.md.
+    // In every mode the per-frame delta is wrapped to [-½,½): both the frames and
+    // the reference are within-cell fractions in [0,1), so a boundary atom's raw
+    // delta can be ±1 off. The wrap is a no-op for atoms away from the boundary.
+    let refFrac = hsym_xyz;
+    const wrapRef = true;
     if (referenceMode === 'symmetrized') {
       const wrap01 = (x) => x - Math.floor(x);
       const bfConv = lab.tauFrac.map(f => vecMat3(f, P).map(wrap01));
@@ -162,15 +175,18 @@ export class PhononPipeline {
         const f = bfConv[typeIndices[i]];
         refFrac[i * 3] = f[0]; refFrac[i * 3 + 1] = f[1]; refFrac[i * 3 + 2] = f[2];
       }
-      wrapRef = true;
     }
 
     // Optional: symmetry operation reps for S(k) symmetrization (orbit pooling +
     // degeneracies). Detect the COMPUTATION cell's space group (the τ basis in L)
     // at the selected tolerance; symmetrizeSk projects S(k) onto its little group.
+    // The basis MUST be the LABEL-space fractions (tauFracLabel): the Γ(g) phases
+    // assume atom position = cellN + frac, and the boundary snap in relabelAtoms
+    // shifts cellN by +1 for sites with a frac component near 1. Using tauFrac
+    // here is a one-lattice-vector gauge error that corrupts S(k) away from Γ.
     let symReps = null;
     if (options.symmetrize) {
-      const tauBasis = lab.tauFrac.map((frac, t) => ({ frac, el: lab.tauElement[t] }));
+      const tauBasis = lab.tauFracLabel.map((frac, t) => ({ frac, el: lab.tauElement[t] }));
       const sg = findSpaceGroupOps(lab.L, tauBasis, options.symTol ?? 0.15);
       symReps = operationReps(lab.L, tauBasis, sg.ops);
       if (symReps.length > 1) console.log(`[symmetrize] computation cell ${sg.spaceGroup}: ${symReps.length} operations pooled`);

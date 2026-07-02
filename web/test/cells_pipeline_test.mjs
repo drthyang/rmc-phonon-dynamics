@@ -24,10 +24,12 @@ let fails = 0;
 const ok = (cond, msg) => { console.log(`  ${cond ? 'ok  ' : 'FAIL'} ${msg}`); if (!cond) fails++; };
 const approx = (a, b, t = 1e-12) => Math.abs(a - b) <= t;
 
+// Row i of the conventional cell = supercell vector i / dim[i] (matches
+// reciprocal.js conventionalLattice).
 const Aconv = (v_super, dim) => [
-  [v_super[0][0] / dim[0], v_super[0][1] / dim[1], v_super[0][2] / dim[2]],
-  [v_super[1][0] / dim[0], v_super[1][1] / dim[1], v_super[1][2] / dim[2]],
-  [v_super[2][0] / dim[0], v_super[2][1] / dim[1], v_super[2][2] / dim[2]],
+  [v_super[0][0] / dim[0], v_super[0][1] / dim[0], v_super[0][2] / dim[0]],
+  [v_super[1][0] / dim[1], v_super[1][1] / dim[1], v_super[1][2] / dim[1]],
+  [v_super[2][0] / dim[2], v_super[2][1] / dim[2], v_super[2][2] / dim[2]],
 ];
 
 // Ensemble mean of per-frame within-cell xyz.

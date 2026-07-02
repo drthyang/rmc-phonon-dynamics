@@ -43,13 +43,16 @@ export function mat3Transpose(m) {
 }
 
 /**
- * Conventional unit-cell lattice (rows = a,b,c in Angstrom) = v_super / dim.
+ * Conventional unit-cell lattice (rows = a,b,c in Angstrom).
+ * A_super = diag(dim)·A_conv, so each supercell VECTOR (row) is divided by its
+ * own repeat count: row i = v_i / dim[i]. (Dividing components by dim[j] instead
+ * is only equivalent for orthogonal cells or uniform dim.)
  */
 export function conventionalLattice(v1, v2, v3, dim) {
   return [
-    [v1[0] / dim[0], v1[1] / dim[1], v1[2] / dim[2]],
-    [v2[0] / dim[0], v2[1] / dim[1], v2[2] / dim[2]],
-    [v3[0] / dim[0], v3[1] / dim[1], v3[2] / dim[2]],
+    [v1[0] / dim[0], v1[1] / dim[0], v1[2] / dim[0]],
+    [v2[0] / dim[1], v2[1] / dim[1], v2[2] / dim[1]],
+    [v3[0] / dim[2], v3[1] / dim[2], v3[2] / dim[2]],
   ];
 }
 

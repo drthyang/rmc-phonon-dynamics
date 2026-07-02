@@ -24,6 +24,7 @@ import { det3 } from './cells.js';
 
 const wrap01 = (x) => x - Math.floor(x);
 const nearestInt = (x) => x - Math.round(x);
+const meanEdge = (A) => (Math.hypot(A[0][0], A[0][1], A[0][2]) + Math.hypot(A[1][0], A[1][1], A[1][2]) + Math.hypot(A[2][0], A[2][1], A[2][2])) / 3;
 
 /** Metric tensor G = A·Aᵀ (A rows = lattice vectors, cartesian). */
 export function metricTensor(A) {
@@ -116,7 +117,7 @@ function mappingResidual(R, t, basis, byEl, A, tol) {
  */
 export function findSpaceGroupOps(A, basis, tol = 0.1, metricTol = 1e-2) {
   if (!basis || basis.length === 0) return { ops: [], nSpace: 0, nPoint: 0, order: 0, maxResidual: 0, centering: 'P', pointGroup: '1', spaceGroup: 'P1', spaceGroupNumber: 1 };
-  const tolFrac = tol / Math.sqrt((A[0][0] ** 2 + A[0][1] ** 2 + A[0][2] ** 2)); // ~ tol in cell fractions
+  const tolFrac = tol / meanEdge(A); // ~ tol in cell fractions (mean edge, not just |a1|)
   const pointOps = latticePointOps(A, metricTol);
   const byEl = new Map();
   for (const s of basis) { if (!byEl.has(s.el)) byEl.set(s.el, []); byEl.get(s.el).push(s); }
@@ -209,7 +210,7 @@ function isValidGroup(cls) {
 export function symmetryLadder(A, basis, tolMax = 1.5, metricTol = 1e-2) {
   const full = findSpaceGroupOps(A, basis, tolMax, metricTol);
   if (!full.ops.length) return [];
-  const tolFrac = tolMax / Math.sqrt(A[0][0] ** 2 + A[0][1] ** 2 + A[0][2] ** 2);
+  const tolFrac = tolMax / meanEdge(A);
   const thresholds = [...new Set(full.ops.map(o => o.residual))].sort((a, b) => a - b);
   const bricks = [];
   for (let i = 0; i < thresholds.length; i++) {
@@ -372,7 +373,7 @@ const WYCKOFF = {
   ],
   229: [ // Im-3m
     ['a', 2, 'm-3m', [0, 0, 0]], ['b', 6, '4/mmm', [0, 0.5, 0.5]],
-    ['c', 8, '-3m', [0.25, 0.25, 0.25]], ['f', 16, '3m', null], ['n', 96, '1', null],
+    ['c', 8, '-3m', [0.25, 0.25, 0.25]], ['f', 16, '3m', null], ['l', 96, '1', null],
   ],
   221: [ // Pm-3m
     ['a', 1, 'm-3m', [0, 0, 0]], ['b', 1, 'm-3m', [0.5, 0.5, 0.5]],

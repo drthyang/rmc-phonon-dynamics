@@ -40,10 +40,9 @@ export function eigh(Sk_real, Sk_imag, N) {
   const realEigenvalues = evd.realEigenvalues;
   const eigenvectorsMatrix = evd.eigenvectorMatrix;
 
-  // The eigenvalues appear in identical pairs (lambda, lambda).
-  // We need to extract N unique eigenvalues and their corresponding complex eigenvectors.
-  
-  // To robustly extract pairs, we sort them by eigenvalue.
+  // The eigenvalues appear in identical pairs (λ, λ): every complex eigenvector
+  // v shows up twice in the real embedding, as (x, y) and (−y, x) = i·v. Sort by
+  // eigenvalue; the N unique eigenvalues are every other sorted value.
   const paired = [];
   for (let i = 0; i < 2 * N; i++) {
     paired.push({ val: realEigenvalues[i], col: i });
@@ -51,39 +50,65 @@ export function eigh(Sk_real, Sk_imag, N) {
   paired.sort((a, b) => a.val - b.val);
 
   const finalEigenvalues = new Float64Array(N);
-  
-  // The complex eigenvectors will be represented as [real, imag] or separate arrays.
-  // We'll return an array of { real: Float64Array, imag: Float64Array } of length N.
-  const finalEigenvectors = [];
+  for (let k = 0; k < N; k++) finalEigenvalues[k] = paired[2 * k].val;
 
-  for (let k = 0; k < N; k++) {
-    // Take one from each pair (index 2*k)
-    const idx = paired[2 * k].col;
-    finalEigenvalues[k] = paired[2 * k].val;
-    
-    // For M v = lambda v, where v = [x; y], the complex eigenvector is x + iy.
-    const vecReal = new Float64Array(N);
-    const vecImag = new Float64Array(N);
-    
-    for (let i = 0; i < N; i++) {
-      vecReal[i] = eigenvectorsMatrix.get(i, idx);
-      vecImag[i] = eigenvectorsMatrix.get(i + N, idx);
+  // Eigenvector extraction. Naively mapping columns 2k to complex vectors x + iy
+  // breaks for DEGENERATE eigenvalues: the real solver returns an arbitrary real
+  // orthonormal basis of the 2g-dimensional real subspace, and two chosen columns
+  // can map to the SAME complex vector (v and i·v — real-orthogonal but complex-
+  // linearly dependent). So: cluster near-equal eigenvalues, then complex
+  // Gram-Schmidt over each cluster's columns, keeping the first g independent
+  // complex vectors. For non-degenerate spectra this reduces to the naive pick.
+  const scale = Math.max(Math.abs(paired[0].val), Math.abs(paired[2 * N - 1].val), 1e-300);
+  const clusterTol = 1e-7 * scale;
+  const bounds = [];
+  let clusterStart = 0;
+  for (let i = 1; i <= 2 * N; i++) {
+    if (i === 2 * N || paired[i].val - paired[i - 1].val > clusterTol) { bounds.push([clusterStart, i]); clusterStart = i; }
+  }
+  // Every complex eigenvalue contributes exactly 2 real copies, so clusters must
+  // have even size; an odd one means the tolerance split a true pair — re-join.
+  for (let i = 0; i < bounds.length - 1; i++) {
+    if ((bounds[i][1] - bounds[i][0]) % 2 === 1) { bounds[i][1] = bounds[i + 1][1]; bounds.splice(i + 1, 1); i--; }
+  }
+
+  const finalEigenvectors = [];
+  const colToComplex = (col) => {
+    // For M v = λ v with v = [x; y], the complex eigenvector is x + iy.
+    const re = new Float64Array(N), im = new Float64Array(N);
+    for (let i = 0; i < N; i++) { re[i] = eigenvectorsMatrix.get(i, col); im[i] = eigenvectorsMatrix.get(i + N, col); }
+    return { re, im };
+  };
+  for (const [a, b] of bounds) {
+    const g = (b - a) / 2;
+    const accepted = [];
+    for (let c = a; c < b && accepted.length < g; c++) {
+      const { re: vr, im: vi } = colToComplex(paired[c].col);
+      for (const u of accepted) {
+        // v -= <u, v> u  (complex projection; <u, v> = Σ conj(u)·v)
+        let pr = 0, pi = 0;
+        for (let i = 0; i < N; i++) { pr += u.real[i] * vr[i] + u.imag[i] * vi[i]; pi += u.real[i] * vi[i] - u.imag[i] * vr[i]; }
+        for (let i = 0; i < N; i++) { vr[i] -= pr * u.real[i] - pi * u.imag[i]; vi[i] -= pr * u.imag[i] + pi * u.real[i]; }
+      }
+      let normSq = 0;
+      for (let i = 0; i < N; i++) normSq += vr[i] * vr[i] + vi[i] * vi[i];
+      if (normSq > 1e-8) {
+        const inv = 1 / Math.sqrt(normSq);
+        for (let i = 0; i < N; i++) { vr[i] *= inv; vi[i] *= inv; }
+        accepted.push({ real: vr, imag: vi });
+      }
     }
-    
-    // The Python np.linalg.eigh returns eigenvectors in columns, just like this.
-    // However, it usually normalizes the complex vector to 1.
-    let normSq = 0;
-    for (let i = 0; i < N; i++) {
-      normSq += vecReal[i] * vecReal[i] + vecImag[i] * vecImag[i];
+    // Numerical fallback (a full complex span guarantees g survivors; keep the
+    // legacy behaviour rather than dropping a mode if that ever fails).
+    for (let c = a; accepted.length < g && c < b; c += 2) {
+      const { re: vr, im: vi } = colToComplex(paired[c].col);
+      let normSq = 0;
+      for (let i = 0; i < N; i++) normSq += vr[i] * vr[i] + vi[i] * vi[i];
+      const inv = 1 / Math.sqrt(Math.max(normSq, 1e-12));
+      for (let i = 0; i < N; i++) { vr[i] *= inv; vi[i] *= inv; }
+      accepted.push({ real: vr, imag: vi });
     }
-    const invNorm = 1.0 / Math.sqrt(Math.max(normSq, 1e-12));
-    
-    for (let i = 0; i < N; i++) {
-      vecReal[i] *= invNorm;
-      vecImag[i] *= invNorm;
-    }
-    
-    finalEigenvectors.push({ real: vecReal, imag: vecImag });
+    for (const v of accepted) finalEigenvectors.push(v);
   }
 
   return { eigenvalues: finalEigenvalues, eigenvectors: finalEigenvectors };

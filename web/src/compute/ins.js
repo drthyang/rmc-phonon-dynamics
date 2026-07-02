@@ -17,14 +17,27 @@ export function buildInsData(results) {
   const { atomDic, dim, v1, v2, v3, uniqueRN } = bs;
   const recip = reciprocalLattice(conventionalLattice(v1, v2, v3, dim));
 
-  const rnToRow = new Map((uniqueRN || []).map((rn, r) => [rn, r]));
-
-  // Basis sites (element-grouped) with eigenvector row + neutron weight b²/m.
+  // Basis sites with eigenvector row + neutron weight b²/m. Eigenvector rows are
+  // τ-ordered (one per computation-cell basis site), so build the site list from
+  // the τ-ordered element list when available. The legacy atomDic RN loop only
+  // covers the conventional P = I grouping — with a primitive computation cell
+  // its RN→row lookups miss and would produce NaN weights.
   const sites = [];
-  for (const el of Object.keys(atomDic)) for (const rn of atomDic[el]) {
-    const b = B_COH[el] || 0;
-    const m = ATOMIC_MASS[el] || 0;
-    sites.push({ row: rnToRow.get(rn), b2: m > 0 ? (b * b) / m : 0 });
+  if (bs.segSymbols && bs.segSymbols.length) {
+    bs.segSymbols.forEach((el, r) => {
+      const b = B_COH[el] || 0;
+      const m = ATOMIC_MASS[el] || 0;
+      sites.push({ row: r, b2: m > 0 ? (b * b) / m : 0 });
+    });
+  } else {
+    const rnToRow = new Map((uniqueRN || []).map((rn, r) => [rn, r]));
+    for (const el of Object.keys(atomDic)) for (const rn of atomDic[el]) {
+      const row = rnToRow.get(rn);
+      if (row == null) continue;
+      const b = B_COH[el] || 0;
+      const m = ATOMIC_MASS[el] || 0;
+      sites.push({ row, b2: m > 0 ? (b * b) / m : 0 });
+    }
   }
   const nSites = sites.length;
 
