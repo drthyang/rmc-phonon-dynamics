@@ -38,15 +38,22 @@ File System Access API, which Firefox/Safari don't yet provide.
 
 ## What it does
 
-- **Phonon band structure** — dispersion E(k) along a high-symmetry path, with a
-  hover readout, drag-to-zoom, and soft-mode (imaginary-frequency) highlighting.
+- **Cell & symmetry** — the space group is auto-detected with a tolerance ladder
+  (`P1 → … → F-43m`) and Wyckoff labels; fold to the **conventional or primitive**
+  cell or build a **custom supercell**, and optionally **impose symmetry** to pool
+  symmetry-equivalent sites and enforce the required branch degeneracies.
+- **Interactive Brillouin zone** — the true Wigner–Seitz zone for the chosen cell;
+  click high-symmetry points to lay out a **k-path**.
+- **Phonon band structure** — dispersion E(k) from the RMC displacement covariance,
+  with a hover readout, drag-to-zoom, and soft-mode (imaginary-frequency) highlighting.
 - **3D mode viewer** — click a band point to animate that mode; ball-and-stick /
   spacefill / wireframe, bonds, displacement vectors, and per-element colours.
-- **Simulated INS** — powder-averaged S(|Q|,E) heatmap with a kinematic cutoff,
-  plus the phonon density of states.
-- **Fit quality** — per-configuration Rw overview and F(Q)/G(r) overlays from
-  RMCProfile output.
-- **Export** — phonopy-compatible `band.yaml` / `band.json`.
+- **Simulated INS + DOS** — powder-averaged S(|Q|,E) heatmap with a kinematic
+  cutoff, plus the phonon density of states.
+- **Fit quality** — per-configuration Rw overview across **X-ray and neutron
+  S(Q) & G(r) plus Bragg**, each as measured-vs-model overlays; flag and exclude
+  poorly-fit configurations from the run.
+- **Export** — phonopy-compatible `band.yaml` / `band.json` and S(Q,E) CSV.
 
 Everything above runs **100% client-side** — the hosted link is static files;
 there is no server doing the work.

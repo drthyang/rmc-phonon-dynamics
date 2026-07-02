@@ -45,16 +45,22 @@ Then in the app:
 ## Validate the science
 
 ```bash
-npm run validate      # node test/validate.mjs
+npm run validate      # deterministic science + UI-mapping test suite
 ```
 
-This checks, against an **independent pure-Python reference**
-(`test/reference.json`, regenerate with `npm run gen-reference`):
+The suite pins the physics against an **independent pure-Python reference**
+(`test/reference.json`, regenerate with `npm run gen-reference`) and guards the
+core math end to end:
 
-- `ENERGY_CONV` matches `src_gpu/constants.py` (the old web value was wrong by ~3.5e5×);
-- S(k) is grouped by **reference number** → `3 × N_basis_sites` bands;
-- the **2π Bloch phase** holds: `S(k=G) == S(Γ)` for reciprocal vectors G;
-- the complex Hermitian eigensolver reconstructs `A = V Λ V†`.
+- `ENERGY_CONV`, the **2π Bloch phase** (`S(k=G) == S(Γ)`), and S(k) grouped by
+  basis site → `3 × N_basis` bands, all matching the reference;
+- the complex Hermitian eigensolver reconstructs `A = V Λ V†` **and** returns
+  orthonormal eigenvectors under degeneracy;
+- symmetry detection + S(k) symmetrization is an exact fixed point for a
+  symmetric ensemble (little-group projection convention);
+- the fit-quality reader classifies X-ray/neutron/Bragg CSVs correctly; and
+- a **synthetic-dispersion benchmark** recovers a known analytic E(k) and its
+  eigenvector polarizations from a generated thermal ensemble.
 
 ## Build & deploy (GitHub Pages)
 
@@ -77,10 +83,12 @@ selection still needs Chromium.
 | WebGPU S(k) kernel | `src/compute/Sk_kernel.wgsl`, `src/compute/engine.js` |
 | Pipeline (S(k) → eigh → connect) | `src/compute/pipeline.js` |
 | Diagonalization / band connection | `src/math/diagonalize.js`, `src/math/band_connection.js` |
-| k-path / reciprocal (lattice-aware) | `src/math/reciprocal.js` |
+| Cell, space-group & symmetrization | `src/math/cells.js`, `src/math/symmetry.js`, `src/math/symmetrize.js` |
+| k-path / reciprocal / Brillouin zone | `src/math/reciprocal.js`, `src/math/bravais.js`, `src/math/highsym.js`, `src/math/brillouin.js` |
+| Fit quality (X-ray/neutron/Bragg) | `src/io/sqgr.js`, `src/components/FitQuality.jsx` |
 | band.yaml export | `src/io/writers.js` |
 | INS S(Q,E) + DOS | `src/compute/ins.js`, `src/io/sqeworker.js`, `src/components/InsPanel.jsx` |
-| Viewers | `src/components/BandChart.jsx`, `CrystalViewer.jsx`, `BrillouinZoneViewer.jsx` |
+| Viewers | `src/components/BandStructurePlot.jsx`, `CrystalViewer.jsx`, `BrillouinZoneViewer.jsx` |
 
 See `FEATURE_PARITY_REPORT.md` for the legacy-vs-new parity matrix, the science
 preserved, and the documented limitations carried into the next (UI) stage.
