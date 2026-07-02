@@ -51,6 +51,9 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   const [customN, setCustomN] = useState([1, 1, 1]);   // custom supercell = diag(n)·A_conv
   const [fold, setFold] = useState('conventional');    // 'conventional' | 'primitive' — derived from symmetry
   const [symTol, setSymTol] = useState(0.5);           // Å tolerance for symmetry detection (loose — basis is a single config)
+  const [tolMax, setTolMax] = useState(1.0);           // fine-tune: ladder scan range (Å)
+  const [tolSteps, setTolSteps] = useState(20);        // fine-tune: slider resolution over [0, tolMax]
+  const [fineTol, setFineTol] = useState(false);       // fine-tune panel visibility
   const [avgBasis, setAvgBasis] = useState(null);      // ensemble-average basis (clean → tight-tol symmetry), null until requested
   const [symBusy, setSymBusy] = useState(false);
   const [refName, setRefName] = useState('');
@@ -136,8 +139,11 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   }, [Lbase, baseBasis, symTol, avgBasis]);
 
   // The whole symmetry-vs-tolerance ladder (P1 → … → full group) in one pass — the
-  // brick strip. Independent of the current symTol.
-  const symLadder = useMemo(() => (Lbase && baseBasis ? symmetryLadder(Lbase, baseBasis, 1.0) : []), [Lbase, baseBasis]);
+  // brick strip. Independent of the current symTol; range set by the fine-tune max.
+  const symLadder = useMemo(() => (Lbase && baseBasis ? symmetryLadder(Lbase, baseBasis, tolMax) : []), [Lbase, baseBasis, tolMax]);
+
+  // Shrinking the fine-tune max clamps the selected tolerance into range.
+  useEffect(() => { setSymTol(t => Math.min(t, tolMax)); }, [tolMax]);
 
   // Primitive fold is only meaningful when the base cell is centered.
   const primitiveAvail = !!bravaisBase && bravaisBase.centering !== 'P';
@@ -282,6 +288,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
     lastMsg.current = '';
     const excluded = filesList.length - runFiles.length;
     setLogLines([`▶ Run started · T = ${temperature} K · degen tol ${degenerateTol}`
+      + ` · r₀ ${referenceMode === 'symmetrized' ? 'ideal site' : 'per-atom'} · S(k) symmetrize ${imposeSymmetry ? 'on' : 'off'}`
       + (excluded ? ` · excluding ${excluded} configs flagged > ${flagSigma}σ (${runFiles.length} used)` : '')]);
     setProgressText('Starting…');
     try {
@@ -430,22 +437,19 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 
           {/* 2 · detected symmetry (auto) */}
           <div>
-            <div style={subHead}><span style={subTri}>▶</span>SYMMETRY <span style={{ letterSpacing: 0, fontWeight: 400, color: FAINT }}>— of the base cell, auto-detected</span></div>
+            <div style={subHead}><span style={subTri}>▶</span>SYMMETRY <span style={{ letterSpacing: 0, fontWeight: 400, color: FAINT }}>— of the base cell, auto-detected</span>
+              <Help text={'Operations that map every site onto an equivalent one within the tolerance (Å).\nThe strip shows the space group found at each tolerance — click a brick to select.\nfine-tune: scan range (max) and slider resolution (steps).'} />
+            </div>
             {symInfo ? (<>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: "12px 'Space Mono'", color: DIM, flexWrap: 'nowrap', height: 26, whiteSpace: 'nowrap', overflow: 'hidden' }}
-                title={`Space group ${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''}, point group ${symInfo.pointGroup}, ${symInfo.nSpace} operations, holding to ${symInfo.maxResidual.toFixed(3)} Å RMS at ${symTol.toFixed(2)} Å.\nWyckoff sites (${symInfo.wyckoff.length}): ${symInfo.wyckoff.map(w => `${w.el} ${w.label}${w.label.includes('(') ? '' : ` (${w.site})`}`).join(', ')}${symInfo.onAverage ? '\nDetected on the ensemble average.' : '\nDetected on a single representative config — loosen the tolerance to trace the symmetry.'}`}>
+                title={`${symInfo.spaceGroup}${symInfo.spaceGroupNumber ? ` (No. ${symInfo.spaceGroupNumber})` : ''} · point group ${symInfo.pointGroup} · ${symInfo.nSpace} ops · fits to ${symInfo.maxResidual.toFixed(3)} Å at tol ${symTol.toFixed(2)} Å\nWyckoff: ${symInfo.wyckoff.map(w => `${w.el} ${w.label}`).join(', ')}\n${symInfo.onAverage ? 'Detected on the ensemble average.' : 'Detected on a single config — try “avg”.'}`}>
                 <span style={{ font: "700 15px 'Noto Sans', sans-serif", color: symInfo.nSpace > 1 ? ACCENTINK : DIM, flex: 'none' }}>{symInfo.spaceGroup}</span>
                 {symInfo.spaceGroupNumber && <span style={{ color: 'var(--faint)', flex: 'none' }}>#{symInfo.spaceGroupNumber}</span>}
                 <span style={{ color: 'var(--faint)', flex: 'none' }}>·</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: DIM }}>{symInfo.wyckoff.map(w => `${w.el} ${w.label}`).join('  ·  ')}</span>
                 <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: FAINT }}>tolerance</span>
-                  <Stepper width={34} value={symTol.toFixed(2)}
-                    onInc={() => setSymTol(t => Math.min(1.5, +(t + 0.05).toFixed(2)))}
-                    onDec={() => setSymTol(t => Math.max(0.05, +(t - 0.05).toFixed(2)))} />
-                  <span style={{ color: FAINT }}>Å</span>
                   <button onClick={detectOnAverage} disabled={symBusy || !filesList.length}
-                    title="Detect on the ensemble average (all configs) instead of one representative config — clean positions reveal the symmetry at a tight tolerance."
+                    title="Detect on the ensemble average instead of one config — cleaner positions, tighter tolerance."
                     style={{ background: symInfo.onAverage ? ACCENT : 'transparent', color: symInfo.onAverage ? '#fff' : DIM, border: `1px solid ${symInfo.onAverage ? ACCENT : BORDER}`, borderRadius: 6, padding: '3px 8px', font: "600 10px 'Space Grotesk'", cursor: symBusy ? 'default' : 'pointer' }}>
                     {symBusy ? '…' : symInfo.onAverage ? '✓ avg' : 'avg'}
                   </button>
@@ -464,46 +468,69 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                         const level = maxOps > 1 ? Math.log(b.nSpace) / Math.log(maxOps) : 0;
                         const active = symTol >= b.from && symTol < b.to;
                         return (
-                          <div key={i} onClick={() => setSymTol(Math.max(0.05, Math.min(1.5, +(((b.from + b.to) / 2)).toFixed(2))))}
-                            title={`${b.spaceGroup}${b.spaceGroupNumber ? ` (No. ${b.spaceGroupNumber})` : ''} — holds for tolerance ${b.from.toFixed(2)}–${b.to.toFixed(2)} Å (${b.nSpace} operations). Click to select.`}
+                          <div key={i} onClick={() => setSymTol(Math.max(0.05, Math.min(tolMax, +(((b.from + b.to) / 2)).toFixed(2))))}
+                            title={`${b.spaceGroup}${b.spaceGroupNumber ? ` (No. ${b.spaceGroupNumber})` : ''} · holds ${b.from.toFixed(2)}–${b.to.toFixed(2)} Å · ${b.nSpace} ops — click to select`}
                             style={{ width: w + '%', minWidth: 0, background: `hsl(219 ${12 + level * 58}% ${86 - level * 34}%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: i < symLadder.length - 1 ? '1px solid rgba(255,255,255,.6)' : 'none', boxShadow: active ? `inset 0 0 0 2px ${ACCENT}` : 'none' }}>
                             <span style={{ font: "700 10px 'Noto Sans', sans-serif", color: level > 0.55 ? '#fff' : INK, whiteSpace: 'nowrap', padding: '0 4px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.spaceGroup}</span>
                           </div>
                         );
                       })}
                     </div>
-                    <div style={{ position: 'absolute', top: 0, height: 30, width: 2, background: ACCENT, left: `calc(${Math.min(1, symTol / ladderMax) * 100}% - 1px)`, pointerEvents: 'none', boxShadow: '0 0 0 1px rgba(255,255,255,.7)' }} />
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, font: "9px 'Space Mono'", color: FAINT }}>
                       <span>0</span>
-                      <span>symmetry vs. tolerance (Å) — click a brick</span>
+                      <span>symmetry vs. tolerance (Å) — click a brick to select</span>
                       <span>{ladderMax.toFixed(1)}</span>
+                    </div>
+                    {/* fine-tune (hidden by default): scan range + resolution + free slider */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, font: "10px 'Space Mono'", color: FAINT }}>
+                      <button onClick={() => setFineTol(v => !v)} className="rnr-btn"
+                        style={{ background: 'transparent', border: 'none', padding: 0, font: "10px 'Space Mono'", color: fineTol ? ACCENTINK : FAINT, cursor: 'pointer' }}>
+                        {fineTol ? '▾' : '▸'} fine-tune
+                      </button>
+                      {fineTol && (<>
+                        <span>max</span>
+                        <input type="number" step={0.1} min={0.2} max={3} value={tolMax}
+                          onChange={e => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) setTolMax(Math.max(0.2, Math.min(3, v))); }}
+                          style={{ width: 44, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 5, padding: '2px 5px', font: "10.5px 'Space Mono'", color: INK }} />
+                        <span>Å</span>
+                        <span style={{ marginLeft: 4 }}>steps</span>
+                        <input type="number" step={1} min={5} max={200} value={tolSteps}
+                          onChange={e => { const v = parseInt(e.target.value, 10); if (Number.isFinite(v)) setTolSteps(Math.max(5, Math.min(200, v))); }}
+                          style={{ width: 40, background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 5, padding: '2px 5px', font: "10.5px 'Space Mono'", color: INK }} />
+                        <input type="range" min={+(tolMax / tolSteps).toFixed(4)} max={tolMax} step={+(tolMax / tolSteps).toFixed(4)} value={Math.min(symTol, tolMax)}
+                          onChange={e => setSymTol(parseFloat(e.target.value))}
+                          style={{ flex: 1, minWidth: 60, accentColor: 'var(--accent)' }} />
+                      </>)}
+                      <span style={{ marginLeft: 'auto', flex: 'none' }}>tolerance <span style={{ color: ACCENTINK, fontWeight: 700 }}>{symTol.toFixed(2)} Å</span></span>
                     </div>
                   </div>
                 );
               })()}
 
-              {/* impose symmetry: pool equivalent sites + enforce degeneracies */}
-              <label onClick={() => setImposeSymmetry(v => !v)}
-                title="Symmetrize S(k) over the detected space group: the symmetry-equivalent sites (the Wyckoff sites above) are pooled into one covariance each, and the symmetry-required branch degeneracies are enforced. Off = the raw per-site ensemble result."
-                style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, cursor: 'pointer' }}>
-                <span style={{ width: 17, height: 17, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: imposeSymmetry ? ACCENT : 'transparent', border: `2px solid ${imposeSymmetry ? ACCENT : 'var(--bar)'}` }}>
-                  {imposeSymmetry && <span style={{ color: '#fff', font: "700 11px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
-                </span>
-                <span style={{ font: "13px 'Spline Sans'", color: INK }}>Impose symmetry</span>
-                <span style={{ font: "11px 'Space Mono'", color: imposeSymmetry ? ACCENTINK : FAINT }}>
-                  pool {nBasis} sites → {symInfo.wyckoff.length} orbit{symInfo.wyckoff.length === 1 ? '' : 's'} · enforce degeneracies
-                </span>
-              </label>
-              {imposeSymmetry && (
-                <div style={{ marginTop: 8, marginLeft: 27, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {symInfo.wyckoff.map((w, i) => (
-                    <span key={i} title={`${w.el}: site symmetry ${w.site}`}
-                      style={{ font: "11px 'Space Mono'", color: ACCENTINK, background: 'var(--soft)', borderRadius: 5, padding: '2px 7px' }}>
-                      {w.el} {w.label} <span style={{ color: FAINT }}>×{w.mult} pooled</span>
-                    </span>
-                  ))}
-                </div>
-              )}
+              {/* impose symmetry on S(k): pool equivalent sites + enforce degeneracies */}
+              <div style={{ marginTop: 12, background: 'var(--inset)', border: `1px solid ${imposeSymmetry ? ACCENT : BORDER}`, borderRadius: 8, padding: '11px 13px' }}>
+                <label onClick={() => setImposeSymmetry(v => !v)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 11, cursor: 'pointer' }}>
+                  <span style={{ width: 18, height: 18, borderRadius: 5, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', background: imposeSymmetry ? ACCENT : 'transparent', border: `2px solid ${imposeSymmetry ? ACCENT : 'var(--bar)'}` }}>
+                    {imposeSymmetry && <span style={{ color: '#fff', font: "700 12px 'Space Grotesk'", lineHeight: 1 }}>✓</span>}
+                  </span>
+                  <span style={{ font: "600 13px 'Spline Sans'", color: INK }}>Impose symmetry on S(k)</span>
+                  <Help text={'Averages S(k) over the detected space group: equivalent sites pool their statistics and required degeneracies become exact. Off = raw per-site result.\nStatistics only — what counts as a displacement is set in ④ “Displacement reference”.'} />
+                  <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: imposeSymmetry ? ACCENTINK : FAINT, textAlign: 'right' }}>
+                    pool {nBasis} sites → {symInfo.wyckoff.length} orbit{symInfo.wyckoff.length === 1 ? '' : 's'} · enforce degeneracies
+                  </span>
+                </label>
+                {imposeSymmetry && (
+                  <div style={{ marginTop: 9, marginLeft: 29, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {symInfo.wyckoff.map((w, i) => (
+                      <span key={i} title={`${w.el}: site symmetry ${w.site}`}
+                        style={{ font: "11px 'Space Mono'", color: ACCENTINK, background: 'var(--soft)', borderRadius: 5, padding: '2px 7px' }}>
+                        {w.el} {w.label} <span style={{ color: FAINT }}>×{w.mult} pooled</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>) : <span style={{ font: "12px 'Spline Sans'", color: FAINT }}>Load a dataset to detect symmetry.</span>}
           </div>
 
@@ -516,7 +543,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                   const disabled = t === 'primitive' && !primitiveAvail;
                   return (
                     <button key={t} onClick={() => !disabled && setFold(t)} className="rnr-btn" disabled={disabled}
-                      title={t === 'primitive' ? (primitiveAvail ? `Fold the base cell by its ${bravaisBase?.centering}-centering → ${bravaisBase?.code} primitive` : 'Base cell is primitive (no centering) — primitive = conventional') : 'The base cell as-is (no fold)'}
+                      title={t === 'primitive' ? (primitiveAvail ? `Fold by the ${bravaisBase?.centering}-centering → ${bravaisBase?.code} primitive` : 'No centering — primitive = conventional') : 'Use the base cell as-is (no fold)'}
                       style={{ background: effFold === t ? ACCENT : 'transparent', color: disabled ? 'var(--faint)' : effFold === t ? '#fff' : DIM, border: 'none', padding: '8px 13px', font: "600 12px 'Space Grotesk'", cursor: disabled ? 'default' : 'pointer', borderRight: t === 'primitive' ? 'none' : `1px solid ${BORDER}` }}>{lbl}</button>
                   );
                 })}
@@ -524,8 +551,8 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
               {nConvBasis > 0 && (
                 <span style={{ marginLeft: 'auto', flex: 'none', font: "11px 'Space Mono'", color: (nBranches > 600 || primitiveNoFold || residualHigh) ? 'var(--warnInk)' : FAINT }}
                   title={primitiveNoFold
-                    ? `The average positions do not fold to the ideal ${cellInfo.ideal} primitive sites — this average has broken the ideal centering.`
-                    : (foldsSites ? `The fold merges several conventional sites into each cell site; their average positions agree to ${residual.toFixed(3)} Å (RMS). Small = a clean fold; large = the fold is merging sites the data doesn't actually place together.${residualHigh ? ' Large — the data may not support this cell.' : ''}` : 'The full cell — no folding.')}>
+                    ? `Average doesn't fold to the ideal ${cellInfo.ideal} primitive sites — the centering is broken in this average.`
+                    : (foldsSites ? `Merged sites agree to ${residual.toFixed(3)} Å RMS — small = clean fold.${residualHigh ? ' This looks too large for the fold.' : ''}` : 'Full cell — no folding.')}>
                   {nBasis} sites · {nBranches} branches{primitiveNoFold ? ' · avg not centered ⚠' : ''}{foldsSites && !primitiveNoFold ? ` · merged sites agree to ${residual.toFixed(2)} Å${residualHigh ? ' ⚠' : ''}` : ''}{nBranches > 600 ? ' ⚠' : ''}
                 </span>
               )}
@@ -575,13 +602,32 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
           {/* displacement reference */}
           <div className="rnr-card" style={{ width: 340, display: 'flex', flexDirection: 'column', padding: 18 }}>
-            <div style={{ ...cardTitle, marginBottom: 12 }}>Displacement reference</div>
+            <div style={{ ...cardTitle, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 7 }}>
+              Displacement reference
+              <Help text={'Sets r₀ in u = r − r₀ — what counts as a displacement.\nUnlike ② “Impose symmetry on S(k)” (pools statistics after u is measured), this changes u itself.'} />
+            </div>
+
+            <div style={{ ...subHead, marginBottom: 6 }}><span style={subTri}>▶</span>EQUILIBRIUM SITE r₀</div>
+            <Radio checked={referenceMode === 'per-atom'} onClick={() => setReferenceMode('per-atom')}>
+              Per-atom mean <span style={{ font: "11px 'Space Mono'", color: FAINT }}>default</span>
+              <Help text="u = r − ⟨r⟩ per atom — thermal motion only; static offsets are subtracted." />
+            </Radio>
+            <Radio checked={referenceMode === 'symmetrized'} onClick={() => setReferenceMode('symmetrized')}>
+              Ideal site (symmetrized)
+              <Help text="u = r − ideal site, shared per basis position — static disorder counts as displacement." />
+            </Radio>
+
+            <div style={{ ...subHead, marginTop: 14, marginBottom: 6, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}><span style={subTri}>▶</span>AVERAGE SOURCE</div>
             <Radio checked={refMode === 'average'} onClick={() => setRefMode('average')}>
               Ensemble average <span style={{ font: "11px 'Space Mono'", color: FAINT }}>default</span>
+              <Help text="r₀ from the average over all configurations." />
             </Radio>
-            <Radio checked={refMode === 'file'} onClick={() => setRefMode('file')}>Equilibrium .rmc6f file</Radio>
+            <Radio checked={refMode === 'file'} onClick={() => setRefMode('file')}>
+              Equilibrium .rmc6f file
+              <Help text="r₀ from a chosen .rmc6f file." />
+            </Radio>
             {refMode === 'file' && (
-              <div style={{ marginTop: 10, paddingLeft: 26 }}>
+              <div style={{ marginTop: 8, paddingLeft: 26 }}>
                 <select value={refName} onChange={e => setRefName(e.target.value)}
                   style={{ width: '100%', background: 'var(--inset)', border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 10px', font: "12px 'Space Mono'", color: INK, cursor: 'pointer' }}>
                   <option value="">(select a file)</option>
@@ -590,19 +636,7 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
                 {refName && <div style={{ marginTop: 8, font: "11px 'Space Mono'", color: FAINT }}>selected <span style={{ color: ACCENTINK }}>{refName}</span></div>}
               </div>
             )}
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
-              <div style={{ font: "600 11px 'Space Grotesk'", letterSpacing: '.02em', color: DIM, marginBottom: 8 }}>REFERENCE SITE</div>
-              <Radio checked={referenceMode === 'per-atom'} onClick={() => setReferenceMode('per-atom')}>
-                Per-atom <span style={{ font: "11px 'Space Mono'", color: FAINT }}>default</span>
-              </Radio>
-              <Radio checked={referenceMode === 'symmetrized'} onClick={() => setReferenceMode('symmetrized')}>Symmetrized site</Radio>
-            </div>
-            <div style={{ marginTop: 'auto', paddingTop: 14, font: "11px/1.7 'Spline Sans'", color: FAINT }}>
-              Sets the equilibrium positions r₀ for the displacement field u = r − r₀ that builds the dynamical matrix.
-              {referenceMode === 'symmetrized'
-                ? ' Symmetrized: r₀ is the cell’s shared basis-site average (imposes the cell symmetry).'
-                : ' Per-atom: each atom about its own ensemble mean.'}
-            </div>
+
           </div>
 
           {/* run */}
@@ -610,8 +644,11 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={cardTitle}>Run</span>
               {bravais && nConvBasis > 0 && (
-                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM }}>
+                <span style={{ marginLeft: 'auto', font: "11px 'Space Mono'", color: DIM, textAlign: 'right' }}
+                  title={`r₀ ${referenceMode === 'symmetrized' ? 'ideal site — static disorder included' : 'per-atom — thermal motion only'}\nS(k) symmetrize ${imposeSymmetry ? `on (${symInfo?.spaceGroup || 'detected group'})` : 'off — raw per-site statistics'}`}>
                   {baseCell === 'custom' ? `${customN.join('×')} ` : ''}{effFold} · <span style={{ color: ACCENTINK, fontWeight: 700 }}>{nBranches} branches</span>
+                  {' · '}r₀ {referenceMode === 'symmetrized' ? 'ideal site' : 'per-atom'}
+                  {' · '}<span style={{ color: imposeSymmetry ? ACCENTINK : FAINT }}>S(k) sym {imposeSymmetry ? 'on' : 'off'}</span>
                 </span>
               )}
             </div>
@@ -692,6 +729,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
 }
 
 /* ── small building blocks ─────────────────────────────────────────────── */
+/** Small "?" badge with a hover tooltip. Clicks don't propagate, so it can sit
+ *  inside checkbox/radio labels without toggling them. */
+function Help({ text }) {
+  return (
+    <span title={text} onClick={e => e.stopPropagation()}
+      style={{ width: 14, height: 14, flex: 'none', borderRadius: '50%', border: '1.2px solid var(--bar)', color: DIM, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: "600 9.5px 'Space Grotesk'", lineHeight: 1, cursor: 'help', userSelect: 'none' }}>?</span>
+  );
+}
+
 function GroupHeader({ n, title, desc }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
@@ -733,13 +779,16 @@ function Field({ label, value, onChange, step }) {
   );
 }
 
-function Radio({ checked, onClick, children }) {
+function Radio({ checked, onClick, children, desc }) {
   return (
-    <label onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, font: "13px 'Spline Sans'", color: INK, padding: '9px 10px', borderRadius: 8, background: checked ? 'var(--soft)' : 'transparent', cursor: 'pointer', marginTop: 2 }}>
-      <span style={{ width: 16, height: 16, flex: 'none', borderRadius: '50%', border: `2px solid ${checked ? ACCENT : 'var(--bar)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <label onClick={onClick} style={{ display: 'flex', alignItems: desc ? 'flex-start' : 'center', gap: 10, font: "13px 'Spline Sans'", color: INK, padding: '9px 10px', borderRadius: 8, background: checked ? 'var(--soft)' : 'transparent', cursor: 'pointer', marginTop: 2 }}>
+      <span style={{ width: 16, height: 16, flex: 'none', borderRadius: '50%', border: `2px solid ${checked ? ACCENT : 'var(--bar)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: desc ? 1 : 0 }}>
         {checked && <span style={{ width: 7, height: 7, borderRadius: '50%', background: ACCENT }} />}
       </span>
-      {children}
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>{children}</span>
+        {desc && <span style={{ display: 'block', font: "11px/1.55 'Spline Sans'", color: FAINT, marginTop: 3 }}>{desc}</span>}
+      </span>
     </label>
   );
 }

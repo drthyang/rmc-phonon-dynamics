@@ -1,17 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { listSqgrConfigs, getSqgrData, parseCsv, rwFromCols } from '../io/sqgr';
+import { listSqgrConfigs, getConfigChannels, configRw } from '../io/sqgr';
 import SciChart from './SciChart';
 
-const rwOf = async (handle) => {
-  if (!handle) return null;
-  try { return rwFromCols(parseCsv(await (await handle.getFile()).text()).cols); }
-  catch { return null; }
-};
-
 /**
- * Per-config R-value for the bar chart, combining F(Q) and G(r). Each bar's
- * height is the mean of the available Rw values; the breakdown is kept for the
- * tooltip. Resilient: a single unreadable CSV is skipped, not fatal.
+ * Per-config R-value for the bar chart, averaged over every present data channel
+ * (X-ray / neutron S(Q) & G(r), Bragg). Each bar's height is the mean Rw; the
+ * per-channel breakdown is kept for the tooltip. Resilient: a single unreadable
+ * CSV is skipped, not fatal.
  */
 async function computeBars(ents, onProgress, isCancelled) {
   const bars = new Array(ents.length).fill(null);
@@ -19,9 +14,8 @@ async function computeBars(ents, onProgress, isCancelled) {
   for (let i = 0; i < ents.length; i += batch) {
     if (isCancelled()) return null;
     await Promise.all(ents.slice(i, i + batch).map(async (e, k) => {
-      const [rwF, rwG] = await Promise.all([rwOf(e.xfq), rwOf(e.ft)]);
-      const avail = [rwF, rwG].filter(v => v != null);
-      bars[i + k] = { rw: avail.length ? avail.reduce((a, b) => a + b, 0) / avail.length : 0, rwF, rwG };
+      const { mean, parts } = await configRw(e);
+      bars[i + k] = { rw: mean, parts };
       done++;
     }));
     onProgress(done, ents.length);
@@ -29,12 +23,17 @@ async function computeBars(ents, onProgress, isCancelled) {
   return bars;
 }
 
+// Compact "X S(Q) 3.2 · N G(r) 4.1" breakdown from a bar's per-channel parts.
+const breakdown = (parts) => (parts || []).map(p => `${p.tag} ${p.rw.toFixed(1)}`).join(' · ');
+
 /**
  * Fit-quality card (Cobalt redesign). Reads the selected RMCProfile output
  * folder, computes Rw per configuration, and drives the assessment:
  *   • an R-value bar chart (click a bar / type a config number to inspect),
- *   • the structure factor F(Q) and pair distribution G(r) for that config,
- *     each as data (measured, dashed) vs fit (RMC model, solid).
+ *   • one panel per available data channel — X-ray and neutron structure
+ *     factor S(Q) & pair distribution G(r), plus Bragg — each as data
+ *     (measured) vs fit (RMC model). Panels appear only for channels the
+ *     dataset actually contains.
  * Computing Rw over the whole ensemble is heavy, so it runs on demand.
  */
 const DIM = 'var(--dim)', FAINT = 'var(--faint)', INK = 'var(--ink)', ACCENT = 'var(--accent)', ACCENTINK = 'var(--accentInk)';
@@ -73,7 +72,7 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
       const ents = await listSqgrConfigs(dir);
       if (isCancelled()) return;
       setEntries(ents);
-      if (!ents.length) { setError(`No RMCProfile “*_XFQ1.csv” files in “${dir.name}”. Pick the folder that holds the fit outputs.`); return; }
+      if (!ents.length) { setError(`No RMCProfile fit CSVs (S(Q), G(r), Bragg) in “${dir.name}”. Pick the folder that holds the fit outputs.`); return; }
       setProgress({ done: 0, total: ents.length });
       const bs = await computeBars(ents, (done, total) => setProgress({ done, total }), isCancelled);
       if (!bs || isCancelled()) return;
@@ -87,7 +86,7 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
   const selectConfig = async (idx, ents = entries) => {
     if (idx < 0 || idx >= ents.length) return;
     setSel(idx);
-    try { setDetail({ idx, ...(await getSqgrData(ents[idx])) }); } catch (e) { setError(e.message); }
+    try { setDetail({ idx, channels: await getConfigChannels(ents[idx]) }); } catch (e) { setError(e.message); }
   };
 
   const nConfigs = entries.length;
@@ -149,8 +148,8 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
                 {error
                   ? <span style={{ color: 'var(--warnInk)' }}>{error}</span>
                   : fitDir
-                    ? <>Scanning <b style={{ color: DIM }}>{fitDir.name}</b> for RMCProfile F(Q)/G(r) outputs…</>
-                    : 'Select a dataset folder, or choose the folder that holds the RMCProfile *_XFQ1.csv files.'}
+                    ? <>Scanning <b style={{ color: DIM }}>{fitDir.name}</b> for RMCProfile S(Q)/G(r)/Bragg outputs…</>
+                    : 'Select a dataset folder, or choose the folder that holds the RMCProfile fit-output CSVs.'}
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                 {fitDir && (
@@ -171,7 +170,7 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
     );
   }
 
-  const sq = detail?.xfq, gr = detail?.xpdf;
+  const channels = detail?.channels || [];
   return (
     <div className="rnr-card" style={{ padding: 18 }}>
       {title}
@@ -200,10 +199,8 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
               style={{ width: 74, boxSizing: 'border-box', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', font: "13px 'Space Mono'", color: ACCENTINK, textAlign: 'center' }} />
             <span>/ {nConfigs}</span>
             {selRw != null && <span style={{ color: ACCENTINK, fontWeight: 700, marginLeft: 2 }}>Rw {selRw.toFixed(1)}%</span>}
-            {selBar && (selBar.rwF != null || selBar.rwG != null) &&
-              <span style={{ color: FAINT, marginLeft: 2 }}>
-                ({[selBar.rwF != null ? `F(Q) ${selBar.rwF.toFixed(1)}` : null, selBar.rwG != null ? `G(r) ${selBar.rwG.toFixed(1)}` : null].filter(Boolean).join(' · ')})
-              </span>}
+            {selBar?.parts?.length > 0 &&
+              <span style={{ color: FAINT, marginLeft: 2 }}>({breakdown(selBar.parts)})</span>}
           </div>
         </div>
         {/* Histogram framed like a plot: heat-mapped bars on a baseline, with a
@@ -219,10 +216,10 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
               <span style={{ position: 'absolute', right: 0, top: -12, font: "9px 'Space Mono'", color: 'var(--warnInk)' }}>{sigma}σ · {threshold.toFixed(1)}%</span>
             </div>
             {bars.map((b, i) => {
-              const parts = [b.rwF != null ? `F(Q) ${b.rwF.toFixed(1)}%` : null, b.rwG != null ? `G(r) ${b.rwG.toFixed(1)}%` : null].filter(Boolean);
               const selected = i === sel;
+              const bd = breakdown(b.parts);
               return (
-                <div key={i} className="rnr-bar" onClick={() => selectConfig(i)} title={`config ${entries[i].config} · ${parts.join(' · ')}`}
+                <div key={i} className="rnr-bar" onClick={() => selectConfig(i)} title={`config ${entries[i].config} · Rw ${b.rw.toFixed(1)}%${bd ? ` (${bd})` : ''}`}
                   style={{ flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: '2px 2px 0 0', height: barH(b.rw), background: selected ? 'var(--accent)' : rwColor(b.rw), outline: selected ? '1.5px solid var(--accentInk)' : 'none', outlineOffset: 0, zIndex: selected ? 3 : 0, position: 'relative' }} />
               );
             })}
@@ -230,25 +227,42 @@ export default function FitQuality({ dirHandle, onFlagged, excludeBad, onExclude
         </div>
       </div>
 
-      {/* S(Q) & G(r) */}
-      <div style={{ display: 'flex', gap: 14 }}>
-        <div style={{ flex: 1, background: 'var(--inset)', border: '1px solid var(--border)', borderRadius: 9, padding: '13px 15px' }}>
-          <div style={{ font: "600 13px 'Space Grotesk'", color: INK, marginBottom: 4 }}>Structure factor&nbsp;
-            <span style={{ color: FAINT, font: "400 11px 'Space Mono'" }}>F(Q)</span></div>
-          {sq
-            ? (() => { const f = buildFitSeries(sq.x, sq.expt, sq.rmc); return <SciChart xLabel="Q (Å⁻¹)" yLabel="F(Q)" height={300} series={f.series} baselines={f.baselines} resetKey={sel} />; })()
-            : <Empty />}
-        </div>
-        <div style={{ flex: 1, background: 'var(--inset)', border: '1px solid var(--border)', borderRadius: 9, padding: '13px 15px' }}>
-          <div style={{ font: "600 13px 'Space Grotesk'", color: INK, marginBottom: 4 }}>Pair distribution&nbsp;
-            <span style={{ color: FAINT, font: "400 11px 'Space Mono'" }}>G(r)</span></div>
-          {gr
-            ? (() => { const f = buildFitSeries(gr.x, gr.expt, gr.rmc); return <SciChart xLabel="r (Å)" yLabel="G(r) (Å⁻²)" height={300} series={f.series} baselines={f.baselines} resetKey={sel} />; })()
-            : <Empty />}
-        </div>
-      </div>
+      {/* One panel per available data channel (X-ray / neutron S(Q) & G(r), Bragg).
+          Flex-wrap: two per row on a wide card, stacking as channels increase. */}
+      {channels.length === 0
+        ? <Empty />
+        : (
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {channels.map((ch) => {
+              const f = buildFitSeries(ch.x, ch.expt, ch.rmc);
+              return (
+                <div key={ch.slot} style={{ flex: '1 1 340px', minWidth: 0, background: 'var(--inset)', border: '1px solid var(--border)', borderRadius: 9, padding: '13px 15px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <GroupChip group={ch.def.group} />
+                    <span style={{ font: "600 13px 'Space Grotesk'", color: INK }}>{ch.def.name}</span>
+                    {ch.sym && <span style={{ color: FAINT, font: "400 11px 'Space Mono'" }}>{ch.sym}</span>}
+                    {ch.bank > 1 && <span style={{ color: FAINT, font: "400 10px 'Space Mono'" }}>bank {ch.bank}</span>}
+                    {ch.rw != null && <span style={{ marginLeft: 'auto', color: ACCENTINK, font: "700 11px 'Space Mono'" }}>Rw {ch.rw.toFixed(1)}%</span>}
+                  </div>
+                  <SciChart xLabel={ch.xlabel} yLabel={ch.ylabel} height={300} series={f.series} baselines={f.baselines} resetKey={`${sel}-${ch.slot}`} />
+                </div>
+              );
+            })}
+          </div>
+        )}
     </div>
   );
+}
+
+// Colored probe chip: X-ray blue, Neutron purple, Bragg amber.
+const CHIP = {
+  'X-ray': { bg: 'rgba(47,109,240,0.14)', fg: '#2f6df0' },
+  'Neutron': { bg: 'rgba(140,92,246,0.16)', fg: '#7c4dd6' },
+  'Bragg': { bg: 'rgba(224,150,40,0.18)', fg: '#b57414' },
+};
+function GroupChip({ group }) {
+  const c = CHIP[group] || CHIP['X-ray'];
+  return <span style={{ font: "700 9.5px 'Space Mono'", letterSpacing: '.06em', color: c.fg, background: c.bg, borderRadius: 5, padding: '2px 7px', textTransform: 'uppercase', flex: 'none' }}>{group}</span>;
 }
 
 /**
