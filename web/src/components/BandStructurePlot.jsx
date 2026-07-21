@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { conventionalLattice, reciprocalLattice, pathDistances } from '../math/reciprocal';
+import { clientToSvg } from './svgCoords';
 
 /**
  * Physical band-structure plot (custom SVG, Cobalt light theme).
@@ -115,16 +116,10 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
 
   if (!model) return null;
 
-  // Map client coords → user space via the SVG CTM (viewBox is fixed at the full
-  // frame, so user space == pixel space here).
-  const toUser = (evt) => {
-    const svg = svgRef.current;
-    const ctm = svg?.getScreenCTM();
-    if (!ctm) return null;
-    const pt = svg.createSVGPoint();
-    pt.x = evt.clientX; pt.y = evt.clientY;
-    return pt.matrixTransform(ctm.inverse());
-  };
+  // Map client coords → viewBox user space (== pixel space here, viewBox is the
+  // full frame). Uses getBoundingClientRect, not getScreenCTM, so it stays
+  // aligned with the cursor under the app's ancestor `zoom` (see svgCoords.js).
+  const toUser = (evt) => clientToSvg(svgRef.current, evt.clientX, evt.clientY);
   const clampX = (x) => Math.max(XL, Math.min(XR, x));
   const clampY = (y) => Math.max(YT, Math.min(YB, y));
 

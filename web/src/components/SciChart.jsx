@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useId } from 'react';
+import { clientToSvg } from './svgCoords';
 
 /**
  * Journal-style scientific line chart (Cobalt redesign): real axes with tick
@@ -100,12 +101,9 @@ export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false
   const xsym = (xLabel || 'x').split('(')[0].trim() || 'x';
   const inPlot = (p) => p.x >= model.x0 - 1 && p.x <= model.x1 + 1 && p.y >= model.y1 - 1 && p.y <= model.y0 + 1;
 
-  const toUser = (e) => {
-    const svg = svgRef.current; if (!svg) return null;
-    const ctm = svg.getScreenCTM(); if (!ctm) return null;
-    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
-    return pt.matrixTransform(ctm.inverse());
-  };
+  // getBoundingClientRect-based (not getScreenCTM) so hover/zoom-box picking
+  // tracks the cursor under the app's ancestor `zoom` (see svgCoords.js).
+  const toUser = (e) => clientToSvg(svgRef.current, e.clientX, e.clientY);
 
   const onDown = (e) => {
     const u = toUser(e); if (!u || !inPlot(u)) return;
