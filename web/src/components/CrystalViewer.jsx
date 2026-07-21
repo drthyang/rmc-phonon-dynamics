@@ -92,10 +92,17 @@ export default function CrystalViewer({
 
   useEffect(() => {
     if (!mountRef.current || !baseStructure || !baseStructure.hsym_xyz) return;
-    const { v1, v2, v3, dim, hsym_xyz, atomType, uniqueRN, atomDic } = baseStructure;
+    const { v1, v2, v3, dim, hsym_xyz, atomType, uniqueRN, atomDic, masses } = baseStructure;
     const [nx, ny, nz] = supercell;
     const A = conventionalLattice(v1, v2, v3, dim);
     const rnToRow = new Map((uniqueRN || []).map((rn, r) => [rn, r]));
+    // Eigenvectors follow the phonopy convention (mass-weighted dynamical
+    // matrix): real-space displacement of a site ∝ e_row/√m_row. Per-row
+    // 1/√m from baseStructure.masses (fallback: unit mass).
+    const invSqrtM = (row) => {
+      const m = masses && masses[row] > 0 ? masses[row] : 1;
+      return 1 / Math.sqrt(m);
+    };
     const reverseAtomDic = {};
     for (const [el, idxs] of Object.entries(atomDic)) idxs.forEach(i => { reverseAtomDic[i] = el; });
     const colorOf = (el) => new THREE.Color(elementColors[el] || defColor(el));
@@ -171,7 +178,15 @@ export default function CrystalViewer({
           scene.add(g);
           arrow = { g, shaft, head };
         }
-        atoms.push({ mesh, arrow, r0, el, row: rnToRow.get(rn) ?? 0, cell: [cx, cy, cz], vd: [0, 0, 0], vlen: 0 });
+        const row = rnToRow.get(rn) ?? 0;
+        atoms.push({
+          mesh, arrow, r0, el, row, cell: [cx, cy, cz],
+          // fractional site position τ (for the Bloch phase q·(n+τ)) and the
+          // per-site mass factor for eigenvector → displacement.
+          tau: [hsym_xyz[s * 3], hsym_xyz[s * 3 + 1], hsym_xyz[s * 3 + 2]],
+          ism: invSqrtM(row),
+          vd: [0, 0, 0], vlen: 0,
+        });
         center.add(mesh.position);
       }
     }
@@ -221,6 +236,25 @@ export default function CrystalViewer({
     let t = 0, animId;
     const up = new THREE.Vector3();
     const Y0 = new THREE.Vector3(0, 1, 0);
+    // Per-eigenvector displacement normalization (cached by reference): scales
+    // u = e/√m to unit norm over the cell so the amplitude slider is
+    // mode-independent while inter-site ratios stay physical.
+    const evNorm = { ev: null, f: 1 };
+    const dispNorm = (ev) => {
+      if (evNorm.ev === ev) return evNorm.f;
+      let n2 = 0;
+      const nRows = Math.floor(ev.real.length / 3);
+      for (let r = 0; r < nRows; r++) {
+        const w = invSqrtM(r) * invSqrtM(r);
+        for (let c = 0; c < 3; c++) {
+          const k = r * 3 + c;
+          n2 += (ev.real[k] * ev.real[k] + ev.imag[k] * ev.imag[k]) * w;
+        }
+      }
+      evNorm.ev = ev;
+      evNorm.f = 1 / Math.sqrt(Math.max(n2, 1e-30));
+      return evNorm.f;
+    };
     // Scratch objects for composing bond-cylinder instance matrices each frame.
     const bMid = new THREE.Vector3(), bDir = new THREE.Vector3(), bQuat = new THREE.Quaternion();
     const bScale = new THREE.Vector3(), bMat4 = new THREE.Matrix4();
@@ -251,16 +285,21 @@ export default function CrystalViewer({
       if (P.isPlaying) t += P.speed;
 
       if (ev && ev.real) {
+        const nf = dispNorm(ev);
         for (const at of atoms) {
           const r = at.row;
           if (r * 3 + 2 >= ev.real.length) continue;
-          // INSTANTANEOUS displacement u(t) = Re(e · e^{i(k·n + t)}) — exactly the
-          // vector the atom is moving along right now (phononwebsite convention).
-          const kn = k[0] * at.cell[0] + k[1] * at.cell[1] + k[2] * at.cell[2];
+          // INSTANTANEOUS displacement u(t) = Re[(e/√m) · e^{i(k·(n+τ) + t)}]:
+          // phonopy-gauge eigenvectors carry the atom-position phase, so the
+          // Bloch factor uses the FULL fractional position n+τ, and the
+          // mass-weighted eigenvector is converted to displacement by 1/√m
+          // (phononwebsite convention, unit-norm per cell via nf).
+          const kn = k[0] * (at.cell[0] + at.tau[0]) + k[1] * (at.cell[1] + at.tau[1]) + k[2] * (at.cell[2] + at.tau[2]);
           const cp = Math.cos(kn + t), sp = Math.sin(kn + t);
-          const ux = ev.real[r * 3] * cp - ev.imag[r * 3] * sp;
-          const uy = ev.real[r * 3 + 1] * cp - ev.imag[r * 3 + 1] * sp;
-          const uz = ev.real[r * 3 + 2] * cp - ev.imag[r * 3 + 2] * sp;
+          const w = at.ism * nf;
+          const ux = (ev.real[r * 3] * cp - ev.imag[r * 3] * sp) * w;
+          const uy = (ev.real[r * 3 + 1] * cp - ev.imag[r * 3 + 1] * sp) * w;
+          const uz = (ev.real[r * 3 + 2] * cp - ev.imag[r * 3 + 2] * sp) * w;
           const dx = ux * P.amplitude, dy = uy * P.amplitude, dz = uz * P.amplitude;
           at.mesh.position.set(at.r0[0] + dx, at.r0[1] + dy, at.r0[2] + dz);
 

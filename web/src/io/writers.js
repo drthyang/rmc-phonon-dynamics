@@ -1,4 +1,4 @@
-import { ATOMIC_MASS } from '../constants.js';
+import { ATOMIC_MASS, THZ_TO_MEV } from '../constants.js';
 import { conventionalLattice, reciprocalLattice } from '../math/reciprocal.js';
 
 /**
@@ -46,7 +46,9 @@ export function buildBandData(baseStructure, qPoints, bands, eigvecs, kpathMeta)
   for (let qi = 0; qi < nQ; qi++) {
     const band = [];
     for (let m = 0; m < nModes; m++) {
-      const rec = { frequency: bands[qi][m] };
+      // Model energies are meV; the phonopy schema stores THz. The explicit
+      // frequency_unit key below makes the file self-describing either way.
+      const rec = { frequency: bands[qi][m] / THZ_TO_MEV };
       const ev = eigvecs?.[qi]?.[m];
       if (ev) rec.eigenvector = atomList.map(a => {
         const r = rnToRow.get(a.rn);
@@ -59,7 +61,7 @@ export function buildBandData(baseStructure, qPoints, bands, eigvecs, kpathMeta)
     phonon.push(p);
   }
 
-  return { nqpoint: nQ, npath: segSizes.length, segment_nqpoint: segSizes, reciprocal_lattice: recip, natom: atomList.length, lattice: A, points, phonon };
+  return { nqpoint: nQ, npath: segSizes.length, segment_nqpoint: segSizes, frequency_unit: 'THz', reciprocal_lattice: recip, natom: atomList.length, lattice: A, points, phonon };
 }
 
 /** Serialize band-data to a phonopy-style band.yaml string. */
@@ -69,6 +71,7 @@ export function generatePhonopyBandYaml(baseStructure, qPoints, bands, eigvecs, 
   const L = [];
   L.push(`nqpoint: ${d.nqpoint}`);
   L.push(`npath: ${d.npath}`);
+  L.push(`frequency_unit: ${d.frequency_unit}`);
   L.push('segment_nqpoint:');
   for (const sz of d.segment_nqpoint) L.push(`- ${sz}`);
   L.push('reciprocal_lattice:');

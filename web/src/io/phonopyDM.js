@@ -249,22 +249,12 @@ export function fromPhonopyDM(obj) {
     const row = new Array(N), evRow = new Array(N);
     for (let m = 0; m < N; m++) {
       bandsSet(row, m, eigToCm1(eigenvalues[m], conv) * CM1_TO_MEV);
-      // Eigenvector → atomic displacement (avg-mass-normalized convention),
-      // then renorm so the viewer's amplitude slider behaves consistently.
-      const wr = eigenvectors[m].real, wi = eigenvectors[m].imag;
-      const dr = new Float64Array(N), di = new Float64Array(N);
-      let nrm = 0;
-      for (let a = 0; a < natoms; a++) {
-        const f = Math.sqrt(avgMass / masses[a]);
-        for (let c = 0; c < 3; c++) {
-          const k = a * 3 + c;
-          dr[k] = wr[k] * f; di[k] = wi[k] * f;
-          nrm += dr[k] * dr[k] + di[k] * di[k];
-        }
-      }
-      const inv = 1 / Math.sqrt(Math.max(nrm, 1e-30));
-      for (let k = 0; k < N; k++) { dr[k] *= inv; di[k] *= inv; }
-      evRow[m] = { real: dr, imag: di };
+      // Keep the raw unit-norm eigenvectors of the MASS-WEIGHTED dynamical
+      // matrix — the phonopy convention shared by every model source.
+      // Consumers apply their own mass weighting (the 3D viewer divides by
+      // sqrt(m) via baseStructure.masses; the S(Q,E) structure factor uses
+      // b^2/m directly on these vectors).
+      evRow[m] = { real: eigenvectors[m].real, imag: eigenvectors[m].imag };
     }
     bands.push(row); eigvecs.push(evRow);
   }
@@ -278,7 +268,8 @@ export function fromPhonopyDM(obj) {
     atomDic, dim: [1, 1, 1],
     v1: lattice[0], v2: lattice[1], v3: lattice[2],
     uniqueRN, atomType: uniqueRN.slice(),
-    hsym_xyz, cellIdx: new Float64Array(natoms * 3),
+    hsym_xyz, masses: Float64Array.from(masses),
+    cellIdx: new Float64Array(natoms * 3),
   };
 
   // k-path metadata: continuous path (one segment) + high-symmetry labels.

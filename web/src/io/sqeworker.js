@@ -4,8 +4,9 @@
 // Ported from viz/sqeworker.js. Operates on compact transferred typed arrays
 // (see compute/ins.js): the per-mode structure factor F2 is precomputed on the
 // main thread, so only nq*nModes scalars are shipped (not the full eigenvectors)
-// — this avoids the large-buffer allocation that crashed the tab. Frequencies are
-// already in meV (the RMC pipeline computes meV directly): no YAML / THz step.
+// — this avoids the large-buffer allocation that crashed the tab. Frequencies
+// are meV throughout the viewer model: the RMC pipeline computes meV directly,
+// and phonopy band.yaml (THz) is converted ×4.1356677 at load (viewermodel.js).
 //
 // Protocol: postMessage({ data, params }) -> { powResult, dosResult, timings }.
 //   data = { nq, nModes, freqs, qpos, F2, recip }

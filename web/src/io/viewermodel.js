@@ -14,7 +14,16 @@
 
 import yaml from 'js-yaml';
 import { conventionalLattice, reciprocalLattice } from '../math/reciprocal.js';
-import { THZ_TO_MEV } from '../constants.js';
+import { THZ_TO_MEV, ATOMIC_MASS } from '../constants.js';
+
+// Strip phonopy/latex decorations from a path label: '$\\Gamma$' → 'Γ',
+// '$\\mathrm{X}$' → 'X'.
+function cleanLabel(s) {
+  return String(s)
+    .replace(/\\Gamma/g, 'Γ')
+    .replace(/\\mathrm\{([^}]*)\}/g, '$1')
+    .replace(/[${}\\]/g, '');
+}
 
 /** Convert in-memory pipeline results into the unit-cell viewer model. */
 export function fromResults(results, kpathMeta) {
@@ -31,10 +40,11 @@ export function fromResults(results, kpathMeta) {
   // The S(k) rows / eigenvector components are ordered by basis site τ. Prefer
   // the τ-ordered `siteBasis` (cell-framework) so site r ↔ eigvec row r exactly;
   // fall back to the per-reference-number layout for older results.
-  let natom, hsym, atomType, atomDic, uniqueRN;
+  let natom, hsym, atomType, atomDic, uniqueRN, masses;
   if (bs.siteBasis && bs.siteBasis.length) {
     natom = bs.siteBasis.length;
     hsym = new Float64Array(natom * 3);
+    masses = new Float64Array(natom);
     atomType = [];
     atomDic = {};
     for (let r = 0; r < natom; r++) {
@@ -43,6 +53,7 @@ export function fromResults(results, kpathMeta) {
       atomType.push(r + 1);
       const el = bs.siteBasis[r].element || 'X';
       (atomDic[el] || (atomDic[el] = [])).push(r + 1);
+      masses[r] = ATOMIC_MASS[el] || 0;
     }
     uniqueRN = atomType.slice();
   } else {
@@ -59,6 +70,10 @@ export function fromResults(results, kpathMeta) {
     }
     atomDic = bs.atomDic;
     atomType = Array.from(uniqueRN);
+    masses = new Float64Array(natom);
+    const rnToEl = {};
+    for (const [el, rns] of Object.entries(atomDic || {})) for (const rn of rns) rnToEl[rn] = el;
+    for (let r = 0; r < natom; r++) masses[r] = ATOMIC_MASS[rnToEl[uniqueRN[r]]] || 0;
   }
 
   return {
@@ -72,13 +87,25 @@ export function fromResults(results, kpathMeta) {
       atomDic, dim: [1, 1, 1],
       v1: A[0], v2: A[1], v3: A[2], bandRecip,
       uniqueRN, atomType,
-      hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
+      hsym_xyz: hsym, masses, cellIdx: new Float64Array(natom * 3),
     },
   };
 }
 
-/** Parse a band.yaml or band.json string into the viewer model. */
-export function fromBandText(text, { thz = false } = {}) {
+/** Parse a band.yaml or band.json string into the viewer model.
+ *
+ * UNITS: phonopy's band.yaml stores `frequency` in THz (its default factor
+ * sqrt(eV/amu)/Å/2π = 15.6333); the viewer model is meV throughout, so by
+ * default frequencies are converted ×4.1356677 on load. A `frequency_unit:
+ * meV|THz` key in the file (written by this app's own exporter) overrides
+ * the default; the `unit` option overrides both.
+ *
+ * EIGENVECTORS are kept exactly as stored — phonopy's convention: unit-norm
+ * eigenvectors of the MASS-WEIGHTED dynamical matrix (displacement of atom
+ * a ∝ e_a/√m_a). Consumers apply their own mass weighting; per-site masses
+ * are carried in baseStructure.masses (points[].mass, else the mass table).
+ */
+export function fromBandText(text, { unit = null } = {}) {
   let doc;
   try { doc = JSON.parse(text); } catch { doc = yaml.load(text); }
   if (!doc || !doc.phonon) throw new Error('Not a band.yaml/.json (no "phonon" block).');
@@ -91,16 +118,19 @@ export function fromBandText(text, { thz = false } = {}) {
   const atomDic = {};
   const atomType = [];
   const hsym = new Float64Array(natom * 3);
+  const masses = new Float64Array(natom);
   for (let i = 0; i < natom; i++) {
     const sym = points[i].symbol || 'X';
     (atomDic[sym] || (atomDic[sym] = [])).push(i + 1);
     atomType.push(i + 1);
     const c = points[i].coordinates || [0, 0, 0];
     hsym[i * 3] = c[0]; hsym[i * 3 + 1] = c[1]; hsym[i * 3 + 2] = c[2];
+    masses[i] = Number(points[i].mass) || ATOMIC_MASS[sym] || 0;
   }
   const uniqueRN = atomType.slice();
 
-  const conv = thz ? THZ_TO_MEV : 1;
+  const fileUnit = unit || doc.frequency_unit || 'THz';
+  const conv = /mev/i.test(String(fileUnit)) ? 1 : THZ_TO_MEV;
   const qPoints = [];
   const bands = [];
   const eigvecs = [];
@@ -130,6 +160,20 @@ export function fromBandText(text, { thz = false } = {}) {
 
   const segSizes = doc.segment_nqpoint || [qPoints.length];
 
+  // Path labels: phonopy writes a top-level `labels:` list of [start, end]
+  // per segment (no per-point label keys) — map them onto segment boundaries.
+  if (Array.isArray(doc.labels)) {
+    let off = 0;
+    for (let s = 0; s < segSizes.length; s++) {
+      const pair = doc.labels[s];
+      if (pair && pair.length === 2) {
+        if (hsymIndex[off] === undefined) hsymIndex[off] = cleanLabel(pair[0]);
+        hsymIndex[off + segSizes[s] - 1] = cleanLabel(pair[1]);
+      }
+      off += segSizes[s];
+    }
+  }
+
   return {
     bands, eigvecs: hasEig ? eigvecs : null, qPoints,
     kpathMeta: { segSizes, hsymIndex },
@@ -137,7 +181,8 @@ export function fromBandText(text, { thz = false } = {}) {
     baseStructure: {
       atomDic, dim: [1, 1, 1],
       v1: lattice[0], v2: lattice[1], v3: lattice[2],
-      uniqueRN, atomType, hsym_xyz: hsym, cellIdx: new Float64Array(natom * 3),
+      uniqueRN, atomType, hsym_xyz: hsym, masses,
+      cellIdx: new Float64Array(natom * 3),
     },
   };
 }

@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-07-21 — Units audit: phonopy band.yaml is THz; mass-weighted eigenvector convention unified
+
+Cross-repo units audit against phonopy's defaults (with `rmc-mlip-phonons`,
+which came back clean — everything THz per phonopy's factor √(eV/amu)/Å/2π).
+All fixes are on the viewer side:
+
+- **band.yaml frequencies are now converted THz → meV on load** (×4.1356677).
+  Previously the numbers were stored unconverted and displayed as meV — every
+  axis, Bose factor, S(Q,E) and DOS built from a loaded phonopy file was off
+  by h·1THz ≈ 4.136 (and the THz checkbox showed values 17× too small). Files
+  may carry an explicit `frequency_unit: meV|THz` key, which is honored; the
+  app's own exporters now write phonopy-standard THz plus that key.
+- **One eigenvector convention everywhere**: the model stores phonopy's raw
+  mass-weighted unit-norm eigenvectors; per-site masses ride in
+  `baseStructure.masses`. The 3D viewer converts to displacement (e/√m, with
+  a per-mode renorm so the amplitude slider is mode-independent) — heavy
+  atoms were previously over-displaced by √(m_heavy/m_light) on the
+  band.yaml and covariance paths. The phonopy-DM path no longer
+  pre-normalizes, which also fixes a double mass-division in the S(Q,E)
+  structure factor (F2 = Σ b²/m·|e|² expects mass-weighted e).
+- **Bloch phase now includes the atom position**: exp(i q·(n+τ)) instead of
+  exp(i q·n) — phonopy-gauge eigenvectors carry the basis-position phase, so
+  zone-boundary modes previously animated with wrong inter-site phases (up
+  to ~130-320° at X for GaTa₄Se₈).
+- **Phonopy's top-level `labels:` list** is now mapped onto segment
+  boundaries (Γ, X, U, K, L, W render on loaded band.yaml paths).
+- Mass table comment corrected: values are (and deliberately remain)
+  phonopy's default 2011-era table, not IUPAC 2021 (≤7e-5 relative effect).
+- New `test/units_test.mjs` guards the whole contract (in `npm run
+  validate`); verified against the companion repo's released GaTa₄Se₈
+  band.yaml: 7.808 THz top → 32.2914 meV, unit-norm eigenvectors, labels.
+
 ## 2026-06-29 — Browser/WebGPU app becomes the application; Cobalt redesign; hosted
 
 - **The app is now fully in the browser** (`web/`, React + Vite + WebGPU): load an
