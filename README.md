@@ -108,3 +108,5 @@ Tsung-Han Yang. The viewer follows the phonon-mode display convention of the
 ## License
 
 Released under the [MIT License](LICENSE) © 2026 Tsung-Han Yang.
+
+*This project is personal work, developed and maintained in my personal capacity.*
