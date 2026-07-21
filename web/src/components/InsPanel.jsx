@@ -1,18 +1,34 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { buildInsData } from '../compute/ins';
 import { downloadString } from '../io/writers';
+import { CMAP_NAMES, colormap, cmapGradient, intensityTransform } from './sqeColormaps';
 
 /* ── Cobalt theme tokens ───────────────────────────────────────────────── */
 const INK = 'var(--ink)', DIM = 'var(--dim)', FAINT = 'var(--faint)';
-const ACCENT = 'var(--accent)', BORDER = 'var(--border)', INSET = 'var(--inset)';
+const ACCENT = 'var(--accent)', BORDER = 'var(--border)', INSET = 'var(--inset)', INSET2 = 'var(--inset2)';
 const cardStyle = { background: 'var(--card)', border: `1px solid ${BORDER}`, borderRadius: 10 };
 const insetInput = { width: '100%', boxSizing: 'border-box', background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 10px', font: "13px 'Space Mono'", color: INK };
 
+const HBAR2_2MN = 2.0723;   // meV·Å² — direct-geometry kinematic constant
+const BG = [11, 14, 22];    // masked-pixel colour (matches the dark canvas #0b0e16)
+const DOS_STROKE = '#2f6df0', DOS_FILL = 'rgba(47,109,240,0.12)';
+
+// Kinematic |Q| window accessible at energy transfer E for incident energy Ei
+// (direct geometry). Shared by the heatmap and the integrated-intensity curve so
+// the curve is the exact energy-marginal of the pixels drawn. Semantics match the
+// original inline test: [-1, ∞] ⇒ all Q (Ei≤0, direct); [1, -1] ⇒ none (E>Ei).
+function qRange(E, Ei, ki) {
+  if (Ei <= 0) return [-1, Infinity];
+  if (E > Ei) return [1, -1];
+  const kf = Math.sqrt(Math.max(0, Ei - E) / HBAR2_2MN);
+  return [Math.abs(ki - kf), ki + kf];
+}
+
 /**
  * INS (simulated inelastic neutron scattering) panel: powder S(|Q|,E) heatmap +
- * phonon DOS. Computation runs in io/sqeworker.js; the colormap + kinematic-mask
- * logic is unchanged — only the surrounding chrome was reskinned to the light
- * theme (the heatmap canvas stays dark for contrast, as designed).
+ * the Q-integrated intensity curve ∫S(|Q|,E)d|Q|, drawn on ONE shared energy axis.
+ * S(Q,E)/DOS math runs in io/sqeworker.js (unchanged); the integrated curve is a
+ * cheap main-thread energy-marginal of the heatmap the worker returns.
  */
 export default function InsPanel({ results, temperature }) {
   const workerRef = useRef(null);
@@ -39,8 +55,11 @@ export default function InsPanel({ results, temperature }) {
     T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.3, maxE / 100),
     nE: 160, nQbins: 140, Ei: Math.max(5, Math.ceil(maxE * 1.25)),
   }));
+  // Display controls (heatmap-only — the intensity curve stays strictly linear).
   const [cmap, setCmap] = useState('viridis');
-  const [logScale, setLogScale] = useState(true);
+  const [scale, setScale] = useState('log');          // 'linear' | 'sqrt' | 'log'
+  const [contrast, setContrast] = useState(1);         // gamma knob, 0.4..3
+  const [showModeDos, setShowModeDos] = useState(false);
 
   useEffect(() => {
     setParams(p => ({ ...p, Emax: maxE, sigma: Math.max(0.3, maxE / 100), Ei: Math.max(5, Math.ceil(maxE * 1.25)) }));
@@ -57,6 +76,13 @@ export default function InsPanel({ results, temperature }) {
   }, []);
 
   const run = () => {
+    // Validate so an emptied/invalid field (parseFloat → NaN) can't drive a NaN
+    // computation (NaN energies → NaN S → downstream render errors).
+    const bad = ['T', 'Emin', 'Emax', 'sigma', 'Ei', 'nE', 'nQbins'].find(k => !Number.isFinite(params[k]));
+    if (bad) { setError('Please enter a valid number for every field.'); return; }
+    if (!(params.Emax > params.Emin)) { setError('E max must be greater than E min.'); return; }
+    if (!(params.sigma > 0)) { setError('σ must be greater than 0.'); return; }
+    if (params.nE < 2 || params.nQbins < 1) { setError('nE must be ≥ 2 and nQ ≥ 1.'); return; }
     setRunning(true);
     setError(null);
     try {
@@ -68,47 +94,64 @@ export default function InsPanel({ results, temperature }) {
     }
   };
 
+  // Integrated intensity g(E) = ∫ S(|Q|,E) d|Q|, summed over the SAME |Q| that
+  // the heatmap actually shows (kinematic mask honoured via qRange) so the curve
+  // is the literal energy-marginal of the map. Strictly LINEAR real data — the
+  // scale/contrast controls never touch it (they'd distort the peak-area ratios).
+  const spec = useMemo(() => {
+    if (!out?.powResult) return null;
+    // Ei from the COMPUTED result (not the live field): S's Q-axis (xMax/dQ) was
+    // frozen at compute time to this Ei, so the mask/integration must use it too.
+    const { S, nX, nE, xMax, Ei, Eaxis } = out.powResult;
+    const dQ = xMax / nX;
+    const ki = Ei > 0 ? Math.sqrt(Ei / HBAR2_2MN) : 0;
+    const g = new Float64Array(nE);
+    for (let ei = 0; ei < nE; ei++) {
+      const [qlo, qhi] = qRange(Eaxis[ei], Ei, ki);
+      if (qlo > qhi) continue;                         // fully inaccessible row
+      let s = 0;
+      for (let qi = 0; qi < nX; qi++) {
+        const Q = (qi + 0.5) * dQ;
+        if (Q < qlo || Q > qhi) continue;
+        s += S[qi * nE + ei];
+      }
+      g[ei] = s * dQ;
+    }
+    let gmax = 0;
+    for (let i = 0; i < nE; i++) if (g[i] > gmax) gmax = g[i];
+    return { g, gmax, nE };
+  }, [out]);
+
   // Draw S(Q,E) heatmap, masking the kinematically inaccessible region for a
-  // direct-geometry spectrometer with incident energy Eᵢ:
-  //   kᵢ=√(Eᵢ/c), k_f=√((Eᵢ−E)/c), c=ħ²/2mₙ; accessible iff E≤Eᵢ and
-  //   |kᵢ−k_f| ≤ Q ≤ kᵢ+k_f. This produces the parabolic energy-conservation cutoff.
+  // direct-geometry spectrometer with incident energy Eᵢ (see qRange). Intensity
+  // → colour goes through the shared scale + contrast transform.
   useEffect(() => {
     if (!out?.powResult || !canvasRef.current) return;
-    const { S, nX, nE, Smax, Eaxis, xMax } = out.powResult;
+    const { S, nX, nE, Smax, Eaxis, xMax, Ei } = out.powResult;   // Ei from the run, not the live field
     const cv = canvasRef.current;
     cv.width = nX; cv.height = nE;
     const ctx = cv.getContext('2d');
     const img = ctx.createImageData(nX, nE);
     const inv = Smax > 0 ? 1 / Smax : 0;
-    const logK = 1 / Math.log1p(1000);
-    const HBAR2_2MN = 2.0723;
     const dQ = xMax / nX;
-    const Ei = params.Ei;
     const ki = Ei > 0 ? Math.sqrt(Ei / HBAR2_2MN) : 0;
-    const BG = [11, 14, 22];   // matches the dark canvas background (#0b0e16)
 
     for (let ei = 0; ei < nE; ei++) {
-      const E = Eaxis[ei];
-      let qlo = -1, qhi = Infinity;
-      if (Ei > 0) {
-        if (E > Ei) { qlo = 1; qhi = -1; }       // above Eᵢ → fully inaccessible
-        else { const kf = Math.sqrt(Math.max(0, (Ei - E)) / HBAR2_2MN); qlo = Math.abs(ki - kf); qhi = ki + kf; }
-      }
+      const [qlo, qhi] = qRange(Eaxis[ei], Ei, ki);
       for (let qi = 0; qi < nX; qi++) {
-        const px = ((nE - 1 - ei) * nX + qi) * 4;
+        const px = ((nE - 1 - ei) * nX + qi) * 4;      // cell-centred: row 0 = Emax
         const Q = (qi + 0.5) * dQ;
         let r, g, b;
-        if (Ei > 0 && (Q < qlo || Q > qhi)) { [r, g, b] = BG; }
+        if (Q < qlo || Q > qhi) { [r, g, b] = BG; }
         else {
           const raw = Math.max(0, S[qi * nE + ei] * inv);
-          const v = logScale ? Math.log1p(raw * 1000) * logK : Math.sqrt(raw);
-          [r, g, b] = colormap(v, cmap);
+          [r, g, b] = colormap(intensityTransform(raw, scale, contrast), cmap);
         }
         img.data[px] = r; img.data[px + 1] = g; img.data[px + 2] = b; img.data[px + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [out, cmap, logScale, params.Ei]);
+  }, [out, cmap, scale, contrast]);
 
   const exportCsv = () => {
     if (!out?.powResult) return;
@@ -121,10 +164,27 @@ export default function InsPanel({ results, temperature }) {
     downloadString(csv, 'sqe.csv');
   };
 
+  // Two-column (E, ∫S dQ) export protects the quantitative curve.
+  const exportDos = () => {
+    if (!spec || !out?.powResult) return;
+    const { Eaxis } = out.powResult;
+    let csv = 'E_meV,integrated_intensity\n';
+    for (let i = 0; i < spec.nE; i++) csv += `${Eaxis[i].toFixed(5)},${spec.g[i].toExponential(6)}\n`;
+    downloadString(csv, 'integrated_intensity.csv');
+  };
+
   const fields = [
     ['T (K)', 'T', 1], ['E min', 'Emin', 1], ['E max', 'Emax', 1], ['σ (meV)', 'sigma', 0.1],
     ['Eᵢ (meV)', 'Ei', 1], ['nE', 'nE', 1], ['nQ', 'nQbins', 1],
   ];
+  const scaleLabel = scale === 'log' ? 'log' : scale === 'sqrt' ? '√' : 'linear';
+
+  // Energy range for ALL display mapping comes from the COMPUTED axis, not the
+  // live fields, so ticks/heatmap/curve stay consistent even before a re-run.
+  const pr = out?.powResult;
+  const Emin = pr ? pr.Eaxis[0] : 0;
+  const Emax = pr ? pr.Eaxis[pr.nE - 1] : 1;
+  const eTicks = pr ? energyTicks(Emin, Emax, pr.nE, 5) : [];
 
   return (
     <div style={{ ...cardStyle, padding: 20 }}>
@@ -133,7 +193,7 @@ export default function InsPanel({ results, temperature }) {
         <span style={{ width: 24, height: 24, borderRadius: 6, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0" /></svg>
         </span>
-        <span style={{ font: "600 15px 'Space Grotesk'", color: INK }}>Simulated INS · S(|Q|,E) &amp; phonon DOS</span>
+        <span style={{ font: "600 15px 'Space Grotesk'", color: INK }}>Simulated INS · S(|Q|,E) &amp; integrated intensity</span>
         <span style={{ font: "11px 'Space Mono'", color: FAINT }}>powder-averaged from eigenvectors</span>
       </div>
 
@@ -142,75 +202,117 @@ export default function InsPanel({ results, temperature }) {
         {fields.map(([label, key, step]) => (
           <div key={key} style={{ flex: 1, minWidth: 84 }}>
             <div style={{ font: "10px 'Space Mono'", color: FAINT, marginBottom: 5 }}>{label}</div>
-            <input type="number" step={step} value={params[key]}
+            <input type="number" step={step} value={Number.isFinite(params[key]) ? params[key] : ''}
               onChange={e => setParams(p => ({ ...p, [key]: parseFloat(e.target.value) }))} style={insetInput} />
           </div>
         ))}
       </div>
 
-      {/* actions */}
+      {/* actions + display controls */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <button onClick={run} disabled={running} className="rnr-btn"
-          style={{ background: running ? 'var(--inset2)' : ACCENT, color: running ? DIM : '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', font: "700 13px 'Space Grotesk'", cursor: running ? 'default' : 'pointer' }}>
+          style={{ background: running ? INSET2 : ACCENT, color: running ? DIM : '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', font: "700 13px 'Space Grotesk'", cursor: running ? 'default' : 'pointer' }}>
           {running ? 'Computing…' : 'Run INS'}
         </button>
+
         <label style={{ display: 'flex', alignItems: 'center', gap: 7, font: "11px 'Space Mono'", color: DIM }}>colormap
           <select value={cmap} onChange={e => setCmap(e.target.value)}
             style={{ background: INSET, border: `1px solid ${BORDER}`, borderRadius: 6, padding: '6px 9px', font: "12px 'Space Mono'", color: INK, cursor: 'pointer' }}>
-            <option value="viridis">viridis</option>
-            <option value="magma">magma</option>
-            <option value="gray">gray</option>
+            {CMAP_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, font: "11px 'Space Mono'", color: DIM, cursor: 'pointer' }}>
-          <input type="checkbox" checked={logScale} onChange={e => setLogScale(e.target.checked)} /> log scale
+
+        {/* intensity scale (heatmap only) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, font: "11px 'Space Mono'", color: DIM }}>scale
+          <div style={{ display: 'flex', gap: 2, background: INSET2, borderRadius: 7, padding: 2 }}>
+            {[['linear', 'Lin'], ['sqrt', '√'], ['log', 'Log']].map(([val, lab]) => (
+              <button key={val} onClick={() => setScale(val)} className="rnr-btn"
+                style={{ border: 'none', borderRadius: 5, padding: '5px 10px', cursor: 'pointer', font: "600 11px 'Space Mono'",
+                  background: scale === val ? 'var(--card)' : 'transparent', color: scale === val ? 'var(--accentInk)' : DIM,
+                  boxShadow: scale === val ? '0 1px 2px rgba(16,24,38,0.12)' : 'none' }}>{lab}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* contrast (gamma) */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'", color: DIM }} title="Higher lifts faint features (heatmap only)">
+          contrast
+          <input type="range" min={0.4} max={3} step={0.1} value={contrast} onChange={e => setContrast(parseFloat(e.target.value))}
+            style={{ width: 92, accentColor: ACCENT }} />
+          <span style={{ color: 'var(--accentInk)', minWidth: 26 }}>×{contrast.toFixed(1)}</span>
         </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, font: "11px 'Space Mono'", color: DIM, cursor: 'pointer' }} title="Overlay the true unweighted phonon DOS (shape only)">
+          <input type="checkbox" checked={showModeDos} onChange={e => setShowModeDos(e.target.checked)} /> mode DOS
+        </label>
+
         <span style={{ font: "10.5px 'Space Mono'", color: FAINT }}>Eᵢ = 0 ⇒ direct (full Q range)</span>
-        {out?.powResult && (
-          <button onClick={exportCsv} className="rnr-btn"
-            style={{ marginLeft: 'auto', background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 14px', font: "600 12px 'Space Grotesk'", color: INK, cursor: 'pointer' }}>
-            Export S(Q,E) CSV
-          </button>
+
+        {pr && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button onClick={exportDos} className="rnr-btn"
+              style={{ background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 12px', font: "600 12px 'Space Grotesk'", color: INK, cursor: 'pointer' }}>
+              Export g(E) CSV
+            </button>
+            <button onClick={exportCsv} className="rnr-btn"
+              style={{ background: INSET, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '8px 12px', font: "600 12px 'Space Grotesk'", color: INK, cursor: 'pointer' }}>
+              Export S(Q,E) CSV
+            </button>
+          </div>
         )}
       </div>
 
       {error && <div style={{ color: 'var(--warnInk)', font: "13px 'Space Mono'", marginBottom: 12 }}>{error}</div>}
 
-      {out?.powResult ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
-          {/* heatmap */}
-          <div style={{ gridColumn: 'span 2', minWidth: 0 }}>
-            <div style={{ font: "11px 'Space Mono'", color: DIM, marginBottom: 8 }}>S(|Q|,E) — powder-averaged simulated INS</div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              {/* E axis */}
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2px 0', font: "10px 'Space Mono'", color: FAINT, textAlign: 'right' }}>
-                {ticks(params.Emin, params.Emax, 5).slice().reverse().map((t, i) => <span key={i}>{t.v.toFixed(0)}</span>)}
+      {pr ? (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', font: "11px 'Space Mono'", color: DIM, marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+            <span>S(|Q|,E) — powder-averaged simulated INS <span style={{ color: FAINT }}>· colour = intensity ({scaleLabel})</span></span>
+            <span style={{ color: FAINT }}>∫S(|Q|,E) d|Q| → <span style={{ color: DIM }}>neutron-weighted, Bose-populated — not a DOS</span></span>
+          </div>
+
+          {/* One aligned figure: a single grid row makes the heatmap and the
+              integrated-intensity curve share an identical energy axis + height. */}
+          <div className="sqe-fig">
+            <div className="sqe-grid">
+              {/* shared energy tick column (the ONLY E-axis renderer) */}
+              <div style={{ gridArea: 'ticks', position: 'relative', minWidth: 30, height: '100%' }}>
+                {eTicks.map((t, i) => (
+                  <span key={i} style={{ position: 'absolute', right: 4, top: `${t.frac * 100}%`, transform: 'translateY(-50%)', font: "10px 'Space Mono'", color: FAINT, whiteSpace: 'nowrap' }}>{t.label}</span>
+                ))}
+                <span style={{ position: 'absolute', left: -2, top: '50%', transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'left center', font: "10px 'Space Mono'", color: DIM }}>E (meV)</span>
               </div>
-              {/* canvas */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <canvas ref={canvasRef} style={{ width: '100%', aspectRatio: '1.6', display: 'block', border: `1px solid ${BORDER}`, borderRadius: 8, imageRendering: 'pixelated', background: '#0b0e16' }} />
+
+              {/* heatmap */}
+              <canvas ref={canvasRef} style={{ gridArea: 'heat', width: '100%', height: '100%', minWidth: 0, minHeight: 0, display: 'block', border: `1px solid ${BORDER}`, borderRadius: 8, imageRendering: 'pixelated', background: '#0b0e16' }} />
+
+              {/* colorbar (same gradient stops as the pixel LUT) */}
+              <div className="sqe-bar" style={{ gridArea: 'bar', display: 'flex', flexDirection: 'column', alignItems: 'center', minHeight: 0 }}>
+                <div style={{ flex: 1, width: 13, borderRadius: 4, border: `1px solid ${BORDER}`, background: cmapGradient(cmap) }} />
+                <span style={{ font: "10px 'Space Mono'", color: FAINT, marginTop: 5 }}>S↑</span>
+              </div>
+
+              {/* integrated-intensity curve — same energy axis as the heatmap */}
+              <div className="sqe-curve" style={{ gridArea: 'curve', minWidth: 0, minHeight: 0 }}>
+                <DosPlot spec={spec} Emin={Emin} Emax={Emax}
+                  modeDos={showModeDos ? out.dosResult : null} />
+              </div>
+
+              {/* row 2 — axis labels under each panel */}
+              <div style={{ gridArea: 'qlab' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5, font: "10px 'Space Mono'", color: FAINT }}>
-                  {ticks(0, out.powResult.xMax, 5).map((t, i) => <span key={i}>{t.v.toFixed(1)}</span>)}
+                  {ticks(0, pr.xMax, 5).map((t, i) => <span key={i}>{t.v.toFixed(1)}</span>)}
                 </div>
                 <div style={{ textAlign: 'center', font: "10px 'Space Mono'", color: DIM, marginTop: 2 }}>|Q| (Å⁻¹)</div>
               </div>
-              {/* colorbar */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 2 }}>
-                <div style={{ width: 13, height: 200, borderRadius: 4, border: `1px solid ${BORDER}`, background: COLORBAR[cmap] }} />
-                <span style={{ font: "10px 'Space Mono'", color: FAINT, marginTop: 5 }}>S ↑</span>
+              <div style={{ gridArea: 'glab', textAlign: 'center', font: "10px 'Space Mono'", color: DIM, marginTop: 5, alignSelf: 'start' }}>
+                intensity →
               </div>
             </div>
-            <div style={{ font: "10px 'Space Mono'", color: FAINT, marginTop: 6 }}>E (meV) — vertical axis</div>
           </div>
-          {/* DOS */}
-          <div style={{ minWidth: 0 }}>
-            <div style={{ font: "11px 'Space Mono'", color: DIM, marginBottom: 8 }}>Phonon DOS</div>
-            <DosPlot dosResult={out.dosResult} Emin={params.Emin} Emax={params.Emax} />
-            <div style={{ textAlign: 'center', font: "10px 'Space Mono'", color: DIM, marginTop: 6 }}>g(E) → &nbsp;·&nbsp; energy vertical</div>
-          </div>
-        </div>
+        </>
       ) : (
-        <div style={{ font: "12px 'Spline Sans'", color: FAINT }}>Press <b style={{ color: DIM }}>Run INS</b> to compute the powder S(|Q|,E) map and phonon DOS.</div>
+        <div style={{ font: "12px 'Spline Sans'", color: FAINT }}>Press <b style={{ color: DIM }}>Run INS</b> to compute the powder S(|Q|,E) map and the integrated-intensity curve.</div>
       )}
     </div>
   );
@@ -222,55 +324,74 @@ function ticks(min, max, n) {
   return arr;
 }
 
-// Multi-stop colormaps (RGB) for the heatmap pixels.
-const CMAPS = {
-  viridis: [[11, 14, 22], [30, 58, 138], [34, 211, 238], [254, 249, 195]],
-  magma: [[5, 3, 10], [80, 18, 123], [221, 73, 104], [252, 253, 191]],
-  gray: [[14, 14, 18], [90, 90, 96], [180, 180, 186], [245, 245, 245]],
-};
-// CSS gradients (bottom→top) for the colorbar, derived from the same stops.
-const grad = (st) => `linear-gradient(to top, ${st.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(', ')})`;
-const COLORBAR = { viridis: grad(CMAPS.viridis), magma: grad(CMAPS.magma), gray: grad(CMAPS.gray) };
-
-function colormap(t, name = 'viridis') {
-  const stops = CMAPS[name] || CMAPS.viridis;
-  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
-  const i = Math.min(stops.length - 2, Math.floor(x));
-  const f = x - i;
-  const a = stops[i], b = stops[i + 1];
-  return [Math.round(a[0] + f * (b[0] - a[0])), Math.round(a[1] + f * (b[1] - a[1])), Math.round(a[2] + f * (b[2] - a[2]))];
+// Energy ticks positioned by the SAME cell-centred fraction the heatmap uses:
+// frac 0 = top edge (Emax + dE/2), frac 1 = bottom edge (Emin − dE/2).
+function energyTicks(Emin, Emax, nE, n) {
+  const dE = (Emax - Emin) / (nE - 1);
+  const Etop = Emax + dE / 2, span = nE * dE || 1;
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const v = Emin + (i / n) * (Emax - Emin);
+    out.push({ label: v.toFixed(0), frac: (Etop - v) / span });
+  }
+  return out;
 }
 
-function DosPlot({ dosResult, Emin = 0, Emax = 1 }) {
+/**
+ * Integrated-intensity curve: g(E) = ∫S d|Q| with energy on the VERTICAL axis,
+ * mapped by the exact same cell-centred fraction as the heatmap so a given energy
+ * sits at the same pixel row in both. Rendered at devicePixelRatio for crispness.
+ * `modeDos` (optional) overlays the true unweighted phonon DOS (shape reference).
+ */
+function DosPlot({ spec, Emin, Emax, modeDos }) {
   const ref = useRef(null);
   useEffect(() => {
-    if (!dosResult || !ref.current) return;
-    const { dos, nE, dosMax } = dosResult;
     const cv = ref.current;
-    const PL = 30, PB = 6, W = 260, H = 236;
-    cv.width = W; cv.height = H;
-    const ctx = cv.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-    const plotW = W - PL - 8, plotH = H - PB - 6;
-    // E-axis gridlines + ticks (energy vertical)
-    ctx.font = "10px 'Space Mono', monospace"; ctx.textAlign = 'right';
-    for (let i = 0; i <= 4; i++) {
-      const e = Emin + (i / 4) * (Emax - Emin);
-      const y = H - PB - (i / 4) * plotH;
-      ctx.strokeStyle = '#e3e7ef'; ctx.beginPath(); ctx.moveTo(PL, y); ctx.lineTo(W - 8, y); ctx.stroke();
-      ctx.fillStyle = '#9aa1b2'; ctx.fillText(e.toFixed(0), PL - 4, y + 3);
+    // Degenerate/empty energy window: blank the canvas so a stale curve from a
+    // prior valid run doesn't linger next to a freshly redrawn heatmap.
+    if (!cv || !spec || !(isFinite(Emin) && isFinite(Emax) && Emax > Emin)) {
+      if (cv) cv.getContext('2d')?.clearRect(0, 0, cv.width, cv.height);
+      return;
     }
-    // g(E) curve (DOS horizontal, energy vertical) with faint fill.
-    const xy = (i) => [PL + (dos[i] / (dosMax || 1)) * plotW, H - PB - (i / (nE - 1)) * plotH];
-    ctx.beginPath();
-    ctx.moveTo(PL, H - PB);
-    for (let i = 0; i < nE; i++) { const [x, y] = xy(i); ctx.lineTo(x, y); }
-    ctx.lineTo(PL, H - PB - plotH);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(47,109,240,0.12)'; ctx.fill();
-    ctx.strokeStyle = '#2f6df0'; ctx.lineWidth = 1.6; ctx.beginPath();
-    for (let i = 0; i < nE; i++) { const [x, y] = xy(i); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
-    ctx.stroke();
-  }, [dosResult, Emin, Emax]);
-  return <canvas ref={ref} style={{ width: '100%', aspectRatio: '1.1', display: 'block', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--inset)' }} />;
+    const { g, gmax, nE } = spec;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = cv.getBoundingClientRect();          // includes .rnr zoom (dpr does not)
+      const W = Math.max(1, Math.round(rect.width * dpr));
+      const H = Math.max(1, Math.round(rect.height * dpr));
+      if (cv.width !== W) cv.width = W;
+      if (cv.height !== H) cv.height = H;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      const dE = (Emax - Emin) / (nE - 1);
+      const Etop = Emax + dE / 2, span = nE * dE || 1;
+      const yOf = (E) => ((Etop - E) / span) * H;       // matches heatmap row nE-1-ei
+      const gm = gmax || 1;
+
+      // optional true-DOS overlay (faint dashed, own normalization, shape only)
+      if (modeDos && modeDos.dos) {
+        const mm = modeDos.dosMax || 1;
+        ctx.strokeStyle = 'rgba(107,116,136,0.75)'; ctx.setLineDash([4 * dpr, 3 * dpr]); ctx.lineWidth = 1 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < nE; i++) { const x = (modeDos.dos[i] / mm) * W, y = yOf(Emin + i * dE); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+
+      // integrated intensity — filled area from the left baseline + solid line
+      ctx.beginPath();
+      ctx.moveTo(0, yOf(Emin));
+      for (let i = 0; i < nE; i++) ctx.lineTo((g[i] / gm) * W, yOf(Emin + i * dE));
+      ctx.lineTo(0, yOf(Emax));
+      ctx.closePath();
+      ctx.fillStyle = DOS_FILL; ctx.fill();
+      ctx.strokeStyle = DOS_STROKE; ctx.lineWidth = 1.6 * dpr; ctx.beginPath();
+      for (let i = 0; i < nE; i++) { const x = (g[i] / gm) * W, y = yOf(Emin + i * dE); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      ctx.stroke();
+    };
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(cv);
+    return () => ro.disconnect();
+  }, [spec, Emin, Emax, modeDos]);
+  return <canvas ref={ref} style={{ width: '100%', height: '100%', display: 'block', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--inset)' }} />;
 }

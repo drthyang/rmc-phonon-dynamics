@@ -50,6 +50,34 @@ body {
    non-standard `zoom` is safe and scales text + layout uniformly). */
 .rnr { zoom: 1.15; }
 
+/* S(Q,E) figure: heatmap + integrated-intensity curve on ONE shared energy axis.
+   A single grid row makes the browser guarantee equal heights (no JS pixel math,
+   zoom-safe). `cqw` sizes the plot to the container width. */
+.sqe-fig { container-type: inline-size; }
+.sqe-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 16px 150px;
+  grid-template-rows: clamp(300px, 42cqw, 600px) auto;
+  grid-template-areas:
+    "ticks heat bar curve"
+    ".     qlab .   glab";
+  column-gap: 10px;
+  align-items: stretch;
+}
+/* Narrow container: stack the curve below the heatmap (alignment is dropped). */
+@container (max-width: 560px) {
+  .sqe-grid {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: 300px auto 240px auto;
+    grid-template-areas:
+      "ticks heat"
+      ".     qlab"
+      "curve curve"
+      "glab  glab";
+  }
+  .sqe-grid .sqe-bar { display: none; }
+}
+
 /* Runner-scoped helpers (light theme). */
 .rnr ::-webkit-scrollbar { width: 9px; height: 9px; }
 .rnr ::-webkit-scrollbar-thumb { background: #d5dae4; border-radius: 6px; }
