@@ -1,7 +1,7 @@
 # RMC Phonon Dynamics
 
 [![Deploy](https://github.com/drthyang/rmc-phonon-dynamics/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/drthyang/rmc-phonon-dynamics/actions/workflows/deploy-pages.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 A **browser-based phonon calculator** for [RMCProfile](https://rmcprofile.ornl.gov)
 ensembles — no install, no setup, no server. Open the page, pick your run folder,
@@ -107,6 +107,6 @@ Tsung-Han Yang. The viewer follows the phonon-mode display convention of the
 
 ## License
 
-Released under the [MIT License](LICENSE) © 2026 Tsung-Han Yang.
+Released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) © 2026 Tsung-Han Yang.
 
 *This project is personal work, developed and maintained in my personal capacity.*
