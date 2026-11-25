@@ -1,70 +1,773 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Spline+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&family=Noto+Sans:wght@500;600;700&family=Open+Sans:wght@400;500;600&family=STIX+Two+Text:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
-/* ── Cobalt theme (Runner redesign) ───────────────────────────────────────
-   Drives the redesigned Runner page + app shell. Tokens are applied via the
-   `--bg … --bar` CSS variables below; the legacy Viewer keeps its own dark
-   styling from Tailwind classes. */
+/*
+ * RMC Phonon Dynamics — MOTIF-family editorial design system.
+ * In the manner of a museum's website, softened: bold tight lettering, one rule
+ * under the header, warm near-black ink, outlined buttons with gently rounded
+ * corners, light hairlines inside, quiet grey hovers, one soft accent colour
+ * for the main action. The scientific figures are the only other colour.
+ * Lettering: IBM Plex Sans + IBM Plex Mono.
+ */
 :root {
-  --bg: #f3f5f9;        /* page background            */
-  --card: #ffffff;      /* card surface               */
-  --inset: #f7f9fc;     /* inset panels / fields      */
-  --inset2: #eef1f7;    /* nav pill / progress track  */
-  --border: #e3e7ef;    /* borders / hairlines        */
-  --ink: #101826;       /* primary text               */
-  --dim: #6b7488;       /* secondary text             */
-  --faint: #9aa1b2;     /* muted labels / ticks       */
-  --accent: #2f6df0;    /* primary actions, fit line  */
-  --accentInk: #2257cf; /* accent text / values       */
-  --soft: #e9f0ff;      /* accent-tint backgrounds    */
-  --warn: #f0663b;      /* secondary BZ points        */
-  --warnInk: #c8502b;   /* secondary point labels     */
-  --bar: #d5dae4;       /* unselected R-value bars    */
+  --page: #ffffff;
+  --surface: #ffffff;
+  --muted: #f4f3f0;
+  --muted2: #ebe9e4;
+  --rule: #1b1a18;
+  --line: #e6e3de;
+  --control: #cbc7c0;
+  --ink: #1b1a18;
+  --secondary: #5f5b55;
+  --faint: #9a958d;
 
-  /* legacy tokens kept for the Viewer page / shared components */
-  --background: #09090b;
-  --foreground: #fafafa;
-  --primary: #3b82f6;
-  --surface: #18181b;
+  /* Theme-switchable soft accent (default: Mint) */
+  --accent: #b5ecd4;
+  --accent-deep: #93e0bf;
+  --note-bg: #eaf9f2;
+  --note-ink: #124d36;
+
+  /* Semantic */
+  --warn-bg: #fdecea;
+  --warn-ink: #a3160c;
+  --ok-ink: #157347;
+  --fig-accent: #2563eb;
+
+  /* Compatibility aliases for charts & SVG components */
+  --bg: var(--page);
+  --card: var(--surface);
+  --inset: var(--muted);
+  --inset2: var(--muted2);
+  --border: var(--line);
+  --border-strong: var(--control);
+  --dim: var(--secondary);
+  --accentInk: var(--ink);
+  --soft: var(--note-bg);
+  --warnInk: var(--warn-ink);
+  --bar: var(--control);
+
+  /* Type scale: hints 12, controls 13, tabs & body 14, section titles 15 */
+  --fz-small: 12px;
+  --fz-control: 13px;
+  --fz-body: 14px;
+  --fz-title: 15px;
+  --radius: 6px;
+  --gap: 20px;
+  --edge: 28px;
+
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sym: 'Noto Sans', 'IBM Plex Sans', sans-serif;
+  --font-math: 'STIX Two Text', Georgia, serif;
 }
 
-@keyframes blip { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-@keyframes spin { to { transform: rotate(360deg); } }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
 
 body {
-  background-color: var(--bg);
+  margin: 0;
+  background: var(--page);
   color: var(--ink);
-  font-family: 'Spline Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
+  font-size: var(--fz-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Legacy dark glass panel — still used by the Viewer page. */
-.glass-panel {
-  background: rgba(24, 24, 27, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid #27272a;
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
 
-/* Scale the whole app up a touch for readability (Chromium-only app, so the
-   non-standard `zoom` is safe and scales text + layout uniformly). */
-.rnr { zoom: 1.15; }
+@keyframes blip {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 
-/* S(Q,E) figure: heatmap + integrated-intensity curve on ONE shared energy axis.
-   A single grid row makes the browser guarantee equal heights (no JS pixel math,
-   zoom-safe). `cqw` sizes the plot to the container width. */
-.sqe-fig { container-type: inline-size; }
+/* ── Shell & Topbar ───────────────────────────────────────────────────────── */
+.m-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.m-topbar {
+  flex: none;
+  z-index: 50;
+  background: var(--page);
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 0 var(--edge);
+  min-height: 54px;
+}
+
+.m-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+
+.m-mark {
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.m-submark {
+  font-size: var(--fz-small);
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.m-nav {
+  display: flex;
+  align-items: stretch;
+  gap: 22px;
+  align-self: stretch;
+}
+
+.m-nav button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  height: auto;
+  padding: 15px 2px 13px;
+  font-weight: 600;
+  font-size: var(--fz-body);
+  letter-spacing: -0.01em;
+  color: var(--faint);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.12s;
+}
+
+.m-nav button:hover {
+  background: none;
+  color: var(--ink);
+}
+
+.m-nav button.on {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.m-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.m-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fz-small);
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.m-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+}
+.m-status-dot.ready {
+  background: var(--ink);
+}
+
+/* ── MOTIF Controls ───────────────────────────────────────────────────────── */
+.m-btn,
+.m-button {
+  font-family: var(--font-sans);
+  font-size: var(--fz-control);
+  font-weight: 600;
+  line-height: 1;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+  user-select: none;
+}
+
+.m-btn:hover:not(:disabled),
+.m-button:hover {
+  background: var(--muted);
+}
+
+.m-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.m-btn.primary,
+.m-button.primary {
+  background: var(--accent);
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.m-btn.primary:hover:not(:disabled),
+.m-button.primary:hover {
+  background: var(--accent-deep);
+}
+
+.m-btn.subtle {
+  border-color: var(--control);
+  color: var(--secondary);
+  font-weight: 500;
+}
+.m-btn.subtle:hover:not(:disabled) {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--muted);
+}
+
+.m-btn.danger {
+  background: var(--warn-bg);
+  border-color: var(--warn-ink);
+  color: var(--warn-ink);
+}
+
+.m-btn.lg {
+  height: 34px;
+  padding: 0 16px;
+  font-size: var(--fz-body);
+}
+
+.m-btn.sm {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--fz-small);
+}
+
+.m-btn.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
+.m-btn.active:hover:not(:disabled) {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+/* Quiet toolbar text buttons (MOTIF .tools style) */
+.m-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.m-tools button {
+  border: 0;
+  background: none;
+  height: 26px;
+  padding: 0 8px;
+  min-width: 26px;
+  font-family: var(--font-sans);
+  font-size: var(--fz-control);
+  font-weight: 600;
+  color: var(--ink);
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.12s;
+}
+.m-tools button:hover:not(:disabled) {
+  background: var(--muted);
+}
+.m-tools button.on {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
+  border-radius: 0;
+}
+.m-tools button.dim {
+  color: var(--secondary);
+  font-weight: 500;
+}
+
+/* Inputs & Selects */
+.m-input,
+.m-select {
+  font-family: var(--font-sans);
+  font-size: var(--fz-control);
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  transition: border-color 0.12s;
+}
+.m-input.mono,
+.m-select.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.m-input:hover:not(:disabled),
+.m-select:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+.m-input:focus-visible,
+.m-select:focus-visible,
+.m-btn:focus-visible,
+.m-button:focus-visible,
+.m-tools button:focus-visible,
+.m-nav button:focus-visible,
+.m-tabs button:focus-visible,
+.m-section > summary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.m-range {
+  accent-color: var(--ink);
+  cursor: pointer;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--ink);
+}
+
+/* Circled "?" info button + inline .explain note (exact MOTIF pattern) */
+.m-info {
+  padding: 0;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--control);
+  color: var(--secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+  flex: none;
+  transition: color 0.12s, border-color 0.12s, background-color 0.12s;
+}
+.m-info:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.m-info.on {
+  color: #ffffff;
+  border-color: var(--ink);
+  background: var(--ink);
+}
+.m-explain {
+  margin: 6px 0 10px;
+  padding: 9px 12px;
+  background: var(--muted);
+  border-radius: var(--radius);
+  font-size: var(--fz-small);
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-line;
+}
+
+/* Notices */
+.m-notice {
+  margin: 12px var(--edge) 0;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: var(--fz-small);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.m-notice.bad {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.m-notice.note {
+  background: var(--note-bg);
+  color: var(--note-ink);
+}
+
+/* ── ThemeCue (6-colour pastel dot) ───────────────────────────────────────── */
+.theme-cue {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.theme-dot {
+  width: 15px;
+  height: 15px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(27, 26, 24, 0.42);
+  cursor: pointer;
+  flex: none;
+}
+.theme-dot:hover {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.theme-dot:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.theme-row {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(27, 26, 24, 0.12);
+}
+.theme-row .theme-dot {
+  width: 20px;
+  height: 20px;
+}
+.theme-row .theme-dot.on {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink);
+}
+
+/* ── Figure Frame (clean white museum frame, 1px hairline) ────────────────── */
+.m-frame {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.m-rule-box {
+  background: var(--muted);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+/* ── MOTIF Collapsible Sections & Right Inspector Column ──────────────────── */
+.m-work {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 420px);
+}
+.m-work.alone {
+  grid-template-columns: minmax(0, 1fr);
+}
+.m-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px var(--edge) 18px;
+  gap: 12px;
+}
+.m-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  font-size: var(--fz-control);
+  background: var(--surface);
+}
+.m-drawer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.m-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 16px;
+  background: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--fz-small);
+  font-weight: 600;
+  color: var(--ink);
+}
+.m-drawer-head:hover {
+  background: var(--muted2);
+}
+.m-run-dock {
+  flex: none;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.m-tabs button {
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 13px 4px 11px;
+  height: auto;
+  color: var(--faint);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.m-tabs button:hover {
+  color: var(--ink);
+}
+.m-tabs button.on {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.m-tab-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 20px 24px;
+}
+
+.m-section {
+  border-bottom: 1px solid var(--line);
+}
+.m-section:last-child {
+  border-bottom: 0;
+}
+.m-section > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 15px 0 10px;
+  font-weight: 600;
+  font-size: var(--fz-title);
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.m-section > summary::-webkit-details-marker {
+  display: none;
+}
+.m-section > summary > span:first-child::before {
+  content: "▶";
+  display: inline-block;
+  font-size: 8.5px;
+  margin-right: 9px;
+  vertical-align: 2px;
+  transition: transform 0.14s;
+}
+.m-section[open] > summary > span:first-child::before {
+  transform: rotate(90deg);
+}
+.m-section-body {
+  padding: 0 0 16px;
+}
+
+.m-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0;
+  min-height: 30px;
+  flex-wrap: wrap;
+}
+.m-lab {
+  flex: none;
+  width: 82px;
+  color: var(--secondary);
+  font-size: var(--fz-control);
+}
+
+/* ── Runner Architectural Sections ────────────────────────────────────────── */
+.m-runner {
+  width: 100%;
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 0 var(--edge) 36px;
+}
+
+.m-band {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.m-band:last-child {
+  border-bottom: 0;
+}
+
+.m-band-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.m-band-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.m-band-num {
+  font-family: var(--font-mono);
+  font-size: var(--fz-small);
+  font-weight: 600;
+  color: var(--faint);
+}
+
+.m-band-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.m-band-desc {
+  font-size: var(--fz-control);
+  color: var(--secondary);
+}
+
+.rnr-split {
+  display: grid;
+  grid-template-columns: 350px minmax(0, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+.rnr-split-bz {
+  min-height: 430px;
+}
+
+@media (max-width: 960px) {
+  .m-shell {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .m-work {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .m-stage {
+    overflow: visible;
+  }
+  .m-side {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .m-tab-body {
+    overflow: visible;
+  }
+  .rnr-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rnr-split-bz {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --edge: 14px;
+  }
+  .m-submark {
+    display: none;
+  }
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+.m-foot {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 9px var(--edge) 11px;
+  color: var(--faint);
+  font-size: 11.5px;
+  border-top: 1px solid var(--line);
+  background: var(--page);
+}
+.m-foot a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--control);
+  text-underline-offset: 2px;
+}
+.m-foot a:hover {
+  color: var(--ink);
+  text-decoration-color: var(--ink);
+}
+
+/* ── Hover bar highlight ──────────────────────────────────────────────────── */
+.rnr-bar {
+  transition: filter 0.1s ease;
+}
+.rnr-bar:hover {
+  filter: brightness(1.12);
+}
+
+/* ── S(Q,E) aligned grid ──────────────────────────────────────────────────── */
+.sqe-fig {
+  container-type: inline-size;
+}
 .sqe-grid {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 16px 150px;
-  grid-template-rows: clamp(300px, 42cqw, 600px) auto;
+  grid-template-columns: auto minmax(0, 1fr) 16px 160px;
+  grid-template-rows: clamp(320px, 42cqw, 600px) auto;
   grid-template-areas:
     "ticks heat bar curve"
     ".     qlab .   glab";
   column-gap: 10px;
   align-items: stretch;
 }
-/* Narrow container: stack the curve below the heatmap (alignment is dropped). */
 @container (max-width: 560px) {
   .sqe-grid {
     grid-template-columns: auto minmax(0, 1fr);
@@ -75,16 +778,7 @@ body {
       "curve curve"
       "glab  glab";
   }
-  .sqe-grid .sqe-bar { display: none; }
+  .sqe-grid .sqe-bar {
+    display: none;
+  }
 }
-
-/* Runner-scoped helpers (light theme). */
-.rnr ::-webkit-scrollbar { width: 9px; height: 9px; }
-.rnr ::-webkit-scrollbar-thumb { background: #d5dae4; border-radius: 6px; }
-.rnr ::-webkit-scrollbar-thumb:hover { background: #c2c9d6; }
-.rnr-step { transition: background .12s, color .12s; }
-.rnr-step:hover { background: var(--soft); color: var(--accent); }
-.rnr-btn { transition: filter .12s, background .12s, border-color .12s; }
-.rnr-btn:hover { filter: brightness(.97); }
-.rnr-bar { transition: filter .1s; }
-.rnr-bar:hover { filter: brightness(1.18) saturate(1.1); }

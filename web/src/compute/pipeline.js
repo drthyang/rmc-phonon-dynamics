@@ -4,6 +4,14 @@ import { connectBands } from '../math/band_connection';
 import { buildCellLabeling, vecMat3, IDENT } from '../math/cells';
 import { findSpaceGroupOps } from '../math/symmetry';
 import { operationReps, symmetrizeSk } from '../math/symmetrize';
+import {
+  kSpaceModeSpectrum,
+  localSubgroupAnalysis,
+  statisticalSymmetryTest,
+  filteredMinimalSupercell,
+  domainAlignedStructure,
+  generateAlignedCIF,
+} from '../math/supercell_symmetry';
 import { conventionalLattice } from '../math/reciprocal';
 import { ATOMIC_MASS, ENERGY_CONV, TWO_PI_PHASE } from '../constants';
 
@@ -327,5 +335,128 @@ export class PhononPipeline {
     return [...acc.entries()].sort((p, q) => p[0] - q[0]).map(([rn, a]) => ({
       rn, el: a.el, frac: [0, 1, 2].map(c => wrap01(Math.atan2(a.ss[c], a.sc[c]) / TAU)),
     }));
+  }
+
+  /**
+   * Direct supercell symmetry analysis (no unit-cell folding).
+   * Loads up to `sampleSize` configs via the worker pool, computes Cartesian
+   * supercell displacements relative to the ensemble-average parent sites, and
+   * runs k-space mode power, local cell-by-cell subgroup projection, statistical
+   * covariance symmetry testing, and mode-filtered minimal supercell detection.
+   */
+  async analyzeSupercellSymmetry(files, family, baseStructure, options = {}) {
+    const { sampleSize = 20, parentTol = 0.25 } = options;
+    const sample = files.slice(0, Math.min(sampleSize, files.length));
+    const frames = await Promise.all(
+      sample.map(f => this.parseFile(f, family, baseStructure.atomDic, baseStructure.dim, 0))
+    );
+    if (!frames.length) throw new Error('No configurations could be parsed.');
+
+    const dim = baseStructure.dim;
+    const [N1, N2, N3] = dim;
+    const nCells = N1 * N2 * N3;
+    const Aconv = conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, dim);
+
+    const numAtoms = frames[0].xyz.length / 3;
+    const rnIds = frames[0].atomType;
+    const cellIdx = frames[0].cellIdx;
+    const reverseAtomDic = {};
+    for (const [sym, idxs] of Object.entries(baseStructure.atomDic)) {
+      idxs.forEach(idx => { reverseAtomDic[idx] = sym; });
+    }
+
+    // Build clean ensemble-average parent basis per RN (circular mean, period 1)
+    const TAU = 2 * Math.PI;
+    const acc = new Map();
+    for (const fr of frames) {
+      for (let i = 0; i < numAtoms; i++) {
+        const rn = rnIds[i];
+        let a = acc.get(rn);
+        if (!a) { a = { sc: [0, 0, 0], ss: [0, 0, 0], el: reverseAtomDic[rn] }; acc.set(rn, a); }
+        for (let c = 0; c < 3; c++) {
+          const ph = TAU * fr.xyz[i * 3 + c];
+          a.sc[c] += Math.cos(ph);
+          a.ss[c] += Math.sin(ph);
+        }
+      }
+    }
+    const wrap01 = (x) => x - Math.floor(x);
+    const wrapHalf = (x) => x - Math.round(x);
+    const refBasis = [...acc.entries()]
+      .sort((p, q) => p[0] - q[0])
+      .map(([rn, a]) => ({
+        rn,
+        el: a.el,
+        frac: [0, 1, 2].map(c => wrap01(Math.atan2(a.ss[c], a.sc[c]) / TAU)),
+      }));
+    const nBasis = refBasis.length;
+    const D = 3 * nBasis;
+    const rnToSite = new Map(refBasis.map((b, idx) => [b.rn, idx]));
+
+    // Convert each frame to supercell Cartesian displacement array [N1*N2*N3*nBasis*3]
+    const configs = frames.map(fr => {
+      const u = new Float64Array(nCells * D);
+      for (let i = 0; i < numAtoms; i++) {
+        const s = rnToSite.get(rnIds[i]);
+        if (s === undefined) continue;
+        const nx = ((Math.round(cellIdx[i * 3]) % N1) + N1) % N1;
+        const ny = ((Math.round(cellIdx[i * 3 + 1]) % N2) + N2) % N2;
+        const nz = ((Math.round(cellIdx[i * 3 + 2]) % N3) + N3) % N3;
+        const rf = refBasis[s].frac;
+        const dfx = wrapHalf(fr.xyz[i * 3] - rf[0]);
+        const dfy = wrapHalf(fr.xyz[i * 3 + 1] - rf[1]);
+        const dfz = wrapHalf(fr.xyz[i * 3 + 2] - rf[2]);
+        const base = ((nx * N2 + ny) * N3 + nz) * D + s * 3;
+        u[base]     = dfx * Aconv[0][0] + dfy * Aconv[1][0] + dfz * Aconv[2][0];
+        u[base + 1] = dfx * Aconv[0][1] + dfy * Aconv[1][1] + dfz * Aconv[2][1];
+        u[base + 2] = dfx * Aconv[0][2] + dfy * Aconv[1][2] + dfz * Aconv[2][2];
+      }
+      return u;
+    });
+
+    const spectrum = kSpaceModeSpectrum(configs, dim, refBasis);
+    const local = localSubgroupAnalysis(configs, dim, Aconv, refBasis, { parentTol });
+    const statistical = statisticalSymmetryTest(configs, dim, Aconv, refBasis, { parentTol });
+    const minimal = filteredMinimalSupercell(spectrum, dim, Aconv, refBasis, {
+      snrThreshold: 2.5,
+      minCoherentFrac: 0.1,
+    });
+
+    // Cache supercell displacement context so user can align any subgroup on demand
+    this._supercellCtx = { configs, dim, Aconv, refBasis, parentTol };
+
+    // Auto-compute domain-aligned local structure for the #1 symmetry-breaking subgroup
+    const topBrk = local.subgroups
+      .filter(s => s.breakingDoF > 0 && s.dof < local.internalDoF)
+      .sort((a, b) => b.breakingFStat - a.breakingFStat)[0];
+    const aligned = topBrk
+      ? domainAlignedStructure(configs, dim, Aconv, refBasis, topBrk, { parentTol })
+      : null;
+
+    return {
+      dim,
+      nConfigs: configs.length,
+      nBasis,
+      spectrum,
+      local,
+      statistical,
+      minimal,
+      aligned,
+    };
+  }
+
+  /**
+   * Compute domain-aligned local structure + CIF for any subgroup from the
+   * last analyzed supercell context without re-reading files.
+   */
+  alignSupercellSubgroup(subgroupSpec) {
+    if (!this._supercellCtx) throw new Error('Run supercell symmetry analysis first.');
+    const { configs, dim, Aconv, refBasis, parentTol } = this._supercellCtx;
+    return domainAlignedStructure(configs, dim, Aconv, refBasis, subgroupSpec, { parentTol });
+  }
+
+  /** Build a CIF 1.1 string for a domain-aligned structure result. */
+  buildAlignedCIF(aligned, opts = {}) {
+    return generateAlignedCIF(aligned, opts);
   }
 }

@@ -174,10 +174,14 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     ? { x: model.xOf(model.dist[selected.k]), y: model.yOf(bands[selected.k][selected.m]) }
     : null;
   const inFrame = (p) => p && p.x >= XL - 1 && p.x <= XR + 1 && p.y >= YT - 1 && p.y <= YB + 1;
+  const hoverLabel = hover && !sel && isFinite(bands[hover.k]?.[hover.m])
+    ? `band ${hover.m + 1} · ${bands[hover.k][hover.m].toFixed(2)} ${unit} · q=[${(qPoints[hover.k] || []).map(v => v.toFixed(2)).join(', ')}]`
+    : null;
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair', userSelect: 'none' }}
-      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={() => { dragRef.current = null; setSel(null); setHover(null); }}>
+      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onDoubleClick={() => setDomain(null)}
+      onMouseLeave={() => { dragRef.current = null; setSel(null); setHover(null); }}>
 
       <defs><clipPath id={CLIP}><rect x={XL} y={YT} width={PW} height={PH} /></clipPath></defs>
 
@@ -225,11 +229,24 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
           fill="rgba(47,109,240,0.10)" stroke="#2f6df0" strokeWidth="1" strokeDasharray="4 3" />
       )}
 
+      {/* hover readout pill */}
+      {hoverLabel && (() => {
+        const bw = Math.max(168, hoverLabel.length * 6.5 + 20);
+        const bx = Math.min(XR - bw - 4, Math.max(XL + 4, hover.x + 12 > XR - bw ? hover.x - bw - 12 : hover.x + 12));
+        const by = Math.max(YT + 6, Math.min(YB - 28, hover.y - 30 < YT + 6 ? hover.y + 12 : hover.y - 30));
+        return (
+          <g pointerEvents="none">
+            <rect x={bx} y={by} width={bw} height={24} rx="6" fill="var(--card)" stroke="var(--border-strong)" strokeWidth="1" opacity="0.97" />
+            <text x={bx + 10} y={by + 16} fontFamily="IBM Plex Mono, monospace" fontSize="10.5" fill="var(--ink)">{hoverLabel}</text>
+          </g>
+        );
+      })()}
+
       {/* axis title */}
-      <text x={20} y={(YT + YB) / 2} fontFamily="STIX Two Text, serif" fontSize="14" fill="var(--dim)" textAnchor="middle" transform={`rotate(-90 20 ${(YT + YB) / 2})`}>Energy ({unit})</text>
+      <text x={20} y={(YT + YB) / 2} fontFamily="STIX Two Text, serif" fontSize="15" fill="var(--dim)" textAnchor="middle" transform={`rotate(-90 20 ${(YT + YB) / 2})`}>Energy ({unit})</text>
 
       {/* zoom hint */}
-      <text x={XR} y={YT + 4} textAnchor="end" fontFamily="Space Mono, monospace" fontSize="11" fill="var(--faint)">{domain ? 'zoomed · Reset to clear' : 'drag a box to zoom'}</text>
+      <text x={XR} y={YT + 4} textAnchor="end" fontFamily="IBM Plex Mono, monospace" fontSize="11" fill="var(--faint)">{domain ? 'zoomed · dbl-click or Reset' : 'drag a box to zoom'}</text>
     </svg>
   );
 }

@@ -1,15 +1,8 @@
 import React, { useMemo } from 'react';
 import { DEFAULT_COLORS } from '../constants';
 
-const DIM = 'var(--dim)', INK = 'var(--ink)', FAINT = 'var(--faint)', INSET2 = 'var(--inset2)';
-const ACCENTINK = 'var(--accentInk)', WARNINK = 'var(--warnInk)';
-
 /**
- * Selected-mode readout (Cobalt light footer): mode/energy/k on the left and
- * per-element band character on the right. Weights are the eigenvector content
- * per species (Σ_sites∈el √Σ_xyz|e|², normalised) — which species dominate the
- * mode. `unit`/`scale` convert the displayed energy; `colors` overrides the bar
- * colours to match the viewer's editable element colours.
+ * Selected-mode readout footer in MOTIF's quiet warm-paper style.
  */
 export default function ModeInspector({ results, selectedK, selectedMode, unit = 'meV', scale = 1, colors = {} }) {
   const info = useMemo(() => {
@@ -45,25 +38,34 @@ export default function ModeInspector({ results, selectedK, selectedMode, unit =
   }, [results, selectedK, selectedMode]);
 
   if (!info) return null;
-  const colorOf = (el) => colors[el] || DEFAULT_COLORS[el] || '#9aa1b2';
-  const row = { display: 'flex', justifyContent: 'space-between', gap: 14, font: "11px 'Space Mono'", color: DIM };
+  const colorOf = (el) => colors[el] || DEFAULT_COLORS[el] || '#9a958d';
 
   return (
-    <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 22, flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 148 }}>
-        <div style={row}><span>mode</span><span style={{ color: INK }}>band {selectedMode + 1} · k{selectedK + 1}</span></div>
-        <div style={row}><span>energy</span><span style={{ color: info.e < 0 ? WARNINK : ACCENTINK, fontWeight: 700 }}>{(info.e * scale).toFixed(3)} {unit}</span></div>
-        <div style={row}><span>k</span><span style={{ color: INK, fontSize: 10 }}>[{info.q.map(v => v.toFixed(3)).join(', ')}]</span></div>
+    <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px', background: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      <div className="tabular-nums" style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 162, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ color: 'var(--faint)' }}>mode</span>
+          <span style={{ color: 'var(--ink)' }}>band {selectedMode + 1} · k{selectedK + 1}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ color: 'var(--faint)' }}>energy</span>
+          <b style={{ color: info.e < 0 ? 'var(--warn-ink)' : 'var(--ink)' }}>{(info.e * scale).toFixed(3)} {unit}</b>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ color: 'var(--faint)' }}>q</span>
+          <span style={{ color: 'var(--secondary)', fontSize: 10.5 }}>[{info.q.map(v => v.toFixed(3)).join(', ')}]</span>
+        </div>
       </div>
-      <div style={{ flex: 1, minWidth: 180, display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <div style={{ font: "10px 'Space Mono'", letterSpacing: '.12em', color: FAINT }}>BAND CHARACTER</div>
+
+      <div style={{ flex: 1, minWidth: 170, display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div style={{ fontSize: 11, color: 'var(--secondary)', fontWeight: 600 }}>Band character</div>
         {info.weights.map(({ el, frac }) => (
-          <div key={el} style={{ display: 'flex', alignItems: 'center', gap: 8, font: "11px 'Space Mono'" }}>
-            <span style={{ width: 18, color: DIM }}>{el}</span>
-            <div style={{ flex: 1, height: 7, borderRadius: 4, background: INSET2, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 4, width: `${frac * 100}%`, background: colorOf(el) }} />
+          <div key={el} className="tabular-nums" style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+            <span style={{ width: 22, fontWeight: 600, color: 'var(--ink)' }}>{el}</span>
+            <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--surface)', border: '1px solid var(--line)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${frac * 100}%`, background: colorOf(el) }} />
             </div>
-            <span style={{ width: 30, textAlign: 'right', color: DIM }}>{(frac * 100).toFixed(0)}%</span>
+            <span style={{ width: 32, textAlign: 'right', color: 'var(--secondary)' }}>{(frac * 100).toFixed(0)}%</span>
           </div>
         ))}
       </div>

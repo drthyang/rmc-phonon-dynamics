@@ -32,7 +32,7 @@ export default function CrystalViewer({
 }) {
   const mountRef = useRef(null);
   const objs = useRef(null);
-  const params = useRef({ isPlaying, amplitude, speed, eigenvector, qPoint });
+  const params = useRef({ isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor });
   const recRef = useRef(null);
   const gifRef = useRef(null);   // { active, frames, gif } during GIF capture
   const view = useRef(null);     // saved camera {pos,target} preserved across rebuilds
@@ -109,7 +109,7 @@ export default function CrystalViewer({
     const radiusOf = (el) => (elementRadii[el] || defRadius(el));
 
     const scene = new THREE.Scene();
-    const width = mountRef.current.clientWidth, height = mountRef.current.clientHeight;
+    const width = Math.max(1, mountRef.current.clientWidth), height = Math.max(1, mountRef.current.clientHeight);
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 8000);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setSize(width, height); renderer.setPixelRatio(window.devicePixelRatio);
@@ -117,6 +117,7 @@ export default function CrystalViewer({
     mountRef.current.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    const disposables = [];
     // shadingStrength (0..1) balances flat ambient vs. directional light + how
     // tight the specular highlight is, so the user can soften the relief.
     const ss = Math.max(0, Math.min(1, shadingStrength));
@@ -139,12 +140,28 @@ export default function CrystalViewer({
     const atoms = [];
     const center = new THREE.Vector3();
 
-    // Shared geometries per element radius (cache by rounded radius).
+    // Shared geometries & materials per element (cache by rounded radius / element).
     const geoCache = new Map();
     const getGeo = (rad) => {
-      const key = rad.toFixed(2);
-      if (!geoCache.has(key)) geoCache.set(key, new THREE.SphereGeometry(rad, 18, 18));
+      const safeRad = Number.isFinite(rad) && rad > 0 ? rad : 0.3;
+      const key = safeRad.toFixed(2);
+      if (!geoCache.has(key)) {
+        const geo = new THREE.SphereGeometry(safeRad, 18, 18);
+        geoCache.set(key, geo);
+        disposables.push(geo);
+      }
       return geoCache.get(key);
+    };
+    const matCache = new Map();
+    const getMat = (el) => {
+      if (!matCache.has(el)) {
+        const mat = shading
+          ? new THREE.MeshPhongMaterial({ color: colorOf(el), shininess, specular: new THREE.Color().setScalar(0.04 + 0.16 * ss) })
+          : new THREE.MeshBasicMaterial({ color: colorOf(el) });
+        matCache.set(el, mat);
+        disposables.push(mat);
+      }
+      return matCache.get(el);
     };
 
     // Displacement-vector arrows: solid shaft (cylinder) + cone head, sized in
@@ -154,7 +171,8 @@ export default function CrystalViewer({
     if (showArrows) {
       shaftGeo = new THREE.CylinderGeometry(1, 1, 1, 10); shaftGeo.translate(0, 0.5, 0);
       headGeo = new THREE.ConeGeometry(1, 1, 14);
-      vecMat = new THREE.MeshBasicMaterial({ color: params.current.vectorColor || vectorColor });
+      vecMat = new THREE.MeshBasicMaterial({ color: params.current.vectorColor });
+      disposables.push(shaftGeo, headGeo, vecMat);
     }
 
     for (let cx = 0; cx < nx; cx++) for (let cy = 0; cy < ny; cy++) for (let cz = 0; cz < nz; cz++) {
@@ -163,10 +181,7 @@ export default function CrystalViewer({
         const el = reverseAtomDic[rn] || 'H';
         const r0 = matvec([hsym_xyz[s * 3] + cx, hsym_xyz[s * 3 + 1] + cy, hsym_xyz[s * 3 + 2] + cz]);
         const rad = radiusOf(el) * styleFactor * atomScale;
-        const mat = shading
-          ? new THREE.MeshPhongMaterial({ color: colorOf(el), shininess, specular: new THREE.Color().setScalar(0.04 + 0.16 * ss) })
-          : new THREE.MeshBasicMaterial({ color: colorOf(el) });
-        const mesh = new THREE.Mesh(getGeo(rad), mat);
+        const mesh = new THREE.Mesh(getGeo(rad), getMat(el));
         mesh.position.set(...r0);
         scene.add(mesh);
         let arrow = null;
@@ -198,6 +213,7 @@ export default function CrystalViewer({
     // InstancedMesh so the bonds track the oscillating atoms.
     let bondMesh = null, bondPairs = [];
     const bondGeo = new THREE.CylinderGeometry(1, 1, 1, 8);  // unit, centred on +Y
+    disposables.push(bondGeo);
     if (bondsOn && atoms.length <= 1600) {
       for (let i = 0; i < atoms.length; i++) for (let j = i + 1; j < atoms.length; j++) {
         const key = [atoms[i].el, atoms[j].el].sort().join('-');
@@ -211,6 +227,7 @@ export default function CrystalViewer({
         bondMesh = new THREE.InstancedMesh(bondGeo, bondMat, bondPairs.length);
         bondMesh.frustumCulled = false;
         scene.add(bondMesh);
+        disposables.push(bondMat, bondMesh);
       }
     }
 
@@ -220,7 +237,10 @@ export default function CrystalViewer({
       const e = [[0, 1], [0, 2], [0, 4], [1, 3], [1, 5], [2, 3], [2, 6], [3, 7], [4, 5], [4, 6], [5, 7], [6, 7]];
       const pts = [];
       for (const [a, b] of e) pts.push(new THREE.Vector3(...corners[a]), new THREE.Vector3(...corners[b]));
-      scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.5 })));
+      const cellGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const cellMat = new THREE.LineBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.5 });
+      disposables.push(cellGeo, cellMat);
+      scene.add(new THREE.LineSegments(cellGeo, cellMat));
     }
 
     const span = Math.hypot(...matvec([nx, ny, nz]));
@@ -274,7 +294,7 @@ export default function CrystalViewer({
       }
       bondMesh.instanceMatrix.needsUpdate = true;
     };
-    updateBonds(bondThickness);   // initial placement (correct even when paused / no eigenvector)
+    updateBonds(params.current.bondThickness ?? 0.06);   // initial placement (correct even when paused / no eigenvector)
     const animate = () => {
       animId = requestAnimationFrame(animate);
       const P = params.current;
@@ -356,6 +376,10 @@ export default function CrystalViewer({
       window.removeEventListener('resize', onResize);
       ro.disconnect();
       cancelAnimationFrame(animId);
+      if (recRef.current) { try { recRef.current.stop(); } catch { /* ignore */ } recRef.current = null; }
+      if (gifRef.current) { try { gifRef.current.gif.abort?.(); } catch { /* ignore */ } gifRef.current = null; }
+      for (const d of disposables) d?.dispose?.();
+      controls.dispose();
       renderer.dispose();
       try { renderer.forceContextLoss(); } catch { /* free the WebGL context so rebuilds don't exhaust them */ }
     };

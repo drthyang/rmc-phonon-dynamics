@@ -97,7 +97,7 @@ export default function SciChart({ series = [], xLabel, yLabel, zeroLine = false
   if (!model) return <div style={{ height: H, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', font: "12px 'Spline Sans'" }}>no data</div>;
 
   const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(2) : Math.abs(v) < 1e-9 ? '0' : v.toFixed(3);
-  const font = 'Open Sans, sans-serif';
+  const font = 'IBM Plex Sans, sans-serif';
   const xsym = (xLabel || 'x').split('(')[0].trim() || 'x';
   const inPlot = (p) => p.x >= model.x0 - 1 && p.x <= model.x1 + 1 && p.y >= model.y1 - 1 && p.y <= model.y0 + 1;
 
