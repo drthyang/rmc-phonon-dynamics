@@ -16,6 +16,7 @@ import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
 import { downloadString } from '../io/writers';
 import CrystalViewer from '../components/CrystalViewer';
+import DomainCube3D from '../components/DomainCube3D';
 import LineChart from '../components/LineChart';
 
 const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
@@ -48,7 +49,10 @@ export default function SymmetryPage({
   const [baseStructure, setBaseStructure] = useState(null);
   const [sampleSize, setSampleSize] = useState(25);
 
-  const [visualView, setVisualView] = useState('crystal');     // 'crystal' | 'domains'
+  const [domainView, setDomainView] = useState('both');        // 'cube' | 'slice' | 'both'
+  const [sliceMode3D, setSliceMode3D] = useState('all');       // 'all' | 'slice' | 'cutaway'
+  const [soloDomain, setSoloDomain] = useState(null);          // null or domain index 0..V-1
+  const [showCorrChart, setShowCorrChart] = useState(false);
   const [crystalMode, setCrystalMode] = useState('aligned');   // 'parent' | 'aligned'
   const [analysisTab, setAnalysisTab] = useState('subgroups'); // 'subgroups' | 'kspace' | 'convergence' | 'average'
   const [sliceZ, setSliceZ] = useState(0);
@@ -256,6 +260,7 @@ export default function SymmetryPage({
     if (aligned) {
       setScResult(prev => (prev ? { ...prev, aligned } : prev));
       setDomainCfgIdx(0);
+      setSoloDomain(null);
     }
   };
 
@@ -598,21 +603,14 @@ export default function SymmetryPage({
 
       {(loadErr || scErr) && <div className="m-notice bad" style={{ margin: 0 }}>{loadErr || scErr}</div>}
 
-      {/* ════════ MAIN 2-COLUMN WORKSPACE ════════ */}
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(300px, 42%) minmax(380px, 1fr)', gap: 14 }}>
-        {/* ── LEFT COLUMN: 3D Crystal OR 2D Domain Map + Radial C_dom(r) ── */}
-        <div className="m-frame" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
-            <div className="m-tools" role="tablist">
-              <button type="button" className={visualView === 'crystal' ? 'on' : 'dim'} onClick={() => setVisualView('crystal')}>
-                3D Crystal
-              </button>
-              <button type="button" className={visualView === 'domains' ? 'on' : 'dim'} onClick={() => setVisualView('domains')}>
-                Domain Map &amp; ξ
-              </button>
-            </div>
-
-            {visualView === 'crystal' && (
+      {/* ════════ MAIN 2-COLUMN WORKSPACE: Visual Stack (Crystal + 3D/2D Domains) | Symmetry Analysis ════════ */}
+      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(360px, 48%) minmax(360px, 1fr)', gap: 14 }}>
+        {/* ── LEFT COLUMN: Both 3D Crystal AND 3D/2D Domain Structure visible simultaneously ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflow: 'hidden' }}>
+          {/* Card 1: 3D Crystal Structure (always visible) */}
+          <div className="m-frame" style={{ flex: '1 1 44%', display: 'flex', flexDirection: 'column', minHeight: 200, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>3D Crystal Structure</span>
               <div style={{ display: 'inline-flex', gap: 4 }}>
                 <button type="button" className={`m-btn sm ${crystalMode === 'parent' ? 'active' : ''}`} onClick={() => setCrystalMode('parent')}>
                   Parent ({parentSg})
@@ -621,21 +619,17 @@ export default function SymmetryPage({
                   Local ({localSg || '—'})
                 </button>
               </div>
-            )}
-          </div>
-
-          {/* 3D Crystal View */}
-          <div style={{ display: visualView === 'crystal' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ flex: 1, minHeight: 260, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            </div>
+            <div style={{ flex: 1, minHeight: 140, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {previewStruct && (
                 <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={cell111} showCell showBonds />
               )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 14px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--secondary)' }}>
-              <div style={{ display: 'inline-flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px solid var(--line)', fontSize: 11.5, color: 'var(--secondary)' }}>
+              <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
                 {readout?.counts.map(([el, count]) => (
-                  <span key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: DEFAULT_COLORS[el] || '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
+                  <span key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: DEFAULT_COLORS[el] || '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
                     <b style={{ color: 'var(--ink)' }}>{el}</b>×{count}
                   </span>
                 ))}
@@ -649,114 +643,202 @@ export default function SymmetryPage({
             </div>
           </div>
 
-          {/* 2D Domain Map + Radial C_dom(r) View */}
-          {visualView === 'domains' && (
-            <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {activeGrid && activeSubgroup ? (
-                <>
-                  {/* Domain physics summary strip */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, padding: '8px 10px', borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)', fontSize: 11.5, fontFamily: 'var(--font-mono)' }}>
-                    <div>
-                      <span style={{ color: 'var(--secondary)' }}>Corr. length ξ</span><br />
-                      <b>{activeSubgroup.corrLengthCells.toFixed(2)} cells</b>{' '}
-                      <span style={{ whiteSpace: 'nowrap' }}>({activeSubgroup.corrLengthAng.toFixed(1)} Å)</span>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--secondary)' }}>3D Cluster avg</span><br />
-                      <b>{activeSubgroup.meanClusterCells?.toFixed(1) ?? '—'} cells</b>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--secondary)' }}>NN same-domain</span><br />
-                      <b>{(100 * (activeSubgroup.neighborMatchRate || 0)).toFixed(1)}%</b>
-                      {activeSubgroup.neighborMatchSE !== null && ` ±${(100 * activeSubgroup.neighborMatchSE).toFixed(1)}%`}
-                    </div>
-                  </div>
+          {/* Card 2: 3D Domain Cube + 2D Domain Map (always visible) */}
+          <div className="m-frame" style={{ flex: '1.25 1 56%', display: 'flex', flexDirection: 'column', minHeight: 240, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>
+                  Domains {activeSubgroup ? `· ${activeSubgroup.spaceGroup}` : ''}
+                </span>
+                <div className="m-tools" role="tablist" style={{ gap: 8 }}>
+                  <button type="button" className={domainView === 'both' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('both')}>
+                    3D + 2D
+                  </button>
+                  <button type="button" className={domainView === 'cube' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('cube')}>
+                    3D Cube
+                  </button>
+                  <button type="button" className={domainView === 'slice' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('slice')}>
+                    2D Slice
+                  </button>
+                </div>
+              </div>
 
-                  {/* Controls: config slice + z-layer */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
-                    {activeSubgroup.savedGrids?.length > 1 ? (
-                      <select
-                        value={domainCfgIdx}
-                        onChange={e => setDomainCfgIdx(parseInt(e.target.value, 10))}
-                        className="m-input"
-                        style={{ height: 26, fontSize: 11.5, padding: '0 6px' }}
-                      >
-                        {activeSubgroup.savedGrids.map((sg, i) => (
-                          <option key={i} value={i}>{sg.configName}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span><b>{activeSubgroup.spaceGroup}</b> · {activeSubgroup.nVariants} variants</span>
-                    )}
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                      <span>z = <b style={{ color: 'var(--ink)' }}>{sliceZ}</b>/{scResult.dim[2] - 1}</span>
-                      <input type="range" min={0} max={Math.max(0, scResult.dim[2] - 1)} value={Math.min(sliceZ, scResult.dim[2] - 1)} onChange={e => setSliceZ(parseInt(e.target.value, 10))} className="m-range" style={{ width: 96 }} />
-                    </label>
-                  </div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {activeSubgroup?.savedGrids?.length > 1 && (
+                  <select
+                    value={domainCfgIdx}
+                    onChange={e => setDomainCfgIdx(parseInt(e.target.value, 10))}
+                    className="m-input"
+                    style={{ height: 24, fontSize: 11, padding: '0 6px' }}
+                  >
+                    {activeSubgroup.savedGrids.map((sg, i) => (
+                      <option key={i} value={i}>{sg.configName}</option>
+                    ))}
+                  </select>
+                )}
+                {radialSeries.length > 0 && (
+                  <button
+                    type="button"
+                    className={`m-btn sm ${showCorrChart ? 'active' : 'subtle'}`}
+                    style={{ height: 24, fontSize: 11, padding: '0 7px' }}
+                    onClick={() => setShowCorrChart(v => !v)}
+                  >
+                    C(r)
+                  </button>
+                )}
+              </div>
+            </div>
 
-                  {/* 2D z-slice grid + ensemble fractions */}
-                  <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${scResult.dim[1]}, 24px)`,
-                        gap: 3, padding: 8, borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)',
-                      }}
-                    >
-                      {Array.from({ length: scResult.dim[0] * scResult.dim[1] }, (_, idx) => {
-                        const x = Math.floor(idx / scResult.dim[1]);
-                        const y = idx % scResult.dim[1];
-                        const z = Math.min(sliceZ, scResult.dim[2] - 1);
-                        const c = (x * scResult.dim[1] + y) * scResult.dim[2] + z;
-                        const dom = activeGrid[c] ?? 0;
-                        return (
-                          <div
-                            key={idx}
-                            title={`Cell (${x},${y},${z}) → Domain ${dom + 1}`}
-                            style={{
-                              width: 24, height: 24, borderRadius: 4,
-                              background: DOMAIN_PALETTE[dom % DOMAIN_PALETTE.length],
-                              color: '#fff', fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
+            {activeGrid && activeSubgroup ? (
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: '8px 12px', gap: 8 }}>
+                {/* Compact controls: z-layer + 3D slice mode + physics metrics */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 11.5, fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--secondary)' }}>
+                    <span>z=<b style={{ color: 'var(--ink)' }}>{sliceZ}</b>/{scResult.dim[2] - 1}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0, scResult.dim[2] - 1)}
+                      value={Math.min(sliceZ, scResult.dim[2] - 1)}
+                      onChange={e => setSliceZ(parseInt(e.target.value, 10))}
+                      className="m-range"
+                      style={{ width: 76 }}
+                    />
+                    {domainView !== 'slice' && (
+                      <div style={{ display: 'inline-flex', gap: 3 }}>
+                        {[['all', 'Full'], ['slice', 'Slice'], ['cutaway', 'Cut']].map(([k, lbl]) => (
+                          <button
+                            key={k}
+                            type="button"
+                            className={`m-btn sm ${sliceMode3D === k ? 'active' : ''}`}
+                            style={{ height: 22, padding: '0 6px', fontSize: 10.5 }}
+                            onClick={() => setSliceMode3D(k)}
                           >
-                            {dom + 1}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
-                      <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>Ensemble fractions</span>
-                      {activeSubgroup.domainFractions.map((f, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 10, height: 10, borderRadius: 3, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] }} />
-                          <span>
-                            D{i + 1}: {(100 * f).toFixed(1)}%
-                            {activeSubgroup.domainFractionSE ? ` ±${(100 * activeSubgroup.domainFractionSE[i]).toFixed(1)}%` : ''}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Radial Domain Autocorrelation C_dom(r) */}
-                  {radialSeries.length > 0 && (
-                    <div style={{ paddingTop: 6, borderTop: '1px solid var(--line)' }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
-                        Radial Domain Autocorrelation C_dom(r)
+                            {lbl}
+                          </button>
+                        ))}
                       </div>
-                      <LineChart series={radialSeries} xLabel="Lag r (unit cells)" yLabel="C_dom(r)" height={140} />
+                    )}
+                  </div>
+                  <div style={{ display: 'inline-flex', gap: 10, color: 'var(--secondary)' }}>
+                    <span>ξ=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.corrLengthAng.toFixed(1)}Å</b></span>
+                    <span>clust=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.meanClusterCells?.toFixed(1) ?? '—'}</b></span>
+                    <span>NN=<b style={{ color: 'var(--ink)' }}>{(100 * (activeSubgroup.neighborMatchRate || 0)).toFixed(1)}%</b></span>
+                  </div>
+                </div>
+
+                {/* Main 3D Cube + 2D Slice visual row */}
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 165,
+                    display: 'grid',
+                    gridTemplateColumns: domainView === 'both' ? 'minmax(160px, 1.15fr) auto' : '1fr',
+                    gap: 10,
+                    alignItems: 'center',
+                  }}
+                >
+                  {domainView !== 'slice' && (
+                    <div style={{ width: '100%', height: '100%', minHeight: 165, border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff' }}>
+                      <DomainCube3D
+                        grid={activeGrid}
+                        dim={scResult.dim}
+                        palette={DOMAIN_PALETTE}
+                        activeDomain={soloDomain}
+                        sliceZ={Math.min(sliceZ, scResult.dim[2] - 1)}
+                        sliceMode={sliceMode3D}
+                      />
                     </div>
                   )}
-                </>
-              ) : (
-                <div style={{ color: 'var(--faint)', fontSize: 13 }}>
-                  Select a multi-variant local subgroup on the right to view its 2D domain orientation map and correlation length ξ.
+
+                  {domainView !== 'cube' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${scResult.dim[1]}, ${domainView === 'both' ? 19 : 24}px)`,
+                          gap: 2, padding: 6, borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)',
+                        }}
+                      >
+                        {Array.from({ length: scResult.dim[0] * scResult.dim[1] }, (_, idx) => {
+                          const x = Math.floor(idx / scResult.dim[1]);
+                          const y = idx % scResult.dim[1];
+                          const z = Math.min(sliceZ, scResult.dim[2] - 1);
+                          const c = (x * scResult.dim[1] + y) * scResult.dim[2] + z;
+                          const dom = activeGrid[c] ?? 0;
+                          const dimmed = soloDomain !== null && dom !== soloDomain;
+                          const sz = domainView === 'both' ? 19 : 24;
+                          return (
+                            <div
+                              key={idx}
+                              title={`Cell (${x},${y},${z}) → Domain D${dom + 1}`}
+                              style={{
+                                width: sz, height: sz, borderRadius: 3,
+                                background: DOMAIN_PALETTE[dom % DOMAIN_PALETTE.length],
+                                opacity: dimmed ? 0.16 : 1,
+                                color: '#fff', fontSize: domainView === 'both' ? 9 : 10, fontFamily: 'var(--font-mono)', fontWeight: 700,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}
+                            >
+                              {dom + 1}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--faint)' }}>
+                        2D slice z={Math.min(sliceZ, scResult.dim[2] - 1)}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Clickable domain legend chips (click to solo/isolate in 3D Cube & 2D Slice!) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                  {activeSubgroup.domainFractions.map((f, i) => {
+                    const isSolo = soloDomain === i;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setSoloDomain(cur => (cur === i ? null : i))}
+                        title="Click to isolate this twin domain in 3D & 2D"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                          border: `1px solid ${isSolo ? 'var(--ink)' : 'var(--line)'}`,
+                          background: isSolo ? 'var(--muted)' : 'transparent',
+                          opacity: soloDomain !== null && !isSolo ? 0.45 : 1,
+                          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink)',
+                        }}
+                      >
+                        <span style={{ width: 9, height: 9, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] }} />
+                        <span>
+                          D{i + 1} {(100 * f).toFixed(1)}%
+                          {activeSubgroup.domainFractionSE ? `±${(100 * activeSubgroup.domainFractionSE[i]).toFixed(1)}` : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {soloDomain !== null && (
+                    <button type="button" className="m-btn sm subtle" style={{ height: 22, fontSize: 10.5 }} onClick={() => setSoloDomain(null)}>
+                      Show all
+                    </button>
+                  )}
+                </div>
+
+                {/* Optional Radial Autocorrelation C_dom(r) chart */}
+                {showCorrChart && radialSeries.length > 0 && (
+                  <div style={{ paddingTop: 6, borderTop: '1px solid var(--line)' }}>
+                    <LineChart series={radialSeries} xLabel="Lag r (unit cells)" yLabel="C_dom(r)" height={125} />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: 16, color: 'var(--faint)', fontSize: 12.5 }}>
+                Select a multi-variant local subgroup on the right to visualize its 3D domain cube and 2D slice map.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── RIGHT COLUMN: Flat 4-Tab Ensemble Symmetry Analysis Card ── */}
