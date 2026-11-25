@@ -1149,9 +1149,39 @@ export function domainAlignedStructure(configs, dim, A, basis, subgroupSpec, opt
   const symAligned = new Float64Array(D);
   projectSubgroupVec(h0Ops, reps, meanAligned, nBasis, symAligned, tmp);
 
+  // Idealize the parent basis onto exact G_0 Wyckoff positions before adding
+  // the H_0-projected displacement, so symmetrizedBasis has exact H_0 symmetry
+  // even when the input refBasis has single-config RMC statistical noise.
+  const idealParentBasis = basis.map((b, s) => ({ rn: b.rn, el: b.el, frac: [...b.frac] }));
+  {
+    const sumDf = Array.from({ length: nBasis }, () => [0, 0, 0]);
+    for (let gi = 0; gi < reps.length; gi++) {
+      const { R, t, perm } = reps[gi];
+      for (let j = 0; j < nBasis; j++) {
+        const s = perm[j];
+        const xj = basis[j].frac;
+        const xs = basis[s].frac;
+        const gx0 = R[0][0] * xj[0] + R[0][1] * xj[1] + R[0][2] * xj[2] + t[0];
+        const gx1 = R[1][0] * xj[0] + R[1][1] * xj[1] + R[1][2] * xj[2] + t[1];
+        const gx2 = R[2][0] * xj[0] + R[2][1] * xj[1] + R[2][2] * xj[2] + t[2];
+        sumDf[s][0] += wrapHalf(gx0 - xs[0]);
+        sumDf[s][1] += wrapHalf(gx1 - xs[1]);
+        sumDf[s][2] += wrapHalf(gx2 - xs[2]);
+      }
+    }
+    const invG = 1 / Math.max(1, reps.length);
+    for (let s = 0; s < nBasis; s++) {
+      idealParentBasis[s].frac = [
+        wrap01(basis[s].frac[0] + sumDf[s][0] * invG),
+        wrap01(basis[s].frac[1] + sumDf[s][1] * invG),
+        wrap01(basis[s].frac[2] + sumDf[s][2] * invG),
+      ];
+    }
+  }
+
   // Build distorted fractional coordinates (A rows = lattice vectors -> df = u · A^-1)
   const Ainv = inv3(A);
-  const toBasis = (uVec) => basis.map((b, s) => {
+  const toBasis = (uVec, baseSites) => baseSites.map((b, s) => {
     const ux = uVec[s * 3], uy = uVec[s * 3 + 1], uz = uVec[s * 3 + 2];
     const df = [
       ux * Ainv[0][0] + uy * Ainv[1][0] + uz * Ainv[2][0],
@@ -1167,9 +1197,9 @@ export function domainAlignedStructure(configs, dim, A, basis, subgroupSpec, opt
     };
   });
 
-  const alignedBasis = toBasis(meanAligned);
-  const symmetrizedBasis = toBasis(symAligned);
-  const foldedBasis = toBasis(meanFolded);
+  const alignedBasis = toBasis(meanAligned, basis);
+  const symmetrizedBasis = toBasis(symAligned, idealParentBasis);
+  const foldedBasis = toBasis(meanFolded, basis);
 
   // Per-element RMS displacements (aligned vs folded)
   const elements = [...new Set(basis.map(b => b.el))];

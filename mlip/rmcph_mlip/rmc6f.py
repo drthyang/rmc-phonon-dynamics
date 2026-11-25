@@ -81,13 +81,10 @@ def read_rmc6f_folded(path: str | Path) -> FoldedSupercell:
         if len(toks) < 7:
             continue
         el = toks[1]
-        # Some rmc6f files have a [charge] token like "[1]", some don't
-        if toks[2].startswith("["):
-            fx, fy, fz = float(toks[3]), float(toks[4]), float(toks[5])
-            ref_num = int(toks[6])
-        else:
-            fx, fy, fz = float(toks[2]), float(toks[3]), float(toks[4])
-            ref_num = int(toks[5])
+        # Count from right: ... fx fy fz ref_num ix iy iz
+        # Works with [charge], numeric charge, or no charge column.
+        fx, fy, fz = float(toks[-7]), float(toks[-6]), float(toks[-5])
+        ref_num = int(toks[-4])
 
         # Fold fractional coords from supercell into unit cell [0, 1)
         uf = np.array([(fx * nx) % 1.0, (fy * ny) % 1.0, (fz * nz) % 1.0], dtype=float)

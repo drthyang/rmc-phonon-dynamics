@@ -70,10 +70,15 @@ def compute_neutron_dos(
 ) -> NeutronDosResult:
     """Compute total DOS and neutron-weighted generalized DOS (GDOS) from Phonopy mesh."""
     ph.run_mesh(list(mesh), with_eigenvectors=True, is_mesh_symmetry=False)
-    mesh_dict = ph.get_mesh_dict()
-    freqs_mev = np.asarray(mesh_dict["frequencies"], dtype=float) * THZ_TO_MEV  # (nq, 3N)
-    eigvecs = np.asarray(mesh_dict["eigenvectors"])                              # (nq, 3N, 3N), col=mode
-    weights = np.asarray(mesh_dict["weights"], dtype=float)                      # (nq,)
+    if getattr(ph, "mesh", None) is not None:
+        freqs_mev = np.asarray(ph.mesh.frequencies, dtype=float) * THZ_TO_MEV  # (nq, 3N)
+        eigvecs = np.asarray(ph.mesh.eigenvectors)                              # (nq, 3N, 3N), col=mode
+        weights = np.asarray(ph.mesh.weights, dtype=float)                      # (nq,)
+    else:
+        mesh_dict = ph.get_mesh_dict()
+        freqs_mev = np.asarray(mesh_dict["frequencies"], dtype=float) * THZ_TO_MEV
+        eigvecs = np.asarray(mesh_dict["eigenvectors"])
+        weights = np.asarray(mesh_dict["weights"], dtype=float)
 
     prim = ph.primitive
     symbols = list(prim.symbols)
@@ -165,9 +170,11 @@ def compute_powder_ins(
         t_step=10.0,
         freq_min=0.05,
     )
-    td = ph.get_thermal_displacements_dict()
-    # thermal_displacements[0] may be (3*n_atoms,) or (n_atoms, 3) -> mean over xyz gives U_iso in A^2
-    msd = np.asarray(td["thermal_displacements"][0], dtype=float).reshape(-1, 3)
+    if getattr(ph, "thermal_displacements", None) is not None:
+        msd = np.asarray(ph.thermal_displacements.thermal_displacements[0], dtype=float).reshape(-1, 3)
+    else:
+        td = ph.get_thermal_displacements_dict()
+        msd = np.asarray(td["thermal_displacements"][0], dtype=float).reshape(-1, 3)
     u_iso_atoms = msd.mean(axis=1)
 
     symbols = list(ph.primitive.symbols)

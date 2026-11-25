@@ -14,9 +14,18 @@ const THZ_PER_MEV = 1 / THZ_TO_MEV;
  *   Left stage: quiet toolbar + side-by-side Band Structure & 3D Mode (or S(Q,E))
  *   Right inspector column (behind 1px hairline): Motion | Visual | Species | Info
  */
-export default function ViewerPage({ model, onLoadModel }) {
+export default function ViewerPage({
+  model,
+  candidates = [],
+  activeCandidateId = null,
+  onSelectCandidate,
+  onRemoveCandidate,
+  onLoadModel,
+  onGoToIns,
+}) {
   const [tab, setTab] = useState('modes');           // 'modes' | 'sqe'
   const [sideTab, setSideTab] = useState('motion');  // 'motion' | 'visual' | 'species' | 'info'
+  const [hiddenOverlays, setHiddenOverlays] = useState([]);
   const [selK, setSelK] = useState(0);
   const [selM, setSelM] = useState(0);
 
@@ -77,9 +86,26 @@ export default function ViewerPage({ model, onLoadModel }) {
     try {
       const m = modelFromText(await file.text());
       setLoadErr(null); setSelK(0); setSelM(0);
-      onLoadModel(m);
+      onLoadModel(m, file.name);
     } catch (err) { setLoadErr(err.message); }
   };
+
+  const phononCandidates = useMemo(() => candidates.filter(c => c.model?.bands), [candidates]);
+  const toggleOverlay = (id) => setHiddenOverlays(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+
+  const overlayModels = useMemo(() => {
+    return phononCandidates
+      .filter(c => c.id !== activeCandidateId && !hiddenOverlays.includes(c.id))
+      .map(c => ({
+        id: c.id,
+        label: c.label,
+        color: c.color,
+        bands: escale === 1 ? c.model.bands : c.model.bands.map(row => row.map(v => v * escale)),
+        qPoints: c.model.qPoints,
+        baseStructure: c.model.baseStructure,
+        kpathMeta: c.model.kpathMeta,
+      }));
+  }, [phononCandidates, activeCandidateId, hiddenOverlays, escale]);
 
   const loadFile = (e) => parseLoadedFile(e.target.files?.[0]);
 
@@ -110,10 +136,10 @@ export default function ViewerPage({ model, onLoadModel }) {
             Phonon bands, 3D modes &amp; simulated INS.
           </h1>
           <p style={{ margin: '0 0 18px', color: 'var(--secondary)', fontSize: 15 }}>
-            Run a WebGPU calculation on the <b style={{ color: 'var(--ink)' }}>Runner</b> tab, or drop a saved{' '}
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>band.yaml</code>{' '}
+            Pin symmetry candidates &amp; run MLIP from the <b style={{ color: 'var(--ink)' }}>Symmetry</b> tab, or drop a saved{' '}
+            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>_mlip_dm.json</code>{' '}
             or{' '}
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>.json</code>{' '}
+            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>band.yaml</code>{' '}
             file anywhere on this page.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -209,6 +235,58 @@ export default function ViewerPage({ model, onLoadModel }) {
 
         {loadErr && <div className="m-notice bad" style={{ margin: 0 }}>{loadErr}</div>}
 
+        {/* Multi-candidate switcher & band-overlay bar */}
+        {phononCandidates.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 10px', borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)', fontSize: 12 }}>
+            <span style={{ color: 'var(--secondary)', fontWeight: 600 }}>Candidates:</span>
+            {phononCandidates.map(c => {
+              const isActive = c.id === activeCandidateId;
+              const isOverlaid = !hiddenOverlays.includes(c.id);
+              return (
+                <div
+                  key={c.id}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 8px',
+                    borderRadius: 5,
+                    background: isActive ? 'var(--surface)' : 'transparent',
+                    border: `1px solid ${isActive ? 'var(--ink)' : 'var(--line)'}`,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectCandidate?.(c.id)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', fontWeight: isActive ? 600 : 400, fontSize: 12 }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.color }} />
+                    <span>{c.label}</span>
+                  </button>
+                  {!isActive && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: 'var(--secondary)', cursor: 'pointer', marginLeft: 4 }}>
+                      <input type="checkbox" checked={isOverlaid} onChange={() => toggleOverlay(c.id)} />
+                      overlay
+                    </label>
+                  )}
+                  {phononCandidates.length > 1 && onRemoveCandidate && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveCandidate(c.id)}
+                      style={{ background: 'none', border: 'none', padding: '0 2px', cursor: 'pointer', color: 'var(--faint)', fontSize: 13 }}
+                      title="Remove candidate"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {onGoToIns && (
+              <button type="button" className="m-btn sm active" style={{ marginLeft: 'auto' }} onClick={onGoToIns}>
+                3 · Compare with INS →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── TAB 1: BANDS + 3D MODE ── */}
         {tab === 'modes' && (
           <>
@@ -274,6 +352,7 @@ export default function ViewerPage({ model, onLoadModel }) {
                   resetSignal={bandReset}
                   eMin={eMin === '' ? undefined : parseFloat(eMin)}
                   eMax={eMax === '' ? undefined : parseFloat(eMax)}
+                  overlays={overlayModels}
                   onPick={(k, m) => { setSelK(k); setSelM(m); }}
                 />
               </div>

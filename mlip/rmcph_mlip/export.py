@@ -52,6 +52,9 @@ def export_phonopy_dm_json(result: PhononResult, out_path: str | Path) -> Path:
     masses = [float(m) for m in prim.masses]
     lattice = prim.cell.tolist()
 
+    ndos = result.neutron_dos
+    ins = result.powder_ins
+
     payload = {
         "name": f"{result.primitive_atoms.get_chemical_formula()} ({result.metadata['model']})",
         "format": "phonopy-dynamical-matrix-v1",
@@ -62,6 +65,25 @@ def export_phonopy_dm_json(result: PhononResult, out_path: str | Path) -> Path:
         "qpoints": result.qpoints.tolist(),
         "highsym_qpts": [[int(idx), lbl] for idx, lbl in result.highsym_qpts],
         "mlip_metadata": result.metadata,
+        "neutron_dos": {
+            "energy_mev": np.round(ndos.energy_mev, 5).tolist(),
+            "total_dos": np.round(ndos.total_dos, 7).tolist(),
+            "neutron_gdos": np.round(ndos.neutron_gdos, 7).tolist(),
+            "element_gdos": {
+                el: np.round(arr, 7).tolist() for el, arr in ndos.element_gdos.items()
+            },
+            "element_weights": {el: round(float(w), 6) for el, w in ndos.element_weights.items()},
+            "fwhm_mev": float(ndos.fwhm_mev),
+        },
+        "powder_ins": {
+            "q_grid": np.round(ins.q_grid, 5).tolist(),
+            "e_grid": np.round(ins.e_grid, 5).tolist(),
+            "sqe": np.round(ins.sqe, 6).tolist(),
+            "temperature_k": float(ins.temperature_k),
+            "ei_mev": float(ins.ei_mev) if ins.ei_mev is not None else None,
+            "fwhm_mev": float(ins.fwhm_mev),
+            "u_iso_by_element": {el: round(float(u), 6) for el, u in ins.u_iso_by_element.items()},
+        },
         "dynamical_matrix": {
             "format": "phonopy-dynamical-matrix-v1",
             "primitive_lattice": lattice,

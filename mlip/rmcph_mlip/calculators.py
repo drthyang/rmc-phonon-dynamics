@@ -2,7 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
+
+_LOCAL_MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+_LOCAL_MODEL_FILES = {
+    "mace-mp-medium": ["mace-mp-0-medium.model", "mace-mp-medium.model"],
+    "mace-mp": ["mace-mp-0-medium.model", "mace-mp-medium.model"],
+    "mace-mp-small": ["mace-mp-0-small.model", "mace-mp-small.model"],
+    "mace-mp-large": ["mace-mp-0-large.model", "mace-mp-large.model"],
+    "mace-mpa-0": ["mace-mpa-0-medium.model", "mace-mpa-0.model"],
+}
+
+
+def _find_local_model(lower_name: str) -> str | None:
+    for fname in _LOCAL_MODEL_FILES.get(lower_name, []):
+        p = _LOCAL_MODELS_DIR / fname
+        if p.is_file():
+            return str(p)
+    return None
 
 
 def resolve_device(device: str = "auto") -> str:
@@ -45,7 +64,8 @@ def build_calculator(
             "mace-mpa-0": "medium-mpa-0",
             "mace-mp": "medium",
         }
-        model_arg = size_map.get(lower, model)
+        local_model = _find_local_model(lower)
+        model_arg = local_model if local_model else size_map.get(lower, model)
         print(f"[mlip] Loading MACE model={model_arg!r} device={dev} dtype={dtype} dispersion={dispersion}")
         return mace_mp(
             model=model_arg,

@@ -276,11 +276,19 @@ export function fromPhonopyDM(obj) {
   const hsymIndex = {};
   for (const [idx, label] of (obj.highsym_qpts || [])) hsymIndex[idx] = label === 'GAMMA' ? 'Γ' : label;
 
+  const temperature = Number.isFinite(obj.powder_ins?.temperature_k)
+    ? obj.powder_ins.temperature_k
+    : (Number.isFinite(obj.mlip_metadata?.temperature_k) ? obj.mlip_metadata.temperature_k : 300);
+
   return {
+    name: obj.name || null,
     bands, eigvecs, qPoints: qpoints,
     kpathMeta: { segSizes: [qpoints.length], hsymIndex },
-    temperature: 300, source: 'file',
+    temperature, source: 'file',
     baseStructure,
+    mlipMetadata: obj.mlip_metadata || null,
+    neutronDos: obj.neutron_dos || null,
+    powderIns: obj.powder_ins || null,
   };
 }
 

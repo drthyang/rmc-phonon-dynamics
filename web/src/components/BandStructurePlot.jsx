@@ -35,7 +35,7 @@ function niceStep(range, target = 6) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
 }
 
-export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax, unit = 'meV', resetSignal = 0 }) {
+export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax, unit = 'meV', resetSignal = 0, overlays = [] }) {
   const svgRef = useRef(null);
   const [domain, setDomain] = useState(null);    // zoom window {xMin,xMax,yMin,yMax} in DATA coords, or null = full
   const [sel, setSel] = useState(null);          // live drag box {x0,y0,x1,y1} in pixel space
@@ -111,8 +111,34 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     }
 
     const zeroIn = 0 >= yLo && 0 <= yHi;
-    return { dist, xOf, yOf, invX, invY, branches, xticks, ygrid, nModes, zeroY: yOf(0), zeroIn };
-  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax, domain]);
+
+    // Optional overlay candidate bands (normalized onto [0, xMax] so different cell paths align cleanly)
+    const overlayBranches = [];
+    for (const ov of (overlays || [])) {
+      if (!ov?.bands?.length || !ov?.qPoints?.length || !ov?.baseStructure) continue;
+      const ovRecip = ov.baseStructure.bandRecip || reciprocalLattice(conventionalLattice(
+        ov.baseStructure.v1, ov.baseStructure.v2, ov.baseStructure.v3, ov.baseStructure.dim
+      ));
+      const ovDist = pathDistances(ov.qPoints, ovRecip, ov.kpathMeta?.segSizes);
+      const ovMax = ovDist[ovDist.length - 1] || 1;
+      const xScale = xMax / ovMax;
+      const ovModes = ov.bands[0]?.length || 0;
+      const paths = [];
+      for (let m = 0; m < ovModes; m++) {
+        let d = '';
+        for (let k = 0; k < ov.bands.length; k++) {
+          const v = ov.bands[k][m];
+          if (!isFinite(v)) continue;
+          const X = xOf(ovDist[k] * xScale).toFixed(1), Y = yOf(v).toFixed(1);
+          d += (d ? 'L' : 'M') + X + ' ' + Y + ' ';
+        }
+        if (d) paths.push(d);
+      }
+      overlayBranches.push({ id: ov.id, label: ov.label, color: ov.color || '#2563eb', paths });
+    }
+
+    return { dist, xOf, yOf, invX, invY, branches, overlayBranches, xticks, ygrid, nModes, zeroY: yOf(0), zeroIn };
+  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax, domain, overlays]);
 
   if (!model) return null;
 
@@ -210,6 +236,13 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
 
       {/* bands (clipped to the frame so zoomed-out-of-range parts don't overflow) */}
       <g clipPath={`url(#${CLIP})`}>
+        {model.overlayBranches.map((ov) => (
+          <g key={ov.id} opacity="0.58">
+            {ov.paths.map((d, m) => (
+              <path key={m} d={d} fill="none" stroke={ov.color} strokeWidth="1.35" strokeDasharray="4 3" strokeLinejoin="round" />
+            ))}
+          </g>
+        ))}
         {model.branches.map((b, m) => (
           <g key={m}>
             <path d={b.d} fill="none" stroke={b.color} strokeWidth="1.6" strokeLinejoin="round" opacity="0.9" />

@@ -56,7 +56,17 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--exp-ins", type=Path, default=None, help="Optional 2-col (E_meV, I) experimental INS file to overlay")
     run_p.add_argument("--write-yaml", action="store_true", help="Also export phonopy band.yaml")
 
+    srv_p = sub.add_parser("serve", help="Start optional local HTTP companion server for 1-click MLIP runs from the web UI")
+    srv_p.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    srv_p.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765)")
+    srv_p.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda", "mps"], help="Default compute device")
+
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        from .server import serve
+        serve(host=args.host, port=args.port, device=args.device)
+        return 0
 
     if args.command == "run":
         calc = build_calculator(model=args.model, device=args.device, dtype=args.dtype)
