@@ -215,7 +215,7 @@ export function enumerateSubgroups(reps) {
 
 // ── Helper: apply Γ(g) to a single unit-cell displacement vector u (3*nBasis) ─
 
-function applyGammaCell(g, u, nBasis, out) {
+export function applyGammaCell(g, u, nBasis, out) {
   out.fill(0);
   const { perm, Rcart } = g;
   for (let s = 0; s < nBasis; s++) {
@@ -253,7 +253,7 @@ export function subgroupDoF(ops, nBasis, subtractAcoustic = true) {
 }
 
 // Subtract center-of-mass (uniform) translation from a single cell vector u (3*nBasis)
-function removeCellDrift(u, nBasis, out) {
+export function removeCellDrift(u, nBasis, out) {
   let mx = 0, my = 0, mz = 0;
   for (let s = 0; s < nBasis; s++) {
     mx += u[s * 3]; my += u[s * 3 + 1]; mz += u[s * 3 + 2];
