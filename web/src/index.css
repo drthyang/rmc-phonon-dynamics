@@ -1,12 +1,12 @@
 @import "tailwindcss";
 
 /*
- * RMC Phonon Dynamics — MOTIF-family editorial design system.
- * In the manner of a museum's website, softened: bold tight lettering, one rule
- * under the header, warm near-black ink, outlined buttons with gently rounded
- * corners, light hairlines inside, quiet grey hovers, one soft accent colour
- * for the main action. The scientific figures are the only other colour.
- * Lettering: IBM Plex Sans + IBM Plex Mono.
+ * RMC Phonon Dynamics — MOTIF-family editorial design system + Multi-Layout Engine.
+ * Optimized across:
+ *   • iPhone (375–430px portrait & landscape, notch/Dynamic Island safe areas, coarse touch targets)
+ *   • iPad (744–1024px portrait Deck & 1024–1194px landscape Split)
+ *   • MacBook 13"–16" & Standard 1K / 1080p (1280–1920px balanced 2-column Split studio)
+ *   • Standard 2K / 1440p (2560×1440) & 4K / 2160p (3840×2160) (3-column Panoramic deck + fluid scale)
  */
 :root {
   --page: #ffffff;
@@ -45,19 +45,40 @@
   --warnInk: var(--warn-ink);
   --bar: var(--control);
 
-  /* Type scale: hints 12, controls 13, tabs & body 14, section titles 15 */
-  --fz-small: 12px;
-  --fz-control: 13px;
-  --fz-body: 14px;
-  --fz-title: 15px;
+  /* Fluid type & control scale:
+   * Exact 12/13/14/15px through MacBook & 1K (1920px), scaling smoothly up on 2K (2560px)
+   * and 4K (3840px) while keeping max <= 1.5x min so WCAG 1.4.4 200% zoom always works.
+   */
+  --fz-small: clamp(0.75rem, 0.49rem + 0.215vw, 1.05rem);
+  --fz-control: clamp(0.8125rem, 0.53rem + 0.235vw, 1.15rem);
+  --fz-body: clamp(0.875rem, 0.575rem + 0.25vw, 1.25rem);
+  --fz-title: clamp(0.9375rem, 0.615rem + 0.27vw, 1.375rem);
+
+  --ctrl-h-sm: clamp(1.625rem, 1.28rem + 0.28vw, 2.2rem);
+  --ctrl-h: clamp(1.875rem, 1.45rem + 0.35vw, 2.6rem);
+  --ctrl-h-lg: clamp(2.125rem, 1.65rem + 0.4vw, 2.95rem);
+  --target-min: 24px;
+
   --radius: 6px;
-  --gap: 20px;
-  --edge: 28px;
+  --gap: clamp(12px, 1.05vw, 26px);
+  --edge: clamp(14px, 1.5vw, 44px);
+  --safe-left: max(var(--edge), env(safe-area-inset-left, 0px));
+  --safe-right: max(var(--edge), env(safe-area-inset-right, 0px));
 
   --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sym: 'Noto Sans', 'IBM Plex Sans', sans-serif;
   --font-math: 'STIX Two Text', Georgia, serif;
+}
+
+/* Coarse touch pointers (iPhones & iPads): comfortable fingertip targets */
+@media (pointer: coarse) {
+  :root {
+    --target-min: 38px;
+    --ctrl-h-sm: 34px;
+    --ctrl-h: 38px;
+    --ctrl-h-lg: 44px;
+  }
 }
 
 * {
@@ -66,6 +87,7 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: calc(4rem + env(safe-area-inset-top, 0px));
 }
 
 body {
@@ -74,8 +96,26 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--fz-body);
+  overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+:where(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+:where(p, li) {
+  text-wrap: pretty;
+}
+
+:where(a, code) {
+  overflow-wrap: anywhere;
+}
+
+:where(img, video, canvas, svg) {
+  max-inline-size: 100%;
 }
 
 .tabular-nums {
@@ -87,16 +127,36 @@ body {
   50% { opacity: 0.3; }
 }
 
-/* ── Shell & Topbar ───────────────────────────────────────────────────────── */
+/* ── Shell & Multi-Layout Viewport Mechanics ──────────────────────────────── */
 .m-shell {
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  min-height: 0;
+  min-height: 100dvh;
   background: var(--page);
   color: var(--ink);
 }
 
+/* Stack & Deck modes allow natural vertical document scrolling so charts & 3D
+   viewers never get crushed vertically on iPhones, landscape phones, or iPads. */
+.m-shell[data-layout="stack"],
+.m-shell[data-layout="deck"] {
+  height: auto;
+  min-height: 100dvh;
+}
+
+.m-page-slot {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+.m-page-slot.is-hidden {
+  display: none;
+}
+
+/* ── Topbar (Safe-Area Aware + Responsive Stepper) ────────────────────────── */
 .m-topbar {
   flex: none;
   z-index: 50;
@@ -105,21 +165,26 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gap);
-  padding: 0 var(--edge);
-  min-height: 54px;
+  flex-wrap: wrap;
+  column-gap: var(--gap);
+  row-gap: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  min-height: clamp(54px, 3.1vw, 68px);
 }
 
 .m-brand {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
+  padding-block: 10px;
 }
 
 .m-mark {
   font-weight: 700;
-  font-size: 22px;
+  font-size: clamp(19px, 1.15vw, 26px);
   line-height: 1;
   letter-spacing: -0.045em;
   color: var(--ink);
@@ -130,11 +195,9 @@ body {
   font-size: var(--fz-small);
   color: var(--faint);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1380px) {
   .m-submark {
     display: none;
   }
@@ -143,27 +206,33 @@ body {
 .m-nav {
   display: flex;
   align-items: stretch;
-  gap: 20px;
+  gap: clamp(8px, 1vw, 18px);
   align-self: stretch;
   flex: none;
 }
 
+.m-nav-arrow {
+  align-self: center;
+  color: var(--control);
+  font-size: var(--fz-small);
+  user-select: none;
+}
+
 .m-nav button {
+  position: relative;
   border: 0;
   border-radius: 0;
   background: none;
-  height: auto;
-  padding: 15px 2px 13px;
+  min-block-size: var(--target-min);
+  padding: 13px 2px 12px;
   font-weight: 600;
   font-size: var(--fz-body);
   letter-spacing: -0.01em;
   color: var(--faint);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   white-space: nowrap;
   transition: color 0.12s;
 }
@@ -173,16 +242,26 @@ body {
   color: var(--ink);
 }
 
-.m-nav button.on {
+.m-nav button.on,
+.m-nav button[aria-current="page"] {
   color: var(--ink);
-  border-bottom-color: var(--ink);
+}
+
+.m-nav button.on::after,
+.m-nav button[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -1px;
+  border-block-end: 2px solid var(--ink);
 }
 
 .m-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: clamp(6px, 0.6vw, 12px);
   flex: none;
+  padding-block: 6px;
 }
 
 .m-status {
@@ -206,6 +285,71 @@ body {
   background: var(--ink);
 }
 
+/* Compact 2-row header on phones (< 761px); iPads (>= 768px) keep 1-row topbar */
+@media (max-width: 760px) {
+  .m-topbar {
+    min-height: 0;
+    row-gap: 2px;
+  }
+  .m-brand {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    padding-block: 9px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  .m-brand .m-submark-mobile {
+    display: inline;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--faint);
+  }
+  .m-nav {
+    flex: 1 1 auto;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .m-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .m-nav button {
+    padding: 9px 2px 9px;
+    font-size: 13px;
+  }
+  .m-nav-arrow {
+    display: none;
+  }
+  .m-hide-xs {
+    display: none;
+  }
+  .m-actions {
+    margin-inline-start: auto;
+    padding-block: 5px;
+    gap: 7px;
+  }
+}
+
+@media (min-width: 761px) {
+  .m-brand .m-submark-mobile {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .m-legacy-btn {
+    display: none !important;
+  }
+  .m-status-text {
+    display: none;
+  }
+  .layout-cue-label {
+    display: none;
+  }
+  .layout-cue-btn {
+    padding-inline: 7px !important;
+  }
+}
+
 /* ── MOTIF Controls ───────────────────────────────────────────────────────── */
 .m-btn,
 .m-button {
@@ -213,7 +357,7 @@ body {
   font-size: var(--fz-control);
   font-weight: 600;
   line-height: 1;
-  height: 30px;
+  min-block-size: var(--ctrl-h);
   padding: 0 11px;
   border: 1px solid var(--ink);
   border-radius: var(--radius);
@@ -252,12 +396,14 @@ body {
   background: var(--accent-deep);
 }
 
-.m-btn.subtle {
+.m-btn.subtle,
+.m-button.subtle {
   border-color: var(--control);
   color: var(--secondary);
   font-weight: 500;
 }
-.m-btn.subtle:hover:not(:disabled) {
+.m-btn.subtle:hover:not(:disabled),
+.m-button.subtle:hover {
   border-color: var(--ink);
   color: var(--ink);
   background: var(--muted);
@@ -269,14 +415,16 @@ body {
   color: var(--warn-ink);
 }
 
-.m-btn.lg {
-  height: 34px;
+.m-btn.lg,
+.m-button.lg {
+  min-block-size: var(--ctrl-h-lg);
   padding: 0 16px;
   font-size: var(--fz-body);
 }
 
-.m-btn.sm {
-  height: 26px;
+.m-btn.sm,
+.m-button.sm {
+  min-block-size: var(--ctrl-h-sm);
   padding: 0 8px;
   font-size: var(--fz-small);
 }
@@ -291,17 +439,28 @@ body {
   color: #ffffff;
 }
 
-/* Quiet toolbar text buttons (MOTIF .tools style) */
+/* Quiet toolbar text buttons / single-row scrollable tablists */
 .m-tools {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   flex-wrap: wrap;
 }
+.m-tools[role="tablist"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-inline-size: 100%;
+  scrollbar-width: none;
+}
+.m-tools[role="tablist"]::-webkit-scrollbar {
+  display: none;
+}
 .m-tools button {
+  position: relative;
+  flex: none;
   border: 0;
   background: none;
-  height: 26px;
+  min-block-size: var(--ctrl-h-sm);
   padding: 0 8px;
   min-width: 26px;
   font-family: var(--font-sans);
@@ -314,15 +473,24 @@ body {
   align-items: center;
   justify-content: center;
   gap: 5px;
+  white-space: nowrap;
   transition: background-color 0.12s;
 }
 .m-tools button:hover:not(:disabled) {
   background: var(--muted);
 }
-.m-tools button.on {
+.m-tools button.on,
+.m-tools button[aria-selected="true"] {
   color: var(--ink);
-  box-shadow: inset 0 -2px 0 var(--ink);
   border-radius: 0;
+}
+.m-tools button.on::after,
+.m-tools button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  border-block-end: 2px solid var(--ink);
 }
 .m-tools button.dim {
   color: var(--secondary);
@@ -334,7 +502,7 @@ body {
 .m-select {
   font-family: var(--font-sans);
   font-size: var(--fz-control);
-  height: 30px;
+  min-block-size: var(--ctrl-h);
   padding: 0 9px;
   border: 1px solid var(--control);
   border-radius: var(--radius);
@@ -342,11 +510,26 @@ body {
   color: var(--ink);
   transition: border-color 0.12s;
 }
+.m-input.sm,
+.m-select.sm {
+  min-block-size: var(--ctrl-h-sm);
+  padding: 0 7px;
+  font-size: var(--fz-small);
+}
 .m-input.mono,
 .m-select.mono {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: var(--fz-small);
 }
+
+/* Prevent iOS Safari auto-zoom on input focus when pointer is coarse on phones */
+@media (max-width: 640px) and (pointer: coarse) {
+  .m-input,
+  .m-select {
+    font-size: 16px;
+  }
+}
+
 .m-input:hover:not(:disabled),
 .m-select:hover:not(:disabled) {
   border-color: var(--ink);
@@ -358,7 +541,8 @@ body {
 .m-tools button:focus-visible,
 .m-nav button:focus-visible,
 .m-tabs button:focus-visible,
-.m-section > summary:focus-visible {
+.m-section > summary:focus-visible,
+.m-table-wrap:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
@@ -372,8 +556,9 @@ input[type="checkbox"] {
   accent-color: var(--ink);
 }
 
-/* Circled "?" info button + inline .explain note (exact MOTIF pattern) */
+/* Circled "?" info button + expanded hit target on touch */
 .m-info {
+  position: relative;
   padding: 0;
   background: none;
   display: inline-flex;
@@ -391,6 +576,11 @@ input[type="checkbox"] {
   cursor: help;
   flex: none;
   transition: color 0.12s, border-color 0.12s, background-color 0.12s;
+}
+.m-info::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
 }
 .m-info:hover {
   color: var(--ink);
@@ -414,7 +604,7 @@ input[type="checkbox"] {
 
 /* Notices */
 .m-notice {
-  margin: 12px var(--edge) 0;
+  margin: 12px var(--safe-right) 0 var(--safe-left);
   padding: 9px 12px;
   border-radius: var(--radius);
   font-size: var(--fz-small);
@@ -431,15 +621,108 @@ input[type="checkbox"] {
   color: var(--note-ink);
 }
 
-/* ── ThemeCue (6-colour pastel dot) ───────────────────────────────────────── */
+/* ── LayoutCue & ThemeCue ─────────────────────────────────────────────────── */
+.layout-cue {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.layout-cue-btn.is-pinned {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--muted);
+}
+.layout-menu {
+  position: fixed;
+  z-index: 65;
+  width: min(288px, calc(100dvw - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(27, 26, 24, 0.14);
+}
+.layout-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+}
+.layout-menu-active {
+  font-family: var(--font-mono);
+  text-transform: none;
+  font-weight: 500;
+  color: var(--secondary);
+}
+.layout-opt {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  padding: 7px 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.layout-opt:hover {
+  background: var(--muted);
+}
+.layout-opt.on {
+  background: var(--note-bg);
+  border-color: var(--ink);
+}
+.layout-opt-icon {
+  margin-top: 2px;
+  flex: none;
+  color: var(--ink);
+}
+.layout-opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.layout-opt-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.layout-opt-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--secondary);
+}
+.layout-opt-desc {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--secondary);
+}
+
 .theme-cue {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 .theme-dot {
-  width: 15px;
-  height: 15px;
+  position: relative;
+  width: 16px;
+  height: 16px;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -447,6 +730,11 @@ input[type="checkbox"] {
   box-shadow: inset 0 0 0 1px rgba(27, 26, 24, 0.42);
   cursor: pointer;
   flex: none;
+}
+.theme-dot::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
 }
 .theme-dot:hover {
   box-shadow: inset 0 0 0 1.5px var(--ink);
@@ -457,7 +745,7 @@ input[type="checkbox"] {
 }
 .theme-row {
   position: fixed;
-  z-index: 60;
+  z-index: 65;
   display: flex;
   gap: 8px;
   padding: 8px;
@@ -467,19 +755,69 @@ input[type="checkbox"] {
   box-shadow: 0 4px 14px rgba(27, 26, 24, 0.12);
 }
 .theme-row .theme-dot {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+}
+.theme-row .theme-dot::after {
+  inset: -4px;
 }
 .theme-row .theme-dot.on {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink);
 }
 
-/* ── Figure Frame (clean white museum frame, 1px hairline) ────────────────── */
+/* ── Editorial Landing Pages (iPhone -> 4K) ───────────────────────────────── */
+.m-landing {
+  flex: 1;
+  display: flex;
+  align-items: safe center;
+  justify-content: center;
+  padding: clamp(24px, 5dvh, 72px) var(--safe-right) clamp(28px, 5dvh, 72px) var(--safe-left);
+  background: var(--page);
+}
+.m-landing.is-drag {
+  background: var(--muted);
+}
+.m-landing-card {
+  width: min(clamp(640px, 44vw, 940px), 100%);
+  text-align: left;
+  line-height: 1.55;
+}
+.m-landing-title {
+  font-size: clamp(1.625rem, 1.15rem + 1.45vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin: 0 0 14px;
+  color: var(--ink);
+}
+.m-landing-lead {
+  margin: 0 0 22px;
+  color: var(--secondary);
+  font-size: clamp(0.9375rem, 0.72rem + 0.35vw, 1.35rem);
+}
+.sym-landing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(10px, 1vw, 20px);
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fz-small);
+  color: var(--secondary);
+}
+@media (max-width: 640px) {
+  .sym-landing-steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+}
+
+/* ── Figure Frame & Responsive Data Tables ────────────────────────────────── */
 .m-frame {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
+  min-width: 0;
 }
 
 .m-rule-box {
@@ -488,33 +826,376 @@ input[type="checkbox"] {
   padding: 12px 14px;
 }
 
-/* ── MOTIF Collapsible Sections & Right Inspector Column ──────────────────── */
-.m-work {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(340px, 27vw, 420px);
+.m-table-wrap {
+  overflow-x: auto;
+  max-inline-size: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
-.m-work.alone {
+.m-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fz-small);
+}
+.m-table-wrap thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+/* ── Symmetry Studio Multi-Layout System (`stack` | `deck` | `split` | `panoramic`) ── */
+.sym-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 0.9vw, 18px);
+  padding: clamp(10px, 0.9vw, 18px) var(--safe-right) clamp(12px, 1vw, 20px) var(--safe-left);
+  background: var(--page);
+  overflow: hidden;
+}
+
+.m-shell[data-layout="stack"] .sym-workspace,
+.m-shell[data-layout="deck"] .sym-workspace {
+  overflow: visible;
+}
+
+.sym-strip {
+  flex: none;
+  padding: clamp(10px, 0.8vw, 16px) clamp(12px, 1vw, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+}
+
+.sym-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  gap: clamp(12px, 0.9vw, 18px);
+  /* Default: Split (MacBook & 1K 1080p) */
+  grid-template-columns: minmax(320px, 47%) minmax(340px, 1fr);
+  grid-template-rows: minmax(190px, 44fr) minmax(220px, 56fr);
+  grid-template-areas:
+    "crystal  analysis"
+    "domains  analysis";
+}
+
+/* Layout 1: Stack (iPhone / Single-column vertical scroll) */
+.m-shell[data-layout="stack"] .sym-grid {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto;
+  grid-template-areas:
+    "crystal"
+    "domains"
+    "analysis";
+}
+
+/* Layout 2: Deck (iPad Portrait / 2-up visual gallery + full-width analysis below) */
+.m-shell[data-layout="deck"] .sym-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  align-items: stretch;
+  grid-template-areas:
+    "crystal  domains"
+    "analysis analysis";
+}
+
+/* Layout 4: Panoramic (2K 1440p & 4K 2160p — 3 full-height widescreen columns) */
+.m-shell[data-layout="panoramic"] .sym-grid {
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.15fr) minmax(380px, 1.25fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas:
+    "crystal domains analysis";
+}
+
+.sym-crystal {
+  grid-area: crystal;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+
+.sym-domains {
+  grid-area: domains;
+  container: domains / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;
+}
+
+.sym-analysis {
+  grid-area: analysis;
+  container: analysis / inline-size;
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+}
+
+.m-shell[data-layout="stack"] .sym-crystal {
+  height: clamp(240px, 36dvh, 320px);
+}
+.m-shell[data-layout="deck"] .sym-crystal {
+  min-height: 360px;
+}
+.m-shell[data-layout="stack"] .sym-domains {
+  min-height: 0;
+}
+.m-shell[data-layout="stack"] .sym-analysis,
+.m-shell[data-layout="deck"] .sym-analysis {
+  min-height: 340px;
+}
+
+.sym-analysis-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: clamp(10px, 0.8vw, 16px) clamp(12px, 1vw, 20px);
+}
+.m-shell[data-layout="stack"] .sym-analysis-body,
+.m-shell[data-layout="deck"] .sym-analysis-body {
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
+/* Container & layout-aware 3D Cube + 2D Slice split inside .sym-domains */
+.sym-domain-split {
+  --cell-sz: clamp(22px, 4.4cqi, 42px);
+  --cell-fz: clamp(10px, 1.5cqi, 14px);
+  flex: 1 1 auto;
+  min-height: 170px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(175px, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+.sym-domain-split.is-both {
+  --cell-sz: clamp(19px, 3.2cqi, 28px);
+  --cell-fz: clamp(9.5px, 1.25cqi, 12.5px);
+  grid-template-columns: minmax(170px, 1.15fr) auto;
+  grid-template-rows: minmax(175px, 1fr);
+}
+.sym-cube-box {
+  width: 100%;
+  height: 100%;
+  min-height: 170px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+/* In Panoramic (tall 2K/4K middle column), stack 3D Cube above a generously scaled 2D Slice */
+.m-shell[data-layout="panoramic"] .sym-domain-split.is-both {
+  --cell-sz: clamp(23px, 3.25cqi, 40px);
+  --cell-fz: clamp(10.5px, 1.25cqi, 15px);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(220px, 1fr) auto;
+}
+
+/* In Stack (iPhone) or narrow Deck containers (iPad Portrait), stack with explicit cube height so 2D slice never overlaps */
+@container domains (inline-size < 450px) {
+  .sym-domain-split.is-both {
+    --cell-sz: clamp(20px, 5.2cqi, 26px);
+    --cell-fz: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 220px auto;
+  }
+  .sym-domain-split.is-both .sym-cube-box {
+    height: 220px;
+    min-height: 220px;
+  }
+}
+.m-shell[data-layout="stack"] .sym-domain-split {
+  grid-template-rows: 230px;
+}
+.m-shell[data-layout="stack"] .sym-domain-split.is-both {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 230px auto;
+}
+.m-shell[data-layout="stack"] .sym-cube-box {
+  height: 230px;
+  min-height: 230px;
+}
+
+.sym-slice-grid {
+  display: grid;
+  gap: clamp(2px, 0.25cqi, 4px);
+  padding: clamp(6px, 0.7cqi, 10px);
+  border-radius: 6px;
+  background: var(--muted);
+  border: 1px solid var(--line);
+}
+.sym-slice-cell {
+  width: var(--cell-sz);
+  height: var(--cell-sz);
+  border-radius: 3px;
+  color: #ffffff;
+  font-size: var(--cell-fz);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Container-aware zone-boundary star cards inside .sym-analysis */
+.sym-kstars {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--muted);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--fz-small);
+}
+@container analysis (inline-size < 460px) {
+  .sym-kstars {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Phonons, INS Compare & Legacy Studio Workspace (.m-work) ─────────────── */
+.m-work {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 26vw, 430px);
+}
+.m-shell[data-layout="panoramic"] .m-work {
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 23vw, 540px);
+}
+.m-work.alone,
+.m-shell[data-layout="stack"] .m-work,
+.m-shell[data-layout="deck"] .m-work {
   grid-template-columns: minmax(0, 1fr);
 }
+
 .m-stage {
+  container: stage / inline-size;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px var(--edge) 18px;
-  gap: 12px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 14px var(--safe-right) 18px var(--safe-left);
+  gap: clamp(12px, 0.9vw, 18px);
 }
+.m-shell[data-layout="stack"] .m-stage,
+.m-shell[data-layout="deck"] .m-stage {
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
 .m-side {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-left: 1px solid var(--line);
   font-size: var(--fz-control);
   background: var(--surface);
 }
+.m-shell[data-layout="stack"] .m-side,
+.m-shell[data-layout="deck"] .m-side {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+}
+
+.ins-side {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px clamp(14px, 1.2vw, 22px) 22px;
+  gap: 16px;
+}
+.m-shell[data-layout="stack"] .ins-side {
+  overflow: visible;
+  padding-inline: var(--safe-left) var(--safe-right);
+}
+.m-shell[data-layout="deck"] .ins-side {
+  overflow: visible;
+  padding-inline: var(--safe-left) var(--safe-right);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
+  gap: 20px;
+}
+.m-shell[data-layout="deck"] .ins-side > section {
+  border-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Phonons side-by-side figures adapt smoothly to stage container width */
+.ph-fig-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 1vw, 20px);
+  flex: 1 1 auto;
+}
+@container stage (inline-size < 720px) {
+  .ph-fig-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.m-shell[data-layout="stack"] .ph-fig-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ph-mode-canvas {
+  flex: 1 1 auto;
+  min-height: clamp(260px, 38dvh, 560px);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* INS Compare grids adapt from iPhone (1-col) through 4K (multi-chart panorama) */
+.ins-1d-secondary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(12px, 0.9vw, 18px);
+}
+@container stage (inline-size > 1120px) {
+  .ins-1d-secondary.has-both {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.m-shell[data-layout="panoramic"] .ins-1d-secondary.has-both {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ins-heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: clamp(12px, 0.9vw, 18px);
+}
+.ins-heatmap-grid.is-trio {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@container stage (inline-size < 780px) {
+  .ins-heatmap-grid.is-trio {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ins-slice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: clamp(12px, 0.9vw, 18px);
+}
+
+/* Inspector tabs & collapsible sections */
 .m-drawer {
   flex: none;
   display: flex;
@@ -555,33 +1236,57 @@ input[type="checkbox"] {
   flex: none;
 }
 .m-tabs button {
+  position: relative;
   justify-content: center;
   border: 0;
   border-radius: 0;
   background: none;
-  padding: 13px 4px 11px;
-  height: auto;
+  min-block-size: var(--target-min);
+  padding: 12px 4px 11px;
   color: var(--faint);
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: var(--fz-control);
   letter-spacing: -0.01em;
   white-space: nowrap;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   cursor: pointer;
 }
 .m-tabs button:hover {
   color: var(--ink);
 }
-.m-tabs button.on {
+.m-tabs button.on,
+.m-tabs button[aria-selected="true"] {
   color: var(--ink);
-  border-bottom-color: var(--ink);
 }
+.m-tabs button.on::after,
+.m-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -1px;
+  border-block-end: 2px solid var(--ink);
+}
+
 .m-tab-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 0 20px 24px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 clamp(14px, 1.2vw, 22px) 24px;
+}
+.m-shell[data-layout="stack"] .m-tab-body {
+  overflow: visible;
+  scrollbar-gutter: auto;
+  padding-inline: var(--safe-left) var(--safe-right);
+}
+.m-shell[data-layout="deck"] .m-tab-body {
+  overflow: visible;
+  scrollbar-gutter: auto;
+  padding-inline: var(--safe-left) var(--safe-right);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  column-gap: 24px;
+  align-items: start;
 }
 
 .m-section {
@@ -626,12 +1331,12 @@ input[type="checkbox"] {
   align-items: center;
   gap: 8px;
   margin: 7px 0;
-  min-height: 30px;
+  min-block-size: var(--ctrl-h);
   flex-wrap: wrap;
 }
 .m-lab {
   flex: none;
-  width: 82px;
+  width: clamp(78px, 5vw, 102px);
   color: var(--secondary);
   font-size: var(--fz-control);
 }
@@ -639,53 +1344,9 @@ input[type="checkbox"] {
 /* ── Runner Architectural Sections ────────────────────────────────────────── */
 .m-runner {
   width: 100%;
-  max-width: 1380px;
+  max-width: min(1680px, 94vw);
   margin: 0 auto;
-  padding: 0 var(--edge) 36px;
-}
-
-.m-band {
-  padding: 24px 0;
-  border-bottom: 1px solid var(--line);
-}
-.m-band:last-child {
-  border-bottom: 0;
-}
-
-.m-band-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-
-.m-band-title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.m-band-num {
-  font-family: var(--font-mono);
-  font-size: var(--fz-small);
-  font-weight: 600;
-  color: var(--faint);
-}
-
-.m-band-title h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: var(--ink);
-}
-
-.m-band-desc {
-  font-size: var(--fz-control);
-  color: var(--secondary);
+  padding: 0 var(--safe-right) 36px var(--safe-left);
 }
 
 .rnr-split {
@@ -697,51 +1358,28 @@ input[type="checkbox"] {
 .rnr-split-bz {
   min-height: 430px;
 }
-
-@media (max-width: 960px) {
-  .m-shell {
-    height: auto;
-    min-height: 100dvh;
-  }
-  .m-work {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .m-stage {
-    overflow: visible;
-  }
-  .m-side {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-  .m-tab-body {
-    overflow: visible;
-  }
-  .rnr-split {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .rnr-split-bz {
-    min-height: 0;
-  }
+.m-shell[data-layout="stack"] .rnr-split,
+.m-shell[data-layout="deck"] .rnr-split {
+  grid-template-columns: minmax(0, 1fr);
+}
+.m-shell[data-layout="stack"] .rnr-split-bz,
+.m-shell[data-layout="deck"] .rnr-split-bz {
+  min-height: 0;
 }
 
-@media (max-width: 640px) {
-  :root {
-    --edge: 14px;
-  }
-  .m-submark {
-    display: none;
-  }
-}
-
-/* ── Footer ───────────────────────────────────────────────────────────────── */
+/* ── Footer (Safe-Area Bottom Aware) ──────────────────────────────────────── */
 .m-foot {
+  flex: none;
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 14px;
-  padding: 9px var(--edge) 11px;
+  padding-top: 9px;
+  padding-bottom: max(11px, env(safe-area-inset-bottom, 0px));
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   color: var(--faint);
-  font-size: 11.5px;
+  font-size: var(--fz-small);
   border-top: 1px solid var(--line);
   background: var(--page);
 }
@@ -770,8 +1408,8 @@ input[type="checkbox"] {
 }
 .sqe-grid {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 16px 160px;
-  grid-template-rows: clamp(320px, 42cqw, 600px) auto;
+  grid-template-columns: auto minmax(0, 1fr) 16px clamp(150px, 14cqi, 240px);
+  grid-template-rows: clamp(280px, 42cqw, 680px) auto;
   grid-template-areas:
     "ticks heat bar curve"
     ".     qlab .   glab";
@@ -781,7 +1419,7 @@ input[type="checkbox"] {
 @container (max-width: 560px) {
   .sqe-grid {
     grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: 300px auto 240px auto;
+    grid-template-rows: 260px auto 220px auto;
     grid-template-areas:
       "ticks heat"
       ".     qlab"

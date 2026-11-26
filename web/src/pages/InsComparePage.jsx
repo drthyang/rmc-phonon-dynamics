@@ -320,13 +320,13 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
   // ── Empty landing state when neither candidates nor experiment are loaded ──
   if (dosCandidates.length === 0 && !exp1D && !exp2D) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', background: 'var(--page)' }}>
-        <div style={{ width: 'min(640px, 100%)', textAlign: 'left', lineHeight: 1.55 }}>
-          <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.1, margin: '0 0 14px', color: 'var(--ink)' }}>
+      <div className="m-landing">
+        <div className="m-landing-card">
+          <h1 className="m-landing-title">
             Validate local symmetry against experimental INS.
           </h1>
-          <p style={{ margin: '0 0 18px', color: 'var(--secondary)', fontSize: 15 }}>
-            Load one or more MLIP outputs (<code style={{ fontFamily: 'var(--font-mono)' }}>_mlip_dm.json</code> or <code style={{ fontFamily: 'var(--font-mono)' }}>_ndos.csv</code>) for your symmetry candidates, then overlay experimental 1D GDOS / S(E) or 2D S(|Q|, E) data to rank which local structure explains the measured phonon dynamics.
+          <p className="m-landing-lead">
+            Load one or more MLIP outputs (<code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9em' }}>_mlip_dm.json</code> or <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9em' }}>_ndos.csv</code>) for your symmetry candidates, then overlay experimental 1D GDOS / S(E) or 2D S(|Q|, E) data to rank which local structure explains the measured phonon dynamics.
           </p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <label className="m-button primary lg">
@@ -348,12 +348,14 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
     );
   }
 
+  const hasBothSecondary1D = residualSeries.length > 0 && showPartials && partialSeries.length > 0;
+
   return (
     <div className="m-work">
       {/* ════════ LEFT STAGE ════════ */}
-      <div className="m-stage" style={{ overflowY: 'auto' }}>
+      <div className="m-stage">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingBottom: 10, borderBottom: '1px solid var(--line)', flex: 'none' }}>
-          <div className="m-tools" role="tablist">
+          <div className="m-tools" role="tablist" aria-label="INS comparison mode">
             <button type="button" role="tab" aria-selected={mode === '1d'} className={mode === '1d' ? 'on' : 'dim'} onClick={() => setMode('1d')}>
               1D GDOS / S(E)
             </button>
@@ -419,43 +421,46 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
               />
             </div>
 
-            {residualSeries.length > 0 && (
-              <div className="m-frame" style={{ padding: '10px 16px' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
-                  Residuals (Exp − Fit)
-                </div>
-                <LineChart
-                  series={residualSeries}
-                  xLabel="Energy transfer (meV)"
-                  yLabel="ΔI"
-                  height={150}
-                />
-              </div>
-            )}
+            {(residualSeries.length > 0 || (showPartials && partialSeries.length > 0)) && (
+              <div className={`ins-1d-secondary ${hasBothSecondary1D ? 'has-both' : ''}`}>
+                {residualSeries.length > 0 && (
+                  <div className="m-frame" style={{ padding: '10px 16px' }}>
+                    <div style={{ fontSize: 'var(--fz-small)', fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
+                      Residuals (Exp − Fit)
+                    </div>
+                    <LineChart
+                      series={residualSeries}
+                      xLabel="Energy transfer (meV)"
+                      yLabel="ΔI"
+                      height={180}
+                    />
+                  </div>
+                )}
 
-            {showPartials && partialSeries.length > 0 && (
-              <div className="m-frame" style={{ padding: '10px 16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--secondary)' }}>
-                    Per-element partial GDOS · {activePartialCand?.label}
-                  </span>
-                  {dosCandidates.length > 1 && (
-                    <select
-                      value={activePartialCand?.id || ''}
-                      onChange={e => setPartialCandId(e.target.value)}
-                      className="m-input"
-                      style={{ height: 24, fontSize: 11.5, padding: '0 6px' }}
-                    >
-                      {dosCandidates.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                  )}
-                </div>
-                <LineChart
-                  series={partialSeries}
-                  xLabel="Energy transfer (meV)"
-                  yLabel="Element GDOS"
-                  height={200}
-                />
+                {showPartials && partialSeries.length > 0 && (
+                  <div className="m-frame" style={{ padding: '10px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                      <span style={{ fontSize: 'var(--fz-small)', fontWeight: 600, color: 'var(--secondary)' }}>
+                        Per-element partial GDOS · {activePartialCand?.label}
+                      </span>
+                      {dosCandidates.length > 1 && (
+                        <select
+                          value={activePartialCand?.id || ''}
+                          onChange={e => setPartialCandId(e.target.value)}
+                          className="m-input sm"
+                        >
+                          {dosCandidates.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    <LineChart
+                      series={partialSeries}
+                      xLabel="Energy transfer (meV)"
+                      yLabel="Element GDOS"
+                      height={190}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -471,7 +476,7 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
             ) : (
               <>
                 <div className="m-frame" style={{ padding: '14px 16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: cmp2D ? 'repeat(3, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+                  <div className={`ins-heatmap-grid ${cmp2D ? 'is-trio' : ''}`}>
                     {cmp2D ? (
                       <>
                         <HeatmapCanvas
@@ -531,15 +536,15 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
 
                 {/* Interactive 1D Q-integrated and E-cut slices */}
                 {(slice1DQSeries.length > 0 || slice1DESeries.length > 0) && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 }}>
+                  <div className="ins-slice-grid">
                     <div className="m-frame" style={{ padding: '10px 14px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
+                      <div style={{ fontSize: 'var(--fz-small)', fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
                         Q-integrated S(E) · |Q| ∈ [{qSliceRange[0]}, {qSliceRange[1]}] Å⁻¹
                       </div>
                       <LineChart series={slice1DQSeries} xLabel="Energy (meV)" yLabel="S(E)" height={190} />
                     </div>
                     <div className="m-frame" style={{ padding: '10px 14px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
+                      <div style={{ fontSize: 'var(--fz-small)', fontWeight: 600, color: 'var(--secondary)', marginBottom: 4 }}>
                         Constant-E cut S(|Q|) · E ∈ [{eSliceRange[0]}, {eSliceRange[1]}] meV
                       </div>
                       <LineChart series={slice1DESeries} xLabel="|Q| (Å⁻¹)" yLabel="S(|Q|)" height={190} />
@@ -553,7 +558,7 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
       </div>
 
       {/* ════════ RIGHT INSPECTOR ════════ */}
-      <aside className="m-panel" style={{ overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <aside className="m-side ins-side" aria-label="INS comparison controls">
         {mode === '1d' ? (
           <>
             {/* Scoreboard */}

@@ -110,7 +110,12 @@ export default function CrystalViewer({
 
     const scene = new THREE.Scene();
     const width = Math.max(1, mountRef.current.clientWidth), height = Math.max(1, mountRef.current.clientHeight);
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 8000);
+    const calcFov = (aspect) => (
+      aspect < 1
+        ? Math.min(72, 2 * Math.atan(Math.tan((45 * Math.PI) / 360) / Math.max(0.42, aspect)) * (180 / Math.PI))
+        : 45
+    );
+    const camera = new THREE.PerspectiveCamera(calcFov(width / height), width / height, 0.1, 8000);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setSize(width, height); renderer.setPixelRatio(window.devicePixelRatio);
     mountRef.current.innerHTML = '';
@@ -365,7 +370,11 @@ export default function CrystalViewer({
       if (!mountRef.current) return;
       const w = mountRef.current.clientWidth, h = mountRef.current.clientHeight;
       if (w < 1 || h < 1) return;   // skip transient zero-size layouts
-      camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+      const aspect = w / h;
+      camera.aspect = aspect;
+      camera.fov = calcFov(aspect);
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
     };
     window.addEventListener('resize', onResize);
     // Track the CARD's size, not just the window, so the structure box adapts
@@ -385,5 +394,5 @@ export default function CrystalViewer({
     };
   }, [baseStructure, supercell, showVectors, showCell, atomScale, elementColors, elementRadii, displayStyle, showBonds, bondCutoff, bondRules, shading, shadingStrength]);
 
-  return <div ref={mountRef} className="w-full h-full min-h-[360px] cursor-move rounded-xl overflow-hidden" />;
+  return <div ref={mountRef} className="w-full h-full min-h-[170px] cursor-move rounded-xl overflow-hidden" />;
 }

@@ -119,27 +119,20 @@ export default function ViewerPage({
   if (!model) {
     return (
       <div
+        className={`m-landing ${dragOver ? 'is-drag' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: dragOver ? 'var(--muted)' : 'var(--page)',
-          padding: '48px 24px',
-        }}
       >
-        <div style={{ width: 'min(620px, 100%)', textAlign: 'left', lineHeight: 1.55 }}>
-          <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.1, margin: '0 0 14px', color: 'var(--ink)' }}>
+        <div className="m-landing-card">
+          <h1 className="m-landing-title">
             Phonon bands, 3D modes &amp; simulated INS.
           </h1>
-          <p style={{ margin: '0 0 18px', color: 'var(--secondary)', fontSize: 15 }}>
+          <p className="m-landing-lead">
             Pin symmetry candidates &amp; run MLIP from the <b style={{ color: 'var(--ink)' }}>Symmetry</b> tab, or drop a saved{' '}
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>_mlip_dm.json</code>{' '}
+            <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9em', background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>_mlip_dm.json</code>{' '}
             or{' '}
-            <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>band.yaml</code>{' '}
+            <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.9em', background: 'var(--muted)', padding: '1px 5px', borderRadius: 4 }}>band.yaml</code>{' '}
             file anywhere on this page.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -334,13 +327,13 @@ export default function ViewerPage({
               </div>
             </div>
 
-            {/* Side-by-side Figures */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, flex: 1 }}>
+            {/* Side-by-side Figures (adapts via .ph-fig-grid container query & layout mode) */}
+            <div className="ph-fig-grid">
               {/* Band Structure */}
               <div className="m-frame" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                   <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>Phonon band structure</span>
-                  <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>click a point to inspect</span>
+                  <span style={{ fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>click a point to inspect</span>
                 </div>
                 <BandStructurePlot
                   bands={displayBands}
@@ -361,7 +354,7 @@ export default function ViewerPage({
               <div className="m-frame" style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
                   <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>Mode displacement</span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--faint)' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>
                     {recording && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--warn-ink)', fontWeight: 700 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--warn-ink)', animation: 'blip 1s infinite' }} />
@@ -372,7 +365,7 @@ export default function ViewerPage({
                   </span>
                 </div>
 
-                <div style={{ flex: 1, minHeight: 400, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="ph-mode-canvas">
                   {model.eigvecs ? (
                     <CrystalViewer
                       baseStructure={model.baseStructure}

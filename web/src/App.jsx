@@ -5,6 +5,8 @@ import { fromPhonopyDM } from './io/phonopyDM';
 import { checkMlipServer, runMlipJob, DEFAULT_MLIP_URL } from './io/mlipClient';
 import { generatePhonopyBandYaml, downloadString } from './io/writers';
 import ThemeCue from './components/ThemeCue';
+import LayoutCue from './components/LayoutCue';
+import { detectAutoLayout, readLayout, saveLayout } from './layout';
 import SymmetryPage from './pages/SymmetryPage';
 import ViewerPage from './pages/ViewerPage';
 import InsComparePage from './pages/InsComparePage';
@@ -21,6 +23,8 @@ const CANDIDATE_PALETTE = [
 
 export default function App() {
   const [page, setPage] = useState('symmetry');   // 'symmetry' | 'phonons' | 'ins' | 'legacy'
+  const [layoutPref, setLayoutPref] = useState(readLayout);
+  const [autoLayout, setAutoLayout] = useState(() => detectAutoLayout());
   const [candidates, setCandidates] = useState([]);
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [ready, setReady] = useState(false);
@@ -40,7 +44,17 @@ export default function App() {
       .then(() => setReady(true))
       .catch(e => { console.error('Init failed:', e); setReady(true); });
     checkMlipServer(DEFAULT_MLIP_URL).then(setMlipServer);
+    const onResize = () => setAutoLayout(detectAutoLayout(window.innerWidth, window.innerHeight));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  const handleChangeLayout = useCallback((id) => {
+    saveLayout(id);
+    setLayoutPref(id);
+  }, []);
+
+  const effectiveLayout = layoutPref === 'auto' ? autoLayout : layoutPref;
 
   const activeCandidate = candidates.find(c => c.id === activeCandidateId)
     || candidates.find(c => c.model)
@@ -184,21 +198,32 @@ export default function App() {
   );
 
   return (
-    <div className="m-shell">
-      {/* ── Topbar: 1-2-3 guided pipeline stepper + quiet Legacy link ── */}
+    <div className="m-shell" data-layout={effectiveLayout} data-layout-pref={layoutPref}>
+      {/* ── Topbar: 1-2-3 guided pipeline stepper + layout switcher + quiet Legacy link ── */}
       <header className="m-topbar">
         <div className="m-brand">
           <span className="m-mark">RMC PHONON</span>
           <span className="m-submark">supercell symmetry → MLIP → INS</span>
+          <span className="m-submark-mobile">symmetry → MLIP → INS</span>
         </div>
 
-        <nav className="m-nav" aria-label="Workflow steps" style={{ gap: 14 }}>
-          <button type="button" className={page === 'symmetry' ? 'on' : ''} onClick={() => setPage('symmetry')}>
+        <nav className="m-nav" aria-label="Workflow steps">
+          <button
+            type="button"
+            className={page === 'symmetry' ? 'on' : ''}
+            aria-current={page === 'symmetry' ? 'page' : undefined}
+            onClick={() => setPage('symmetry')}
+          >
             {stepBadge(1, page === 'symmetry', candidates.length > 0)}
             <span>Symmetry</span>
           </button>
-          <span style={{ alignSelf: 'center', color: 'var(--control)', fontSize: 12, userSelect: 'none' }}>→</span>
-          <button type="button" className={page === 'phonons' ? 'on' : ''} onClick={() => setPage('phonons')}>
+          <span className="m-nav-arrow" aria-hidden="true">→</span>
+          <button
+            type="button"
+            className={page === 'phonons' ? 'on' : ''}
+            aria-current={page === 'phonons' ? 'page' : undefined}
+            onClick={() => setPage('phonons')}
+          >
             {stepBadge(2, page === 'phonons', nPhononModels > 0)}
             <span>Phonons</span>
             {nPhononModels > 0 && (
@@ -207,20 +232,29 @@ export default function App() {
               </span>
             )}
           </button>
-          <span style={{ alignSelf: 'center', color: 'var(--control)', fontSize: 12, userSelect: 'none' }}>→</span>
-          <button type="button" className={page === 'ins' ? 'on' : ''} onClick={() => setPage('ins')}>
+          <span className="m-nav-arrow" aria-hidden="true">→</span>
+          <button
+            type="button"
+            className={page === 'ins' ? 'on' : ''}
+            aria-current={page === 'ins' ? 'page' : undefined}
+            onClick={() => setPage('ins')}
+          >
             {stepBadge(3, page === 'ins', false)}
-            <span>INS Compare</span>
+            <span>INS<span className="m-hide-xs"> Compare</span></span>
           </button>
         </nav>
 
         <div className="m-actions">
+          <LayoutCue
+            layoutPref={layoutPref}
+            effectiveLayout={effectiveLayout}
+            onChange={handleChangeLayout}
+          />
           <button
             type="button"
-            className={`m-btn sm ${page === 'legacy' ? 'active' : 'subtle'}`}
+            className={`m-btn sm m-legacy-btn ${page === 'legacy' ? 'active' : 'subtle'}`}
             onClick={() => setPage('legacy')}
             title="Legacy brute-force 500+ config RMC covariance runner (WebGPU)"
-            style={{ fontSize: 11.5 }}
           >
             Legacy RMC
           </button>
@@ -230,7 +264,9 @@ export default function App() {
             title={mlipServer.connected ? 'Local MLIP server connected (1-click phonon runs enabled)' : 'Static browser mode — start `uv run rmcph-mlip serve` for 1-click MLIP runs'}
           >
             <span className={anyRunning ? 'm-status-dot' : (mlipServer.connected || ready) ? 'm-status-dot ready' : 'm-status-dot'} style={anyRunning ? { background: 'var(--fig-accent)', animation: 'blip 1s infinite' } : undefined} />
-            {anyRunning ? 'MLIP running…' : mlipServer.connected ? 'MLIP local' : 'Browser'}
+            <span className="m-status-text">
+              {anyRunning ? 'MLIP running…' : mlipServer.connected ? 'MLIP local' : 'Browser'}
+            </span>
           </span>
         </div>
       </header>
@@ -245,7 +281,7 @@ export default function App() {
       )}
 
       {/* ── Pages stay mounted to preserve datasets & WebGL canvases ── */}
-      <div style={{ display: page === 'symmetry' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className={page === 'symmetry' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
         <SymmetryPage
           candidates={candidates}
           onPinCandidate={pinCandidate}
@@ -258,7 +294,7 @@ export default function App() {
         />
       </div>
 
-      <div style={{ display: page === 'phonons' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className={page === 'phonons' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
         <ViewerPage
           model={activeModel}
           candidates={candidates}
@@ -270,7 +306,7 @@ export default function App() {
         />
       </div>
 
-      <div style={{ display: page === 'ins' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className={page === 'ins' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
         <InsComparePage
           candidates={candidates}
           onLoadModelFile={loadModelFile}
@@ -278,7 +314,7 @@ export default function App() {
         />
       </div>
 
-      <div style={{ display: page === 'legacy' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className={page === 'legacy' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
         <RunnerPage
           pipeline={pipelineRef.current}
           ready={ready}

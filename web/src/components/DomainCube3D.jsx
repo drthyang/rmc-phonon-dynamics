@@ -37,7 +37,12 @@ export default function DomainCube3D({
 
     const w = Math.max(100, el.clientWidth);
     const h = Math.max(100, el.clientHeight);
-    const camera = new THREE.PerspectiveCamera(34, w / h, 0.1, 200);
+    const calcFov = (aspect) => (
+      aspect < 1.08
+        ? Math.min(68, 2 * Math.atan(Math.tan((34 * Math.PI) / 360) / Math.max(0.42, aspect / 1.08)) * (180 / Math.PI))
+        : 34
+    );
+    const camera = new THREE.PerspectiveCamera(calcFov(w / h), w / h, 0.1, 200);
     camera.position.set(1.65, 1.35, 1.85);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -74,7 +79,9 @@ export default function DomainCube3D({
       if (!el) return;
       const nw = Math.max(60, el.clientWidth);
       const nh = Math.max(60, el.clientHeight);
-      camera.aspect = nw / nh;
+      const aspect = nw / nh;
+      camera.aspect = aspect;
+      camera.fov = calcFov(aspect);
       camera.updateProjectionMatrix();
       renderer.setSize(nw, nh);
     });
@@ -204,7 +211,7 @@ export default function DomainCube3D({
   return (
     <div
       ref={mountRef}
-      style={{ width: '100%', height: '100%', minHeight: 190, cursor: 'grab' }}
+      style={{ width: '100%', height: '100%', minHeight: 160, cursor: 'grab' }}
       title="Drag to rotate 3D supercell domain cube · Scroll to zoom"
     />
   );

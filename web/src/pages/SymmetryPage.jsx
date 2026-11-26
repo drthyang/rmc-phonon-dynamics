@@ -350,20 +350,17 @@ export default function SymmetryPage({
   if (!baseStructure) {
     return (
       <div
+        className={`m-landing ${dragOver ? 'is-drag' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
-        style={{
-          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: dragOver ? 'var(--muted)' : 'var(--page)', padding: '48px 24px',
-        }}
       >
-        <div style={{ width: 'min(680px, 100%)', textAlign: 'left', lineHeight: 1.55 }}>
-          <h1 style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.08, margin: '0 0 14px', color: 'var(--ink)' }}>
+        <div className="m-landing-card">
+          <h1 className="m-landing-title">
             Modern phonons from RMC — start with supercell symmetry.
           </h1>
-          <p style={{ margin: '0 0 22px', color: 'var(--secondary)', fontSize: 15 }}>
-            Drop <b style={{ color: 'var(--ink)' }}>1 or many <code style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5 }}>.rmc6f</code> supercells</b> (or a full ensemble folder) to stream null-calibrated local symmetry breaking, spatial cross-validated domains, and correlation length ξ — then run MLIP phonons and validate directly against INS.
+          <p className="m-landing-lead">
+            Drop <b style={{ color: 'var(--ink)' }}>1 or many <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.92em' }}>.rmc6f</code> supercells</b> (or a full ensemble folder) to stream null-calibrated local symmetry breaking, spatial cross-validated domains, and correlation length ξ — then run MLIP phonons and validate directly against INS.
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
@@ -382,7 +379,7 @@ export default function SymmetryPage({
             </label>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, paddingTop: 18, borderTop: '1px solid var(--line)', fontSize: 12.5, color: 'var(--secondary)' }}>
+          <div className="sym-landing-steps">
             <div><b style={{ color: 'var(--ink)' }}>1 · Ensemble Symmetry</b><br />Stream 1–500+ configs in O(1) RAM with null calibration &amp; ξ(r).</div>
             <div><b style={{ color: 'var(--ink)' }}>2 · MLIP Phonons</b><br />Compare Parent vs. ensemble-averaged Local bands in seconds.</div>
             <div><b style={{ color: 'var(--ink)' }}>3 · INS Compare</b><br />Rank models quantitatively against 1D GDOS &amp; 2D S(|Q|,E).</div>
@@ -413,24 +410,21 @@ export default function SymmetryPage({
 
   return (
     <div
+      className="sym-workspace"
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}
-      style={{
-        flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14,
-        padding: '14px var(--edge)', overflow: 'hidden', background: 'var(--page)',
-      }}
     >
       {/* ════════ TOP GUIDED ACTION STRIP ════════ */}
-      <div className="m-frame" style={{ flex: 'none', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--surface)' }}>
+      <div className="m-frame sym-strip">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
           {/* File + Ensemble identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <b style={{ fontSize: 16 }}>{readout?.formula || 'Supercell'}</b>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+            <b style={{ fontSize: 'var(--fz-title)' }}>{readout?.formula || 'Supercell'}</b>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
               {sourceLabel}
             </span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--faint)' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>
               {readout?.supercell}
               {scResult ? ` · ${scResult.nConfigs} cfg (${(scResult.nConfigs * (readout?.nCells || 1)).toLocaleString()} cells)` : ''}
             </span>
@@ -603,400 +597,387 @@ export default function SymmetryPage({
 
       {(loadErr || scErr) && <div className="m-notice bad" style={{ margin: 0 }}>{loadErr || scErr}</div>}
 
-      {/* ════════ MAIN 2-COLUMN WORKSPACE: Visual Stack (Crystal + 3D/2D Domains) | Symmetry Analysis ════════ */}
-      <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'minmax(360px, 48%) minmax(360px, 1fr)', gap: 14 }}>
-        {/* ── LEFT COLUMN: Both 3D Crystal AND 3D/2D Domain Structure visible simultaneously ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflow: 'hidden' }}>
-          {/* Card 1: 3D Crystal Structure (always visible) */}
-          <div className="m-frame" style={{ flex: '1 1 44%', display: 'flex', flexDirection: 'column', minHeight: 200, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, fontSize: 13 }}>3D Crystal Structure</span>
-              <div style={{ display: 'inline-flex', gap: 4 }}>
-                <button type="button" className={`m-btn sm ${crystalMode === 'parent' ? 'active' : ''}`} onClick={() => setCrystalMode('parent')}>
-                  Parent ({parentSg})
-                </button>
-                <button type="button" className={`m-btn sm ${crystalMode === 'aligned' ? 'active' : ''}`} disabled={!scResult?.aligned} onClick={() => setCrystalMode('aligned')}>
-                  Local ({localSg || '—'})
-                </button>
-              </div>
-            </div>
-            <div style={{ flex: 1, minHeight: 140, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {previewStruct && (
-                <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={cell111} showCell showBonds />
-              )}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px solid var(--line)', fontSize: 11.5, color: 'var(--secondary)' }}>
-              <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
-                {readout?.counts.map(([el, count]) => (
-                  <span key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: DEFAULT_COLORS[el] || '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
-                    <b style={{ color: 'var(--ink)' }}>{el}</b>×{count}
-                  </span>
-                ))}
-              </div>
-              {crystalMode === 'aligned' && scResult?.aligned && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--note-ink)' }}>
-                  RMS {scResult.aligned.symRms.toFixed(4)}
-                  {scResult.aligned.rmsSE > 0 ? ` ± ${scResult.aligned.rmsSE.toFixed(4)}` : ''} Å
-                </span>
-              )}
+      {/* ════════ MULTI-LAYOUT WORKSPACE: Stack | Deck | Split | Panoramic ════════ */}
+      <div className="sym-grid">
+        {/* ── CARD 1: 3D Crystal Structure ── */}
+        <section className="m-frame sym-crystal" aria-label="3D Crystal Structure">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>3D Crystal Structure</span>
+            <div style={{ display: 'inline-flex', gap: 4 }}>
+              <button type="button" className={`m-btn sm ${crystalMode === 'parent' ? 'active' : ''}`} onClick={() => setCrystalMode('parent')}>
+                Parent ({parentSg})
+              </button>
+              <button type="button" className={`m-btn sm ${crystalMode === 'aligned' ? 'active' : ''}`} disabled={!scResult?.aligned} onClick={() => setCrystalMode('aligned')}>
+                Local ({localSg || '—'})
+              </button>
             </div>
           </div>
-
-          {/* Card 2: 3D Domain Cube + 2D Domain Map (always visible) */}
-          <div className="m-frame" style={{ flex: '1.25 1 56%', display: 'flex', flexDirection: 'column', minHeight: 240, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>
-                  Domains {activeSubgroup ? `· ${activeSubgroup.spaceGroup}` : ''}
-                </span>
-                <div className="m-tools" role="tablist" style={{ gap: 8 }}>
-                  <button type="button" className={domainView === 'both' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('both')}>
-                    3D + 2D
-                  </button>
-                  <button type="button" className={domainView === 'cube' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('cube')}>
-                    3D Cube
-                  </button>
-                  <button type="button" className={domainView === 'slice' ? 'on' : 'dim'} style={{ padding: '2px 0', fontSize: 12 }} onClick={() => setDomainView('slice')}>
-                    2D Slice
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {activeSubgroup?.savedGrids?.length > 1 && (
-                  <select
-                    value={domainCfgIdx}
-                    onChange={e => setDomainCfgIdx(parseInt(e.target.value, 10))}
-                    className="m-input"
-                    style={{ height: 24, fontSize: 11, padding: '0 6px' }}
-                  >
-                    {activeSubgroup.savedGrids.map((sg, i) => (
-                      <option key={i} value={i}>{sg.configName}</option>
-                    ))}
-                  </select>
-                )}
-                {radialSeries.length > 0 && (
-                  <button
-                    type="button"
-                    className={`m-btn sm ${showCorrChart ? 'active' : 'subtle'}`}
-                    style={{ height: 24, fontSize: 11, padding: '0 7px' }}
-                    onClick={() => setShowCorrChart(v => !v)}
-                  >
-                    C(r)
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {activeGrid && activeSubgroup ? (
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', padding: '8px 12px', gap: 8 }}>
-                {/* Compact controls: z-layer + 3D slice mode + physics metrics */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 11.5, fontFamily: 'var(--font-mono)' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--secondary)' }}>
-                    <span>z=<b style={{ color: 'var(--ink)' }}>{sliceZ}</b>/{scResult.dim[2] - 1}</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={Math.max(0, scResult.dim[2] - 1)}
-                      value={Math.min(sliceZ, scResult.dim[2] - 1)}
-                      onChange={e => setSliceZ(parseInt(e.target.value, 10))}
-                      className="m-range"
-                      style={{ width: 76 }}
-                    />
-                    {domainView !== 'slice' && (
-                      <div style={{ display: 'inline-flex', gap: 3 }}>
-                        {[['all', 'Full'], ['slice', 'Slice'], ['cutaway', 'Cut']].map(([k, lbl]) => (
-                          <button
-                            key={k}
-                            type="button"
-                            className={`m-btn sm ${sliceMode3D === k ? 'active' : ''}`}
-                            style={{ height: 22, padding: '0 6px', fontSize: 10.5 }}
-                            onClick={() => setSliceMode3D(k)}
-                          >
-                            {lbl}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'inline-flex', gap: 10, color: 'var(--secondary)' }}>
-                    <span>ξ=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.corrLengthAng.toFixed(1)}Å</b></span>
-                    <span>clust=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.meanClusterCells?.toFixed(1) ?? '—'}</b></span>
-                    <span>NN=<b style={{ color: 'var(--ink)' }}>{(100 * (activeSubgroup.neighborMatchRate || 0)).toFixed(1)}%</b></span>
-                  </div>
-                </div>
-
-                {/* Main 3D Cube + 2D Slice visual row */}
-                <div
-                  style={{
-                    flex: 1,
-                    minHeight: 165,
-                    display: 'grid',
-                    gridTemplateColumns: domainView === 'both' ? 'minmax(160px, 1.15fr) auto' : '1fr',
-                    gap: 10,
-                    alignItems: 'center',
-                  }}
-                >
-                  {domainView !== 'slice' && (
-                    <div style={{ width: '100%', height: '100%', minHeight: 165, border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', background: '#fff' }}>
-                      <DomainCube3D
-                        grid={activeGrid}
-                        dim={scResult.dim}
-                        palette={DOMAIN_PALETTE}
-                        activeDomain={soloDomain}
-                        sliceZ={Math.min(sliceZ, scResult.dim[2] - 1)}
-                        sliceMode={sliceMode3D}
-                      />
-                    </div>
-                  )}
-
-                  {domainView !== 'cube' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: `repeat(${scResult.dim[1]}, ${domainView === 'both' ? 19 : 24}px)`,
-                          gap: 2, padding: 6, borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)',
-                        }}
-                      >
-                        {Array.from({ length: scResult.dim[0] * scResult.dim[1] }, (_, idx) => {
-                          const x = Math.floor(idx / scResult.dim[1]);
-                          const y = idx % scResult.dim[1];
-                          const z = Math.min(sliceZ, scResult.dim[2] - 1);
-                          const c = (x * scResult.dim[1] + y) * scResult.dim[2] + z;
-                          const dom = activeGrid[c] ?? 0;
-                          const dimmed = soloDomain !== null && dom !== soloDomain;
-                          const sz = domainView === 'both' ? 19 : 24;
-                          return (
-                            <div
-                              key={idx}
-                              title={`Cell (${x},${y},${z}) → Domain D${dom + 1}`}
-                              style={{
-                                width: sz, height: sz, borderRadius: 3,
-                                background: DOMAIN_PALETTE[dom % DOMAIN_PALETTE.length],
-                                opacity: dimmed ? 0.16 : 1,
-                                color: '#fff', fontSize: domainView === 'both' ? 9 : 10, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              }}
-                            >
-                              {dom + 1}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--faint)' }}>
-                        2D slice z={Math.min(sliceZ, scResult.dim[2] - 1)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Clickable domain legend chips (click to solo/isolate in 3D Cube & 2D Slice!) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  {activeSubgroup.domainFractions.map((f, i) => {
-                    const isSolo = soloDomain === i;
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setSoloDomain(cur => (cur === i ? null : i))}
-                        title="Click to isolate this twin domain in 3D & 2D"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5,
-                          padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-                          border: `1px solid ${isSolo ? 'var(--ink)' : 'var(--line)'}`,
-                          background: isSolo ? 'var(--muted)' : 'transparent',
-                          opacity: soloDomain !== null && !isSolo ? 0.45 : 1,
-                          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--ink)',
-                        }}
-                      >
-                        <span style={{ width: 9, height: 9, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] }} />
-                        <span>
-                          D{i + 1} {(100 * f).toFixed(1)}%
-                          {activeSubgroup.domainFractionSE ? `±${(100 * activeSubgroup.domainFractionSE[i]).toFixed(1)}` : ''}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  {soloDomain !== null && (
-                    <button type="button" className="m-btn sm subtle" style={{ height: 22, fontSize: 10.5 }} onClick={() => setSoloDomain(null)}>
-                      Show all
-                    </button>
-                  )}
-                </div>
-
-                {/* Optional Radial Autocorrelation C_dom(r) chart */}
-                {showCorrChart && radialSeries.length > 0 && (
-                  <div style={{ paddingTop: 6, borderTop: '1px solid var(--line)' }}>
-                    <LineChart series={radialSeries} xLabel="Lag r (unit cells)" yLabel="C_dom(r)" height={125} />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ padding: 16, color: 'var(--faint)', fontSize: 12.5 }}>
-                Select a multi-variant local subgroup on the right to visualize its 3D domain cube and 2D slice map.
-              </div>
+          <div style={{ flex: 1, minHeight: 170, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {previewStruct && (
+              <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={cell111} showCell showBonds />
             )}
           </div>
-        </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px solid var(--line)', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+            <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
+              {readout?.counts.map(([el, count]) => (
+                <span key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: DEFAULT_COLORS[el] || '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
+                  <b style={{ color: 'var(--ink)' }}>{el}</b>×{count}
+                </span>
+              ))}
+            </div>
+            {crystalMode === 'aligned' && scResult?.aligned && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--note-ink)' }}>
+                RMS {scResult.aligned.symRms.toFixed(4)}
+                {scResult.aligned.rmsSE > 0 ? ` ± ${scResult.aligned.rmsSE.toFixed(4)}` : ''} Å
+              </span>
+            )}
+          </div>
+        </section>
 
-        {/* ── RIGHT COLUMN: Flat 4-Tab Ensemble Symmetry Analysis Card ── */}
-        <div className="m-frame" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
-            <div className="m-tools" role="tablist">
-              <button type="button" className={analysisTab === 'subgroups' ? 'on' : 'dim'} onClick={() => setAnalysisTab('subgroups')}>
+        {/* ── CARD 2: 3D Domain Cube + 2D Domain Map ── */}
+        <section className="m-frame sym-domains" aria-label="Supercell Domains">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>
+                Domains {activeSubgroup ? `· ${activeSubgroup.spaceGroup}` : ''}
+              </span>
+              <div className="m-tools" role="tablist" aria-label="Domain view" style={{ gap: 6 }}>
+                <button type="button" role="tab" aria-selected={domainView === 'both'} className={domainView === 'both' ? 'on' : 'dim'} onClick={() => setDomainView('both')}>
+                  3D + 2D
+                </button>
+                <button type="button" role="tab" aria-selected={domainView === 'cube'} className={domainView === 'cube' ? 'on' : 'dim'} onClick={() => setDomainView('cube')}>
+                  3D Cube
+                </button>
+                <button type="button" role="tab" aria-selected={domainView === 'slice'} className={domainView === 'slice' ? 'on' : 'dim'} onClick={() => setDomainView('slice')}>
+                  2D Slice
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {activeSubgroup?.savedGrids?.length > 1 && (
+                <select
+                  value={domainCfgIdx}
+                  onChange={e => setDomainCfgIdx(parseInt(e.target.value, 10))}
+                  className="m-input sm"
+                  aria-label="Domain configuration"
+                >
+                  {activeSubgroup.savedGrids.map((sg, i) => (
+                    <option key={i} value={i}>{sg.configName}</option>
+                  ))}
+                </select>
+              )}
+              {radialSeries.length > 0 && (
+                <button
+                  type="button"
+                  className={`m-btn sm ${showCorrChart ? 'active' : 'subtle'}`}
+                  onClick={() => setShowCorrChart(v => !v)}
+                >
+                  C(r)
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeGrid && activeSubgroup ? (
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'auto', overscrollBehavior: 'contain', padding: '8px 12px', gap: 8 }}>
+              {/* Compact controls: z-layer + 3D slice mode + physics metrics */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 'var(--fz-small)', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', color: 'var(--secondary)' }}>
+                  <span>z=<b style={{ color: 'var(--ink)' }}>{sliceZ}</b>/{scResult.dim[2] - 1}</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(0, scResult.dim[2] - 1)}
+                    value={Math.min(sliceZ, scResult.dim[2] - 1)}
+                    onChange={e => setSliceZ(parseInt(e.target.value, 10))}
+                    className="m-range"
+                    aria-label="z slice index"
+                    style={{ width: 80 }}
+                  />
+                  {domainView !== 'slice' && (
+                    <div style={{ display: 'inline-flex', gap: 3 }}>
+                      {[['all', 'Full'], ['slice', 'Slice'], ['cutaway', 'Cut']].map(([k, lbl]) => (
+                        <button
+                          key={k}
+                          type="button"
+                          className={`m-btn sm ${sliceMode3D === k ? 'active' : ''}`}
+                          onClick={() => setSliceMode3D(k)}
+                        >
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', color: 'var(--secondary)' }}>
+                  <span>ξ=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.corrLengthAng.toFixed(1)}Å</b></span>
+                  <span>clust=<b style={{ color: 'var(--ink)' }}>{activeSubgroup.meanClusterCells?.toFixed(1) ?? '—'}</b></span>
+                  <span>NN=<b style={{ color: 'var(--ink)' }}>{(100 * (activeSubgroup.neighborMatchRate || 0)).toFixed(1)}%</b></span>
+                </div>
+              </div>
+
+              {/* Main 3D Cube + 2D Slice visual row */}
+              <div className={`sym-domain-split ${domainView === 'both' ? 'is-both' : ''}`}>
+                {domainView !== 'slice' && (
+                  <div className="sym-cube-box">
+                    <DomainCube3D
+                      grid={activeGrid}
+                      dim={scResult.dim}
+                      palette={DOMAIN_PALETTE}
+                      activeDomain={soloDomain}
+                      sliceZ={Math.min(sliceZ, scResult.dim[2] - 1)}
+                      sliceMode={sliceMode3D}
+                    />
+                  </div>
+                )}
+
+                {domainView !== 'cube' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, maxWidth: '100%', overflowX: 'auto' }}>
+                    <div
+                      className="sym-slice-grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${scResult.dim[1]}, var(--cell-sz))`,
+                      }}
+                    >
+                      {Array.from({ length: scResult.dim[0] * scResult.dim[1] }, (_, idx) => {
+                        const x = Math.floor(idx / scResult.dim[1]);
+                        const y = idx % scResult.dim[1];
+                        const z = Math.min(sliceZ, scResult.dim[2] - 1);
+                        const c = (x * scResult.dim[1] + y) * scResult.dim[2] + z;
+                        const dom = activeGrid[c] ?? 0;
+                        const dimmed = soloDomain !== null && dom !== soloDomain;
+                        return (
+                          <div
+                            key={idx}
+                            className="sym-slice-cell"
+                            title={`Cell (${x},${y},${z}) → Domain D${dom + 1}`}
+                            style={{
+                              background: DOMAIN_PALETTE[dom % DOMAIN_PALETTE.length],
+                              opacity: dimmed ? 0.16 : 1,
+                            }}
+                          >
+                            {dom + 1}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>
+                      2D slice z={Math.min(sliceZ, scResult.dim[2] - 1)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Clickable domain legend chips (click to solo/isolate in 3D Cube & 2D Slice!) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)' }}>
+                {activeSubgroup.domainFractions.map((f, i) => {
+                  const isSolo = soloDomain === i;
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setSoloDomain(cur => (cur === i ? null : i))}
+                      title="Click to isolate this twin domain in 3D & 2D"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '3px 7px', borderRadius: 4, cursor: 'pointer',
+                        border: `1px solid ${isSolo ? 'var(--ink)' : 'var(--line)'}`,
+                        background: isSolo ? 'var(--muted)' : 'transparent',
+                        opacity: soloDomain !== null && !isSolo ? 0.45 : 1,
+                        fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--ink)',
+                      }}
+                    >
+                      <span style={{ width: 9, height: 9, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] }} />
+                      <span>
+                        D{i + 1} {(100 * f).toFixed(1)}%
+                        {activeSubgroup.domainFractionSE ? `±${(100 * activeSubgroup.domainFractionSE[i]).toFixed(1)}` : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+                {soloDomain !== null && (
+                  <button type="button" className="m-btn sm subtle" onClick={() => setSoloDomain(null)}>
+                    Show all
+                  </button>
+                )}
+              </div>
+
+              {/* Optional Radial Autocorrelation C_dom(r) chart */}
+              {showCorrChart && radialSeries.length > 0 && (
+                <div style={{ paddingTop: 6, borderTop: '1px solid var(--line)' }}>
+                  <LineChart series={radialSeries} xLabel="Lag r (unit cells)" yLabel="C_dom(r)" height={135} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ padding: 16, color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>
+              Select a multi-variant local subgroup in the Symmetry Analysis panel to visualize its 3D domain cube and 2D slice map.
+            </div>
+          )}
+        </section>
+
+        {/* ── CARD 3: Flat 4-Tab Ensemble Symmetry Analysis Card ── */}
+        <section className="m-frame sym-analysis" aria-label="Symmetry Analysis">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
+            <div className="m-tools" role="tablist" aria-label="Symmetry analysis views">
+              <button type="button" role="tab" aria-selected={analysisTab === 'subgroups'} className={analysisTab === 'subgroups' ? 'on' : 'dim'} onClick={() => setAnalysisTab('subgroups')}>
                 Local Subgroups
               </button>
-              <button type="button" className={analysisTab === 'kspace' ? 'on' : 'dim'} onClick={() => setAnalysisTab('kspace')}>
+              <button type="button" role="tab" aria-selected={analysisTab === 'kspace'} className={analysisTab === 'kspace' ? 'on' : 'dim'} onClick={() => setAnalysisTab('kspace')}>
                 k-Space Modes
               </button>
               {isMulti && (
-                <button type="button" className={analysisTab === 'convergence' ? 'on' : 'dim'} onClick={() => setAnalysisTab('convergence')}>
+                <button type="button" role="tab" aria-selected={analysisTab === 'convergence'} className={analysisTab === 'convergence' ? 'on' : 'dim'} onClick={() => setAnalysisTab('convergence')}>
                   Convergence ({scResult.nConfigs})
                 </button>
               )}
-              <button type="button" className={analysisTab === 'average' ? 'on' : 'dim'} onClick={() => setAnalysisTab('average')}>
+              <button type="button" role="tab" aria-selected={analysisTab === 'average'} className={analysisTab === 'average' ? 'on' : 'dim'} onClick={() => setAnalysisTab('average')}>
                 Average Ladder
               </button>
             </div>
-            <span style={{ fontSize: 11.5, color: 'var(--faint)' }}>
+            <span style={{ fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>
               {analysisTab === 'subgroups' ? 'Null-calibrated · click row to select' : ''}
             </span>
           </div>
 
-          <div style={{ flex: 1, overflow: 'auto', padding: '12px 16px' }}>
+          <div className="sym-analysis-body">
             {scBusy && !scResult ? (
-              <div style={{ padding: 24, color: 'var(--secondary)', fontSize: 13 }}>
+              <div style={{ padding: 24, color: 'var(--secondary)', fontSize: 'var(--fz-control)' }}>
                 Streaming supercell configurations… ({scProgress.text})
               </div>
             ) : analysisTab === 'subgroups' ? (
               sortedSubgroups.length > 0 ? (
                 <>
                   {!hasRealDisplacements && (
-                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--muted)', fontSize: 12, color: 'var(--secondary)' }}>
+                    <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--muted)', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
                       Zero atomic displacements detected (this looks like an ideal/initial <code style={{ fontFamily: 'var(--font-mono)' }}>.rmc6f</code>). Load converged RMC configurations to measure local symmetry breaking.
                     </div>
                   )}
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        <th style={{ padding: '6px 6px' }}>Subgroup</th>
-                        <th style={{ padding: '6px 6px' }}>Vars</th>
-                        <th style={{ padding: '6px 6px' }} title="Bias-corrected ΔF minus exact isotropic-noise null expectation">Excess ΔF {isMulti ? '(±SE)' : ''}</th>
-                        <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Spatial neighbor cross-validated ΔF (zero within-cell selection bias)">CV ΔF</th>
-                        {isMulti && <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Fraction of RMC configs ranking this subgroup #1">Win %</th>}
-                        <th style={{ padding: '6px 6px', textAlign: 'right' }}>ξ (Å)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedSubgroups.slice(0, 12).map((sg, i) => {
-                        const isSel = activeSubgroup?.spaceGroup === sg.spaceGroup;
-                        const scoreVal = isMulti ? sg.medianExcessDeltaF : sg.excessDeltaF;
-                        return (
-                          <tr
-                            key={sg.id || i}
-                            onClick={() => selectSubgroup(sg)}
-                            style={{
-                              cursor: 'pointer',
-                              borderBottom: '1px solid var(--line)',
-                              background: isSel ? 'var(--note-bg)' : 'transparent',
-                            }}
-                          >
-                            <td style={{ padding: '8px 6px', fontWeight: isSel ? 700 : 500, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                              {isSel && <span style={{ color: 'var(--ok-ink)', marginRight: 5 }}>●</span>}
-                              {sg.spaceGroup}
-                            </td>
-                            <td style={{ padding: '8px 6px', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                              {sg.nVariants}
-                            </td>
-                            <td style={{ padding: '8px 6px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--muted)', overflow: 'hidden', minWidth: 48 }}>
-                                  <div style={{ width: `${Math.max(0, Math.min(100, (scoreVal / maxExcessDF) * 100))}%`, height: '100%', background: isSel ? 'var(--ok-ink)' : 'var(--fig-accent)' }} />
-                                </div>
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
-                                  {scoreVal >= 0 ? '+' : ''}{scoreVal.toFixed(2)}
-                                  {sg.excessDeltaFSE !== null && (
-                                    <span style={{ color: 'var(--faint)', fontSize: 10.5 }}> ±{sg.excessDeltaFSE.toFixed(2)}</span>
-                                  )}
-                                </span>
-                              </div>
-                            </td>
-                            <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: sg.cvBreakingFStat > 1.15 ? 'var(--ok-ink)' : 'var(--secondary)', fontWeight: sg.cvBreakingFStat > 1.15 ? 600 : 400 }}>
-                              {Number.isFinite(sg.cvBreakingFStat) ? sg.cvBreakingFStat.toFixed(2) : '—'}
-                            </td>
-                            {isMulti && (
-                              <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: sg.winRate > 0.5 ? 700 : 400 }}>
-                                {(100 * sg.winRate).toFixed(0)}%
+                  <div className="m-table-wrap" tabIndex={0} role="region" aria-label="Candidate local subgroups">
+                    <table>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          <th style={{ padding: '6px 6px' }}>Subgroup</th>
+                          <th style={{ padding: '6px 6px' }}>Vars</th>
+                          <th style={{ padding: '6px 6px' }} title="Bias-corrected ΔF minus exact isotropic-noise null expectation">Excess ΔF {isMulti ? '(±SE)' : ''}</th>
+                          <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Spatial neighbor cross-validated ΔF (zero within-cell selection bias)">CV ΔF</th>
+                          {isMulti && <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Fraction of RMC configs ranking this subgroup #1">Win %</th>}
+                          <th style={{ padding: '6px 6px', textAlign: 'right' }}>ξ (Å)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSubgroups.slice(0, 12).map((sg, i) => {
+                          const isSel = activeSubgroup?.spaceGroup === sg.spaceGroup;
+                          const scoreVal = isMulti ? sg.medianExcessDeltaF : sg.excessDeltaF;
+                          return (
+                            <tr
+                              key={sg.id || i}
+                              onClick={() => selectSubgroup(sg)}
+                              style={{
+                                cursor: 'pointer',
+                                borderBottom: '1px solid var(--line)',
+                                background: isSel ? 'var(--note-bg)' : 'transparent',
+                              }}
+                            >
+                              <td style={{ padding: '8px 6px', fontWeight: isSel ? 700 : 500, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                                {isSel && <span style={{ color: 'var(--ok-ink)', marginRight: 5 }}>●</span>}
+                                {sg.spaceGroup}
                               </td>
-                            )}
-                            <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                              {sg.nVariants > 1 && sg.corrLengthAng > 0.1 ? `${sg.corrLengthAng.toFixed(1)}` : '—'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              <td style={{ padding: '8px 6px', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
+                                {sg.nVariants}
+                              </td>
+                              <td style={{ padding: '8px 6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--muted)', overflow: 'hidden', minWidth: 48 }}>
+                                    <div style={{ width: `${Math.max(0, Math.min(100, (scoreVal / maxExcessDF) * 100))}%`, height: '100%', background: isSel ? 'var(--ok-ink)' : 'var(--fig-accent)' }} />
+                                  </div>
+                                  <span style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                                    {scoreVal >= 0 ? '+' : ''}{scoreVal.toFixed(2)}
+                                    {sg.excessDeltaFSE !== null && (
+                                      <span style={{ color: 'var(--faint)', fontSize: '0.9em' }}> ±{sg.excessDeltaFSE.toFixed(2)}</span>
+                                    )}
+                                  </span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: sg.cvBreakingFStat > 1.15 ? 'var(--ok-ink)' : 'var(--secondary)', fontWeight: sg.cvBreakingFStat > 1.15 ? 600 : 400, whiteSpace: 'nowrap' }}>
+                                {Number.isFinite(sg.cvBreakingFStat) ? sg.cvBreakingFStat.toFixed(2) : '—'}
+                              </td>
+                              {isMulti && (
+                                <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: sg.winRate > 0.5 ? 700 : 400, whiteSpace: 'nowrap' }}>
+                                  {(100 * sg.winRate).toFixed(0)}%
+                                </td>
+                              )}
+                              <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                {sg.nVariants > 1 && sg.corrLengthAng > 0.1 ? `${sg.corrLengthAng.toFixed(1)}` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               ) : (
-                <div style={{ color: 'var(--faint)', fontSize: 13 }}>No symmetry-breaking local subgroups detected above the parent cell.</div>
+                <div style={{ color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>No symmetry-breaking local subgroups detected above the parent cell.</div>
               )
             ) : analysisTab === 'kspace' ? (
               scResult?.spectrum?.topK?.length ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* High-symmetry zone-boundary summary (Γ, X, M, R) */}
                   {scResult.spectrum.highSymStars && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, padding: '8px 10px', borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+                    <div className="sym-kstars">
                       <div><span style={{ color: 'var(--secondary)' }}>Γ (0,0,0)</span><br /><b>{scResult.spectrum.highSymStars.gamma?.toFixed(2)}×</b></div>
                       <div><span style={{ color: 'var(--secondary)' }}>X (½,0,0)</span><br /><b>{scResult.spectrum.highSymStars.X?.toFixed(2) ?? '—'}×</b></div>
                       <div><span style={{ color: 'var(--secondary)' }}>M (½,½,0)</span><br /><b>{scResult.spectrum.highSymStars.M?.toFixed(2) ?? '—'}×</b></div>
                       <div><span style={{ color: 'var(--secondary)' }}>R (½,½,½)</span><br /><b>{scResult.spectrum.highSymStars.R?.toFixed(2) ?? '—'}×</b></div>
                     </div>
                   )}
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 11, textTransform: 'uppercase' }}>
-                        <th style={{ padding: '6px 8px' }}>k-vector (rlu)</th>
-                        <th style={{ padding: '6px 8px' }}>SNR</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>P(k) (Å²)</th>
-                        {isMulti && <th style={{ padding: '6px 8px', textAlign: 'right' }}>Coherent %</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scResult.spectrum.topK.slice(0, 12).map((k, i) => (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
-                          <td style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)' }}>
-                            ({k.kFrac.map(v => v.toFixed(3)).join(', ')})
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--muted)', overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.min(100, (k.snr / maxSnr) * 100)}%`, height: '100%', background: 'var(--fig-accent)' }} />
-                              </div>
-                              <span style={{ fontFamily: 'var(--font-mono)', width: 42, textAlign: 'right' }}>{k.snr.toFixed(1)}×</span>
-                            </div>
-                          </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                            {Number.isFinite(k.power) ? k.power.toFixed(3) : '—'}
-                          </td>
-                          {isMulti && (
-                            <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                              {k.power > 1e-12 ? `${(100 * k.coherentPower / k.power).toFixed(0)}%` : '0%'}
-                            </td>
-                          )}
+                  <div className="m-table-wrap" tabIndex={0} role="region" aria-label="Supercell k-space displacement power">
+                    <table>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                          <th style={{ padding: '6px 8px' }}>k-vector (rlu)</th>
+                          <th style={{ padding: '6px 8px' }}>SNR</th>
+                          <th style={{ padding: '6px 8px', textAlign: 'right' }}>P(k) (Å²)</th>
+                          {isMulti && <th style={{ padding: '6px 8px', textAlign: 'right' }}>Coherent %</th>}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {scResult.spectrum.topK.slice(0, 12).map((k, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                            <td style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                              ({k.kFrac.map(v => v.toFixed(3)).join(', ')})
+                            </td>
+                            <td style={{ padding: '6px 8px', minWidth: 110 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'var(--muted)', overflow: 'hidden' }}>
+                                  <div style={{ width: `${Math.min(100, (k.snr / maxSnr) * 100)}%`, height: '100%', background: 'var(--fig-accent)' }} />
+                                </div>
+                                <span style={{ fontFamily: 'var(--font-mono)', width: 42, textAlign: 'right' }}>{k.snr.toFixed(1)}×</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                              {Number.isFinite(k.power) ? k.power.toFixed(3) : '—'}
+                            </td>
+                            {isMulti && (
+                              <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                {k.power > 1e-12 ? `${(100 * k.coherentPower / k.power).toFixed(0)}%` : '0%'}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ) : (
-                <div style={{ color: 'var(--faint)', fontSize: 13 }}>No k-space spectrum available.</div>
+                <div style={{ color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>No k-space spectrum available.</div>
               )
             ) : analysisTab === 'convergence' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div style={{ fontSize: 12.5, color: 'var(--secondary)' }}>
+                <div style={{ fontSize: 'var(--fz-control)', color: 'var(--secondary)' }}>
                   Tracking how the leading local subgroup&apos;s bias-corrected <b>Excess ΔF</b> and bias-free <b>Spatial CV ΔF</b> stabilize as more RMC configurations are streamed.
                 </div>
                 {convergenceSeries.length > 0 && (
@@ -1006,10 +987,10 @@ export default function SymmetryPage({
             ) : (
               /* Average Symmetry Ladder */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 'var(--fz-control)' }}>
                   <span style={{ color: 'var(--secondary)' }}>Tolerance</span>
                   <input type="range" min={0.02} max={1.0} step={0.01} value={symTol} onChange={e => setSymTol(parseFloat(e.target.value))} className="m-range" style={{ flex: 1 }} />
-                  <b style={{ fontFamily: 'var(--font-mono)', width: 54, textAlign: 'right' }}>{symTol.toFixed(2)} Å</b>
+                  <b style={{ fontFamily: 'var(--font-mono)', width: 58, textAlign: 'right' }}>{symTol.toFixed(2)} Å</b>
                 </label>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1021,13 +1002,13 @@ export default function SymmetryPage({
                       onClick={() => setSymTol(Math.min(1.0, Math.max(0.02, (b.from + b.to) * 0.5)))}
                       style={{ fontFamily: 'var(--font-mono)' }}
                     >
-                      {b.spaceGroup} <span style={{ color: 'var(--faint)', fontSize: 10.5 }}>[{b.from.toFixed(2)}–{b.to.toFixed(2)}Å]</span>
+                      {b.spaceGroup} <span style={{ color: 'var(--faint)', fontSize: '0.88em' }}>[{b.from.toFixed(2)}–{b.to.toFixed(2)}Å]</span>
                     </button>
                   ))}
                 </div>
 
                 {symInfo?.wyckoff?.length > 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--secondary)' }}>
+                  <div style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
                     <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--ink)' }}>Wyckoff sites ({parentSg})</div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {symInfo.wyckoff.map((w, i) => (
@@ -1041,7 +1022,7 @@ export default function SymmetryPage({
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

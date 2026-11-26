@@ -398,24 +398,15 @@ export default function RunnerPage({ pipeline, ready, onResults, onLoadResult })
   // ── Calm MOTIF editorial landing when no folder is open ──────────────────
   if (!dirHandle) {
     return (
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--page)',
-          padding: '48px 24px',
-        }}
-      >
-        <div style={{ width: 'min(640px, 100%)', textAlign: 'left', lineHeight: 1.55 }}>
-          <h1 style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.08, margin: '0 0 16px', color: 'var(--ink)' }}>
+      <div className="m-landing">
+        <div className="m-landing-card">
+          <h1 className="m-landing-title">
             Phonons from RMC total-scattering ensembles.
           </h1>
-          <p style={{ margin: '0 0 10px', color: 'var(--secondary)', fontSize: 15 }}>
+          <p className="m-landing-lead" style={{ marginBottom: 10 }}>
             Extract phonon band structures, animated 3D modes, and simulated inelastic neutron spectra directly from your RMCProfile displacement covariance — computed locally on WebGPU.
           </p>
-          <p style={{ margin: '0 0 24px', color: 'var(--faint)', fontSize: 13 }}>
+          <p style={{ margin: '0 0 24px', color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>
             Your files never leave your computer. Open a folder of numbered <code style={{ fontFamily: 'var(--font-mono)' }}>.rmc6f</code> or <code style={{ fontFamily: 'var(--font-mono)' }}>Frac*.txt</code> configurations to begin.
           </p>
 
