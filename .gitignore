@@ -2,6 +2,10 @@
 data/
 data_*/
 results/
+private/
+paper/
+manuscript/
+notes/
 .claude/
 .venv/
 __pycache__/
