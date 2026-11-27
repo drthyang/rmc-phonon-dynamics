@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { buildInsData } from '../compute/ins';
+import { CHOPPER_PRESETS, chopperResolutionFwhmAtE } from '../math/insCompare';
 import { downloadString } from '../io/writers';
 import { CMAP_NAMES, colormap, cmapGradient, intensityTransform } from './sqeColormaps';
 
-const HBAR2_2MN = 2.0723;
+const HBAR2_2MN = 2.0721248;
 const BG = [11, 14, 22];
 const DOS_STROKE = '#1b1a18', DOS_FILL = 'rgba(27,26,24,0.10)';
 
@@ -16,8 +17,11 @@ function qRange(E, Ei, ki) {
 
 /**
  * Simulated INS panel in MOTIF's clean museum-editorial aesthetic.
+ * Supports coherent + incoherent 1-phonon scattering, Sjolander multiphonon (n >= 2),
+ * and direct-geometry chopper resolution ΔE(E; E_i).
  */
 export default function InsPanel({ results, temperature }) {
+  const uid = useId();
   const workerRef = useRef(null);
   const canvasRef = useRef(null);
   const [running, setRunning] = useState(false);
@@ -30,12 +34,21 @@ export default function InsPanel({ results, temperature }) {
     if (!vals.length) return 50;
     vals.sort((a, b) => a - b);
     const p90 = vals[Math.min(vals.length - 1, Math.floor(vals.length * 0.90))];
-    return Math.max(5, Math.ceil(p90 * 1.1));
+    return Math.max(5, Math.ceil(p90 * 1.15));
   }, [results]);
 
   const [params, setParams] = useState(() => ({
-    T: temperature ?? 5, Emin: 0, Emax: maxE, sigma: Math.max(0.3, maxE / 100),
-    nE: 160, nQbins: 140, Ei: Math.max(5, Math.ceil(maxE * 1.25)),
+    T: temperature ?? 5,
+    Emin: 0,
+    Emax: maxE,
+    sigma: Math.max(0.3, maxE / 100),
+    nE: 160,
+    nQbins: 140,
+    Ei: Math.max(5, Math.ceil(maxE * 1.25)),
+    instrument: 'SEQUOIA',
+    scatteringMode: 'total',
+    includeMultiphonon: true,
+    useFullMesh: true,
   }));
   const [cmap, setCmap] = useState('viridis');
   const [scale, setScale] = useState('log');
@@ -45,7 +58,13 @@ export default function InsPanel({ results, temperature }) {
 
   useEffect(() => {
     setOut(null); setError(null); setCursor(null);
-    setParams(p => ({ ...p, T: temperature ?? p.T, Emax: maxE, sigma: Math.max(0.3, maxE / 100), Ei: Math.max(5, Math.ceil(maxE * 1.25)) }));
+    setParams(p => ({
+      ...p,
+      T: temperature ?? p.T,
+      Emax: maxE,
+      sigma: Math.max(0.3, maxE / 100),
+      Ei: Math.max(5, Math.ceil(maxE * 1.25)),
+    }));
   }, [results, maxE, temperature]);
 
   useEffect(() => {
@@ -66,7 +85,10 @@ export default function InsPanel({ results, temperature }) {
     if (params.nE < 2 || params.nQbins < 1) { setError('nE must be ≥ 2 and nQ ≥ 1.'); return; }
     setRunning(true); setError(null);
     try {
-      const { data, transfer } = buildInsData(results);
+      const { data, transfer } = buildInsData(results, {
+        temperatureK: params.T,
+        useFullMesh: params.useFullMesh,
+      });
       workerRef.current.postMessage({ data, params }, transfer);
     } catch (err) {
       setRunning(false); setError(err.message);
@@ -153,6 +175,14 @@ export default function InsPanel({ results, temperature }) {
   const Emax = pr ? pr.Eaxis[pr.nE - 1] : 1;
   const eTicks = pr ? energyTicks(Emin, Emax, pr.nE, 5) : [];
 
+  const chopperHint = useMemo(() => {
+    if (params.instrument === 'constant' || !(params.Ei > 0)) return null;
+    const f0 = chopperResolutionFwhmAtE(0, params.Ei, params.instrument);
+    const eHi = Math.max(5, Math.round(0.8 * params.Ei));
+    const fHi = chopperResolutionFwhmAtE(eHi, params.Ei, params.instrument);
+    return `FWHM: ${f0.toFixed(2)} meV (E=0) → ${fHi.toFixed(2)} meV (E=${eHi})`;
+  }, [params.instrument, params.Ei]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -161,20 +191,23 @@ export default function InsPanel({ results, temperature }) {
             Simulated INS · S(|Q|, E)
           </h2>
           <span style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
-            powder-averaged from eigenvectors
+            coherent + incoherent powder average, Debye–Waller &amp; multiphonon
           </span>
         </div>
-        <span style={{ fontSize: 'var(--fz-small)', fontFamily: 'var(--font-mono)', color: 'var(--faint)' }}>
-          Eᵢ = 0 ⇒ direct (full Q range)
+        <span id={`${uid}-chopper-note`} style={{ fontSize: 'var(--fz-small)', fontFamily: 'var(--font-mono)', color: 'var(--faint)' }}>
+          {chopperHint || 'Eᵢ = 0 ⇒ full |Q| range (constant σ)'}
         </span>
       </div>
 
-      {/* Parameters */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 10 }}>
+      {/* Numeric & Spectrometer Physics Parameters */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: 10 }}>
         {fields.map(([label, key, step]) => (
-          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>{label}</span>
+          <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label htmlFor={`${uid}-${key}`} style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+              {label}
+            </label>
             <input
+              id={`${uid}-${key}`}
               type="number"
               step={step}
               value={Number.isFinite(params[key]) ? params[key] : ''}
@@ -182,8 +215,43 @@ export default function InsPanel({ results, temperature }) {
               className="m-input mono tabular-nums"
               style={{ width: '100%' }}
             />
-          </label>
+          </div>
         ))}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label htmlFor={`${uid}-inst`} style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+            Resolution
+          </label>
+          <select
+            id={`${uid}-inst`}
+            value={params.instrument}
+            onChange={e => setParams(p => ({ ...p, instrument: e.target.value }))}
+            aria-describedby={`${uid}-chopper-note`}
+            className="m-select mono"
+            style={{ width: '100%', height: 32 }}
+          >
+            {Object.values(CHOPPER_PRESETS).map(prOpt => (
+              <option key={prOpt.key} value={prOpt.key}>{prOpt.shortLabel}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label htmlFor={`${uid}-scatt`} style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+            Cross-section
+          </label>
+          <select
+            id={`${uid}-scatt`}
+            value={params.scatteringMode}
+            onChange={e => setParams(p => ({ ...p, scatteringMode: e.target.value }))}
+            className="m-select mono"
+            style={{ width: '100%', height: 32 }}
+          >
+            <option value="total">Coh + Inc</option>
+            <option value="coherent">Coherent only</option>
+            <option value="incoherent_approx">Incoh approx</option>
+          </select>
+        </div>
       </div>
 
       {/* Actions & Display Bar */}
@@ -192,32 +260,60 @@ export default function InsPanel({ results, temperature }) {
           {running ? 'Computing…' : 'Run INS'}
         </button>
 
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
-          <span>colormap</span>
-          <select value={cmap} onChange={e => setCmap(e.target.value)} className="m-select mono" style={{ height: 28 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+          <label htmlFor={`${uid}-cmap`}>colormap</label>
+          <select id={`${uid}-cmap`} value={cmap} onChange={e => setCmap(e.target.value)} className="m-select mono" style={{ height: 28 }}>
             {CMAP_NAMES.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
-        </label>
+        </span>
 
         <div className="m-tools" role="group" aria-label="Intensity scale">
           <span style={{ fontSize: 'var(--fz-small)', color: 'var(--faint)', marginRight: 4 }}>scale</span>
           {[['linear', 'Lin'], ['sqrt', '√'], ['log', 'Log']].map(([val, lab]) => (
-            <button key={val} type="button" className={scale === val ? 'on' : 'dim'} onClick={() => setScale(val)}>
+            <button
+              key={val}
+              type="button"
+              aria-pressed={scale === val}
+              className={scale === val ? 'on' : 'dim'}
+              onClick={() => setScale(val)}
+            >
               {lab}
             </button>
           ))}
         </div>
 
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
-          <span>contrast</span>
-          <input type="range" min={0.4} max={3} step={0.1} value={contrast} onChange={e => setContrast(parseFloat(e.target.value))} className="m-range" style={{ width: 92 }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+          <label htmlFor={`${uid}-contrast`}>contrast</label>
+          <input id={`${uid}-contrast`} type="range" min={0.4} max={3} step={0.1} value={contrast} onChange={e => setContrast(parseFloat(e.target.value))} className="m-range" style={{ width: 88 }} />
           <span className="tabular-nums" style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink)', minWidth: 28 }}>×{contrast.toFixed(1)}</span>
-        </label>
+        </span>
 
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--ink)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={showModeDos} onChange={e => setShowModeDos(e.target.checked)} />
-          mode DOS
-        </label>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--ink)' }}>
+          <input
+            id={`${uid}-multi`}
+            type="checkbox"
+            checked={params.includeMultiphonon}
+            onChange={e => setParams(p => ({ ...p, includeMultiphonon: e.target.checked }))}
+          />
+          <label htmlFor={`${uid}-multi`} style={{ cursor: 'pointer' }}>multiphonon (n≥2)</label>
+        </span>
+
+        {results.dynamicalMatrixPayload && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--ink)' }}>
+            <input
+              id={`${uid}-mesh`}
+              type="checkbox"
+              checked={params.useFullMesh}
+              onChange={e => setParams(p => ({ ...p, useFullMesh: e.target.checked }))}
+            />
+            <label htmlFor={`${uid}-mesh`} style={{ cursor: 'pointer' }}>3D BZ mesh</label>
+          </span>
+        )}
+
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--ink)' }}>
+          <input id={`${uid}-modedos`} type="checkbox" checked={showModeDos} onChange={e => setShowModeDos(e.target.checked)} />
+          <label htmlFor={`${uid}-modedos`} style={{ cursor: 'pointer' }}>mode DOS</label>
+        </span>
 
         {pr && (
           <div style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
@@ -233,14 +329,16 @@ export default function InsPanel({ results, temperature }) {
         <div className="m-frame" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fz-small)', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
             <span>
-              S(|Q|, E) · {scaleLabel}
+              S(|Q|, E) · {scaleLabel} · {pr.scatteringMode === 'coherent' ? 'Coherent 1-ph' : pr.scatteringMode === 'incoherent_approx' ? 'Incoh approx' : 'Coh + Inc'}
+              {pr.includeMultiphonon ? ' + Multi' : ''}
+              {pr.instrument && pr.instrument !== 'constant' ? ` · ${pr.instrument}` : ''}
               {cursor && (
                 <b className="tabular-nums" style={{ marginLeft: 12, color: 'var(--ink)' }}>
                   |Q| {cursor.Q.toFixed(2)} Å⁻¹ · E {cursor.E.toFixed(1)} meV · {cursor.masked ? 'outside kinematic range' : `S ${cursor.S.toExponential(2)}`}
                 </b>
               )}
             </span>
-            <span style={{ color: 'var(--faint)' }}>∫S(|Q|, E) d|Q| (neutron-weighted, Bose-populated)</span>
+            <span style={{ color: 'var(--faint)' }}>∫S(|Q|, E) d|Q| (barn · meV⁻¹ · Å⁻¹, norm.)</span>
           </div>
 
           <div className="sqe-fig">
@@ -299,7 +397,7 @@ export default function InsPanel({ results, temperature }) {
         </div>
       ) : (
         <div className="m-rule-box" style={{ padding: '28px 18px', textAlign: 'center', color: 'var(--secondary)', fontSize: 'var(--fz-control)' }}>
-          Click <b style={{ color: 'var(--ink)' }}>Run INS</b> to compute the powder-averaged S(|Q|, E) heatmap and integrated intensity curve.
+          Click <b style={{ color: 'var(--ink)' }}>Run INS</b> to compute the coherent + incoherent powder S(|Q|, E) heatmap and integrated intensity curve.
         </div>
       )}
     </div>

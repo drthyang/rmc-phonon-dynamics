@@ -67,17 +67,29 @@ export default function LineChart({ series, xLabel, yLabel, onPick, height = 300
       {model.paths.map((d, i) => (
         <path key={i} d={d} fill="none" stroke={series[i].color} strokeWidth={series[i].width || 1.4} strokeDasharray={series[i].dashed ? '4 3' : ''} opacity="0.95" />
       ))}
-      {/* legend (2 rows if >4 series so multi-candidate overlays never clip) */}
-      {series.map((s, i) => {
-        const col = i % 4;
-        const row = Math.floor(i / 4);
-        return (
-          <g key={`L${i}`} transform={`translate(${M.l + 8 + col * 158}, ${M.t + 10 + row * 15})`}>
-            <line x1={0} x2={16} y1={0} y2={0} stroke={s.color} strokeWidth="2" strokeDasharray={s.dashed ? '4 3' : ''} />
-            <text x={20} y={3} fontSize="10" fill="#2c2a27">{s.name}</text>
-          </g>
-        );
-      })}
+      {/* Flow-wrapped SVG legend so long filenames or candidate labels never overlap */}
+      {(() => {
+        const startX = M.l + 8;
+        const maxX = W - M.r - 4;
+        let curX = startX;
+        let row = 0;
+        return series.map((s, i) => {
+          const estW = Math.max(110, 28 + (s.name?.length || 0) * 5.8);
+          if (curX > startX && curX + estW > maxX) {
+            curX = startX;
+            row += 1;
+          }
+          const xPos = curX;
+          const yPos = M.t + 10 + row * 15;
+          curX += estW + 14;
+          return (
+            <g key={`L${i}`} transform={`translate(${xPos}, ${yPos})`}>
+              <line x1={0} x2={16} y1={0} y2={0} stroke={s.color} strokeWidth="2" strokeDasharray={s.dashed ? '4 3' : ''} />
+              <text x={20} y={3} fontSize="10" fill="#2c2a27">{s.name}</text>
+            </g>
+          );
+        });
+      })()}
       <text x={14} y={H / 2} fontSize="11" fill="#6b665f" transform={`rotate(-90 14 ${H / 2})`} textAnchor="middle">{yLabel}</text>
       <text x={(M.l + W - M.r) / 2} y={H - 4} fontSize="10" fill="#5f5b55" textAnchor="middle">{xLabel}</text>
     </svg>

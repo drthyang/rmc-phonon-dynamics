@@ -79,6 +79,27 @@ def export_phonopy_dm_json(result: PhononResult, out_path: str | Path) -> Path:
             "q_grid": np.round(ins.q_grid, 5).tolist(),
             "e_grid": np.round(ins.e_grid, 5).tolist(),
             "sqe": np.round(ins.sqe, 6).tolist(),
+            **(
+                {"sqe_coherent": np.round(ins.sqe_coherent, 6).tolist()}
+                if ins.sqe_coherent is not None
+                else {}
+            ),
+            **(
+                {"sqe_incoherent": np.round(ins.sqe_incoherent, 6).tolist()}
+                if ins.sqe_incoherent is not None
+                else {}
+            ),
+            **(
+                {"sqe_multiphonon": np.round(ins.sqe_multiphonon, 6).tolist()}
+                if ins.sqe_multiphonon is not None
+                else {}
+            ),
+            **(
+                {"fwhm_vs_e": np.round(ins.fwhm_vs_e, 5).tolist()}
+                if ins.fwhm_vs_e is not None
+                else {}
+            ),
+            "instrument": ins.instrument,
             "temperature_k": float(ins.temperature_k),
             "ei_mev": float(ins.ei_mev) if ins.ei_mev is not None else None,
             "fwhm_mev": float(ins.fwhm_mev),
