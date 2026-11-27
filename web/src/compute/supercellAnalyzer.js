@@ -202,8 +202,12 @@ export async function analyzeSupercellFiles(files, family, baseStructure, option
  * directly from `result.alignedBySubgroup` (0 ms, works for 500+ configs!).
  */
 export function alignSubgroupFromResult(result, subgroupSpec) {
+  if (!result?.alignedBySubgroup) return result?.aligned || null;
+  if (typeof subgroupSpec === 'object' && subgroupSpec?.id && result.alignedBySubgroup[subgroupSpec.id]) {
+    return result.alignedBySubgroup[subgroupSpec.id];
+  }
   const sgName = typeof subgroupSpec === 'string' ? subgroupSpec : subgroupSpec?.spaceGroup;
-  if (result?.alignedBySubgroup?.[sgName]) {
+  if (sgName && result.alignedBySubgroup[sgName]) {
     return result.alignedBySubgroup[sgName];
   }
   return result?.aligned || null;

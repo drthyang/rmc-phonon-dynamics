@@ -23,6 +23,11 @@ import {
   applyGammaCell,
   removeCellDrift,
 } from './supercell_symmetry.js';
+import {
+  ZoneBlockAccumulator,
+  selectZoneChannels,
+  refineSpaceGroupSymbol,
+} from './zone_subgroups.js';
 
 const TWO_PI = 2 * Math.PI;
 const wrap01 = (x) => ((x % 1) + 1) % 1;
@@ -200,6 +205,9 @@ export class StreamingSymmetryAccumulator {
       nNullSamples = 128,
       maxSavedDomainGrids = 12,
       minConfigRms = 1e-3,
+      includeZoneBoundary = true,
+      maxZoneVolume = 8,
+      maxZoneBlockAtoms = 240,
     } = opts;
 
     this.dim = dim;
@@ -213,8 +221,13 @@ export class StreamingSymmetryAccumulator {
     this.subtractDrift = subtractDrift;
     this.Dint = subtractDrift ? this.D - 3 : this.D;
     this.parentTol = parentTol;
+    this.nNullSamples = nNullSamples;
     this.maxSavedDomainGrids = maxSavedDomainGrids;
     this.minConfigRms = minConfigRms;
+    this.includeZoneBoundary = includeZoneBoundary;
+    this.maxZoneVolume = maxZoneVolume;
+    this.maxZoneBlockAtoms = maxZoneBlockAtoms;
+    this._zoneAccs = null;
     this.skippedConfigs = [];
 
     // Average unit-cell edge length (Å) for reporting ξ in Å
@@ -238,12 +251,22 @@ export class StreamingSymmetryAccumulator {
     this.parentDoF = 0;
     this.fams = this.subgroups.map((fam) => {
       const dof = subgroupDoF(fam.variants[0].ops, this.nBasis, subtractDrift);
+      const refined = refineSpaceGroupSymbol(fam.variants[0].ops, fam);
       return {
         ...fam,
+        spaceGroup: refined.symbol,
+        spaceGroupNumber: refined.number,
+        id: `1×1×1|${fam.id || refined.symbol}`,
+        cellMult: [1, 1, 1],
+        cellLabel: '1×1×1',
+        zoneStar: 'Γ',
+        isZoneBoundary: false,
         dof: dof.internal,
         dofTotal: dof.total,
         nullR2: this.Dint > 0 ? dof.internal / this.Dint : 0,
         nVariants: fam.variants.length,
+        nDomains: fam.variants.length,
+        domainKind: fam.variants.length > 1 ? 'twin' : 'single',
         // Null calibration targets (filled below)
         nullBestR2: 0,
         nullBreakingFStat: 0,
@@ -437,6 +460,32 @@ export class StreamingSymmetryAccumulator {
           this.kPowerByEl[ei][c] += ps;
         }
         this.kPower[c] += pTot;
+      }
+
+      // Lazily initialize commensurate zone-boundary block accumulators on Config #1
+      if (this.includeZoneBoundary && !this._zoneAccs) {
+        this._zoneAccs = [];
+        const zbNullSamples = Math.min(96, Math.max(0, this.nNullSamples));
+        if (this.parentSG.centering !== 'P' && nCells >= 4) {
+          const cbAcc = new ZoneBlockAccumulator(
+            this.dim, this.A, this.idealParentBasis, this.reps, this.parentSG.spaceGroup,
+            [1, 1, 1], 'X (prim)', null,
+            { centeringBreakingOnly: true, nNullSamples: zbNullSamples, maxSavedDomainGrids: this.maxSavedDomainGrids }
+          );
+          if (cbAcc.fams.length > 0) this._zoneAccs.push(cbAcc);
+        }
+        const channels = selectZoneChannels(this.dim, this.A, this.kPower, nBasis, {
+          maxVolume: this.maxZoneVolume,
+          maxBlockAtoms: this.maxZoneBlockAtoms,
+        });
+        for (const ch of channels) {
+          const zAcc = new ZoneBlockAccumulator(
+            this.dim, this.A, this.idealParentBasis, this.reps, this.parentSG.spaceGroup,
+            ch.cellMult, ch.zoneStar, ch.kStar,
+            { nNullSamples: zbNullSamples, maxSavedDomainGrids: this.maxSavedDomainGrids }
+          );
+          if (zAcc.fams.length > 0) this._zoneAccs.push(zAcc);
+        }
       }
     }
 
@@ -706,29 +755,58 @@ export class StreamingSymmetryAccumulator {
       }
     }
 
-    if (bestCfgFamIdx >= 0) this.fams[bestCfgFamIdx].winCount += 1;
+    // 3b. Stream config through commensurate zone-boundary accumulators (1×1×2, 2×2×1, 2×2×2, centering-breaking)
+    let bestWinningFam = bestCfgFamIdx >= 0 ? this.fams[bestCfgFamIdx] : null;
+    let bestWinningExcess = bestCfgExcessDF;
+    if (this._zoneAccs?.length) {
+      for (const zAcc of this._zoneAccs) {
+        const zBest = zAcc.addConfig(u, cfgLabel);
+        if (zBest && zBest.bestExcessDF > bestWinningExcess) {
+          bestWinningExcess = zBest.bestExcessDF;
+          bestWinningFam = zBest.bestFam;
+        }
+      }
+    }
+    if (bestWinningFam) bestWinningFam.winCount += 1;
 
-    // 4. Record ensemble convergence checkpoint
-    let leadIdx = -1, leadScore = -Infinity;
+    // 4. Record ensemble convergence checkpoint across all (1×1×1 + zone-boundary) candidates
+    let leadFam = null, leadScore = -Infinity, leadBasisCount = nBasis;
     for (let fi = 0; fi < this.fams.length; fi++) {
       const f = this.fams[fi];
       if (f.dof > this.parentDoF && f.dof < Dint && f.meanExcessDF > leadScore) {
         leadScore = f.meanExcessDF;
-        leadIdx = fi;
+        leadFam = f;
+        leadBasisCount = nBasis;
       }
     }
-    if (leadIdx >= 0) {
-      const lf = this.fams[leadIdx];
-      const invA = 1 / Math.max(1, lf.nAlignedCells);
+    if (this._zoneAccs?.length) {
+      for (const zAcc of this._zoneAccs) {
+        for (const f of zAcc.fams) {
+          if (f.meanExcessDF > leadScore) {
+            leadScore = f.meanExcessDF;
+            leadFam = f;
+            leadBasisCount = zAcc.nBlockBasis;
+          }
+        }
+      }
+    }
+    if (leadFam) {
+      const nAligned = leadFam.nAlignedCells ?? leadFam.nAlignedBlocks ?? 1;
+      const invA = 1 / Math.max(1, nAligned);
       let s2 = 0;
-      for (let d = 0; d < D; d++) { const v = lf.sumAligned[d] * invA; s2 += v * v; }
+      for (let d = 0; d < leadFam.sumAligned.length; d++) {
+        const v = leadFam.sumAligned[d] * invA;
+        s2 += v * v;
+      }
       this.convergence.push({
         n: this.nConfigs,
-        topSg: lf.spaceGroup,
-        excessDeltaF: lf.meanExcessDF,
-        rawDeltaF: lf.meanRawDF,
-        cvDeltaF: lf.meanCvDF,
-        topRms: Math.sqrt(s2 / Math.max(1, nBasis)),
+        topSg: leadFam.cellLabel && leadFam.cellLabel !== '1×1×1'
+          ? `${leadFam.cellLabel} ${leadFam.spaceGroup}`
+          : leadFam.spaceGroup,
+        excessDeltaF: leadFam.meanExcessDF,
+        rawDeltaF: leadFam.meanRawDF,
+        cvDeltaF: leadFam.meanCvDF,
+        topRms: Math.sqrt(s2 / Math.max(1, leadBasisCount)),
       });
     }
   }
@@ -796,7 +874,8 @@ export class StreamingSymmetryAccumulator {
     const rmsSE = rmsVec(seVec);
     const maxShift = Math.max(0, ...symmetrizedBasis.map(s => s.dispNorm));
 
-    const verifiedSG = findSpaceGroupOps(A, symmetrizedBasis, 1e-3);
+    const rawVer = findSpaceGroupOps(A, symmetrizedBasis, 1e-3);
+    const refVer = refineSpaceGroupSymbol(rawVer.ops, rawVer);
 
     const elements = [...new Set(this.refBasis.map(b => b.el))];
     const elementStats = elements.map(el => {
@@ -814,13 +893,17 @@ export class StreamingSymmetryAccumulator {
     });
 
     return {
+      id: fam.id,
+      cellMult: [1, 1, 1],
+      cellLabel: '1×1×1',
+      zoneStar: 'Γ',
       targetSpaceGroup: fam.spaceGroup,
       targetSpaceGroupNumber: fam.spaceGroupNumber,
       targetPointGroup: fam.pointGroup,
       parentSpaceGroup: this.parentSG.spaceGroup,
-      verifiedSpaceGroup: verifiedSG.spaceGroup,
-      verifiedSpaceGroupNumber: verifiedSG.spaceGroupNumber,
-      verifiedOrder: verifiedSG.order,
+      verifiedSpaceGroup: symRms > 1e-4 ? refVer.symbol : fam.spaceGroup,
+      verifiedSpaceGroupNumber: symRms > 1e-4 ? refVer.number : fam.spaceGroupNumber,
+      verifiedOrder: rawVer.order,
       nVariants: fam.nVariants,
       nNormalizerCosets: Math.max(1, fam.normCosetReps?.length || 1),
       cosetFractions: Array.from(fam.cosetCounts).map(x => x / Math.max(1, fam.nAlignedCells)),
@@ -998,17 +1081,25 @@ export class StreamingSymmetryAccumulator {
 
       // Prebuild ensemble domain-aligned structure for every breaking subgroup
       if (breakingDoF > 0 && fam.dof < Dint) {
-        alignedBySubgroup[fam.spaceGroup] = this._buildAlignedForFamily(fam);
+        const built = this._buildAlignedForFamily(fam);
+        alignedBySubgroup[fam.id] = built;
+        if (!alignedBySubgroup[fam.spaceGroup]) alignedBySubgroup[fam.spaceGroup] = built;
       }
 
       return {
         id: fam.id,
+        cellMult: fam.cellMult,
+        cellLabel: fam.cellLabel,
+        zoneStar: fam.zoneStar,
+        isZoneBoundary: false,
         spaceGroup: fam.spaceGroup,
         spaceGroupNumber: fam.spaceGroupNumber,
         pointGroup: fam.pointGroup,
         centering: fam.centering,
         order: fam.order,
         nVariants: fam.nVariants,
+        nDomains: fam.nDomains,
+        domainKind: fam.domainKind,
         dof: fam.dof,
         nullR2: fam.nullR2,
         nullBestR2: fam.nullBestR2,
@@ -1044,9 +1135,24 @@ export class StreamingSymmetryAccumulator {
       };
     });
 
+    // Merge commensurate zone-boundary & centering-breaking subgroups
+    if (this._zoneAccs?.length) {
+      for (const zAcc of this._zoneAccs) {
+        const zFin = zAcc.finalize();
+        for (const sg of zFin.subgroups) {
+          subgroups.push(sg);
+          const al = zFin.alignedById[sg.id];
+          if (al) {
+            alignedBySubgroup[sg.id] = al;
+            if (!alignedBySubgroup[sg.spaceGroup]) alignedBySubgroup[sg.spaceGroup] = al;
+          }
+        }
+      }
+    }
+
     // Rank breaking subgroups by outlier-robust median excess ΔF (for M >= 3) or excess ΔF
     const breakingSorted = subgroups
-      .filter(s => s.breakingDoF > 0 && s.dof < Dint)
+      .filter(s => s.isZoneBoundary ? s.breakingDoF > 0 : (s.breakingDoF > 0 && s.dof < Dint))
       .sort((a, b) => {
         const sa = nConfigs >= 3 ? a.medianExcessDeltaF : a.excessDeltaF;
         const sb = nConfigs >= 3 ? b.medianExcessDeltaF : b.excessDeltaF;
@@ -1054,7 +1160,9 @@ export class StreamingSymmetryAccumulator {
       });
 
     const topSubgroup = breakingSorted[0] || null;
-    const aligned = topSubgroup ? alignedBySubgroup[topSubgroup.spaceGroup] || null : null;
+    const aligned = topSubgroup
+      ? (alignedBySubgroup[topSubgroup.id] || alignedBySubgroup[topSubgroup.spaceGroup] || null)
+      : null;
 
     const minimal = filteredMinimalSupercell(spectrum, this.dim, this.A, this.refBasis, {
       snrThreshold: 2.5,

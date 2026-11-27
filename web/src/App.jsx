@@ -156,7 +156,11 @@ export default function App() {
     });
     setCandidates(prev => [...prev, ...queued]);
     for (const item of queued) {
-      const itemParams = { ...params, symprec: item.symprec ?? params.symprec ?? 'auto' };
+      const itemParams = {
+        ...params,
+        supercell: item.supercell ?? params.supercell,
+        symprec: item.symprec ?? params.symprec ?? 'auto',
+      };
       await runMlipForId(item.id, item.cifText, item.filename, itemParams);
     }
     setActiveCandidateId(queued[0].id);
@@ -290,7 +294,11 @@ export default function App() {
           onGoToPage={setPage}
           mlipServer={mlipServer}
           onRunMlipBatch={runMlipBatch}
-          onRetryCandidate={(c, params) => runMlipForId(c.id, c.cifText, c.filename, params)}
+          onRetryCandidate={(c, params) => runMlipForId(c.id, c.cifText, c.filename, {
+            ...params,
+            supercell: c.supercell ?? params.supercell,
+            symprec: c.symprec ?? params.symprec ?? 'auto',
+          })}
         />
       </div>
 

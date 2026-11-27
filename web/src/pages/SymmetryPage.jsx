@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, useId } from 'react';
 import {
   listConfigs,
   findStructureFile,
@@ -55,8 +55,11 @@ export default function SymmetryPage({
   const [showCorrChart, setShowCorrChart] = useState(false);
   const [crystalMode, setCrystalMode] = useState('aligned');   // 'parent' | 'aligned'
   const [analysisTab, setAnalysisTab] = useState('subgroups'); // 'subgroups' | 'kspace' | 'convergence' | 'average'
+  const [cellFilter, setCellFilter] = useState('all');         // 'all' | '1×1×1' | '1×1×1 (P)' | '1×1×2' | '2×2×1' | '2×2×2'
   const [sliceZ, setSliceZ] = useState(0);
   const [domainCfgIdx, setDomainCfgIdx] = useState(0);
+  const cellToolbarRef = useRef(null);
+  const subgroupTableId = useId();
 
   const [symTol, setSymTol] = useState(0.25);
   const [scResult, setScResult] = useState(null);
@@ -126,7 +129,7 @@ export default function SymmetryPage({
     if (!scResult?.local?.subgroups?.length) return [];
     const multi = (scResult.nConfigs || 1) >= 3;
     return [...scResult.local.subgroups]
-      .filter(s => s.breakingDoF > 0 && s.dof < scResult.local.internalDoF)
+      .filter(s => s.isZoneBoundary ? s.breakingDoF > 0 : (s.breakingDoF > 0 && s.dof < scResult.local.internalDoF))
       .sort((a, b) => {
         const sa = multi ? a.medianExcessDeltaF : a.excessDeltaF;
         const sb = multi ? b.medianExcessDeltaF : b.excessDeltaF;
@@ -134,8 +137,71 @@ export default function SymmetryPage({
       });
   }, [scResult]);
 
+  const cellGroups = useMemo(() => {
+    if (!sortedSubgroups.length) return [];
+    const ORDER = ['1×1×1', '1×1×1 (P)', '1×1×2', '1×2×1', '2×1×1', '2×2×1', '2×1×2', '1×2×2', '2×2×2'];
+    const byCell = new Map();
+    for (const s of sortedSubgroups) {
+      const key = s.cellLabel || '1×1×1';
+      const cur = byCell.get(key);
+      if (!cur) byCell.set(key, { key, star: s.zoneStar || 'Γ', count: 1 });
+      else cur.count += 1;
+    }
+    return [...byCell.values()].sort((a, b) => {
+      const ia = ORDER.indexOf(a.key), ib = ORDER.indexOf(b.key);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  }, [sortedSubgroups]);
+
+  const filteredSubgroups = useMemo(
+    () => (cellFilter === 'all' ? sortedSubgroups : sortedSubgroups.filter(s => (s.cellLabel || '1×1×1') === cellFilter)),
+    [sortedSubgroups, cellFilter]
+  );
+
+  // Roving tabindex + ArrowRight/ArrowLeft/Home/End fallback for browsers without native HTML `focusgroup`
+  useEffect(() => {
+    const bar = cellToolbarRef.current;
+    if (!bar || (typeof HTMLElement !== 'undefined' && 'focusGroup' in HTMLElement.prototype)) return undefined;
+    const getItems = () => Array.from(bar.querySelectorAll('button'));
+    const initItems = getItems();
+    const pressedIdx = Math.max(0, initItems.findIndex(b => b.getAttribute('aria-pressed') === 'true'));
+    initItems.forEach((b, i) => { b.tabIndex = i === pressedIdx ? 0 : -1; });
+
+    const onFocusIn = ({ target }) => {
+      const items = getItems();
+      if (items.includes(target)) items.forEach(b => { b.tabIndex = b === target ? 0 : -1; });
+    };
+    const onKeyDown = (e) => {
+      const items = getItems();
+      const cur = items.indexOf(document.activeElement);
+      if (cur < 0 || !items.length) return;
+      const rtl = getComputedStyle(bar).direction === 'rtl';
+      let next = -1;
+      if (e.key === 'ArrowRight') next = (cur + (rtl ? -1 : 1) + items.length) % items.length;
+      else if (e.key === 'ArrowLeft') next = (cur + (rtl ? 1 : -1) + items.length) % items.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = items.length - 1;
+      if (next >= 0) {
+        e.preventDefault();
+        items.forEach((b, i) => { b.tabIndex = i === next ? 0 : -1; });
+        items[next].focus();
+      }
+    };
+    bar.addEventListener('focusin', onFocusIn);
+    bar.addEventListener('keydown', onKeyDown);
+    return () => {
+      bar.removeEventListener('focusin', onFocusIn);
+      bar.removeEventListener('keydown', onKeyDown);
+    };
+  }, [analysisTab, cellGroups.length, cellFilter]);
+
   const activeSubgroup = useMemo(() => {
     if (!sortedSubgroups.length) return null;
+    const targetId = scResult?.aligned?.id;
+    if (targetId) {
+      const byId = sortedSubgroups.find(s => s.id === targetId);
+      if (byId) return byId;
+    }
     const targetSg = scResult?.aligned?.targetSpaceGroup;
     return sortedSubgroups.find(s => s.spaceGroup === targetSg) || sortedSubgroups[0];
   }, [sortedSubgroups, scResult]);
@@ -144,6 +210,23 @@ export default function SymmetryPage({
     if (!baseStructure?.basis) return null;
     const useAligned = crystalMode === 'aligned' && scResult?.aligned?.symmetrizedBasis;
     const b = useAligned ? scResult.aligned.symmetrizedBasis : (activeParentBasis || baseStructure.basis);
+    if (useAligned && scResult?.aligned?.A) {
+      const Ablk = scResult.aligned.A;
+      const dynAtomDic = {};
+      b.forEach((site, idx) => {
+        const rn = site.rn ?? (idx + 1);
+        if (!dynAtomDic[site.el]) dynAtomDic[site.el] = [];
+        dynAtomDic[site.el].push(rn);
+      });
+      return {
+        v1: Ablk[0], v2: Ablk[1], v3: Ablk[2], dim: [1, 1, 1],
+        atomDic: dynAtomDic,
+        uniqueRN: b.map((x, i) => x.rn ?? (i + 1)),
+        atomType: b.map((x, i) => x.rn ?? (i + 1)),
+        hsym_xyz: Float64Array.from(b.flatMap(x => x.frac)),
+        cellIdx: new Float64Array(b.length * 3),
+      };
+    }
     return {
       v1: baseStructure.v1, v2: baseStructure.v2, v3: baseStructure.v3, dim: baseStructure.dim,
       atomDic: baseStructure.atomDic,
@@ -207,7 +290,7 @@ export default function SymmetryPage({
       return;
     }
     try {
-      setLoadErr(null); setScErr(null); setScResult(null);
+      setLoadErr(null); setScErr(null); setScResult(null); setCellFilter('all');
       const base = await readBaseStructure(rmcFiles[0]);
       const nRun = Math.min(rmcFiles.length, 50);
       setBaseStructure(base);
@@ -229,7 +312,7 @@ export default function SymmetryPage({
     }
     try {
       const dh = await window.showDirectoryPicker({ mode: 'read' });
-      setLoadErr(null); setScErr(null); setScResult(null);
+      setLoadErr(null); setScErr(null); setScResult(null); setCellFilter('all');
       const { files, family } = await listConfigs(dh);
       if (!files.length) { setLoadErr(`No .rmc6f or Frac*.txt files found in "${dh.name}".`); return; }
       const structHandle = family === 'rmc6f' ? files[0] : await findStructureFile(dh);
@@ -264,9 +347,26 @@ export default function SymmetryPage({
     }
   };
 
+  const handleSelectCellFilter = (key) => {
+    setCellFilter(key);
+    if (key !== 'all') {
+      const currentCell = activeSubgroup?.cellLabel || '1×1×1';
+      if (currentCell !== key) {
+        const topInCell = sortedSubgroups.find(s => (s.cellLabel || '1×1×1') === key);
+        if (topInCell) selectSubgroup(topInCell);
+      }
+    }
+  };
+
+  const parseSupercellVec = () => {
+    const raw = mlipSupercell.trim().split(/\s+/).map(n => Math.max(1, parseInt(n, 10) || 1));
+    return [raw[0] || 2, raw[1] || raw[0] || 2, raw[2] || raw[0] || 2];
+  };
+
   const buildSelectedSpecs = () => {
     const specs = [];
     const stem = (sourceLabel || 'rmc').replace(/\.(rmc6f|cif)$/i, '').replace(/[^A-Za-z0-9_-]+/g, '_');
+    const baseSc = parseSupercellVec();
     if (includeParent && Aconv && activeParentBasis) {
       const sg = symInfo?.spaceGroup || 'P1';
       specs.push({
@@ -274,6 +374,7 @@ export default function SymmetryPage({
         spaceGroup: sg,
         kind: 'parent',
         symprec: 'auto',
+        supercell: baseSc,
         filename: `${stem}_parent_${sg.replace(/[^A-Za-z0-9_-]+/g, '')}.cif`,
         cifText: generateUnitCellCIF(Aconv, activeParentBasis, {
           title: `${stem}_parent_${sg}`,
@@ -284,13 +385,26 @@ export default function SymmetryPage({
     }
     if (includeLocal && scResult?.aligned) {
       const sg = scResult.aligned.verifiedSpaceGroup || scResult.aligned.targetSpaceGroup || 'local';
+      const cm = scResult.aligned.cellMult || [1, 1, 1];
+      const cellLbl = scResult.aligned.cellLabel || cm.join('×');
+      const isMultiCell = cm[0] * cm[1] * cm[2] > 1;
+      const scaledSc = [
+        Math.max(1, Math.round(baseSc[0] / cm[0])),
+        Math.max(1, Math.round(baseSc[1] / cm[1])),
+        Math.max(1, Math.round(baseSc[2] / cm[2])),
+      ];
+      const cellTag = cellLbl !== '1×1×1' ? `${cellLbl} · ` : '';
+      const fileCellTag = isMultiCell ? `${cm.join('x')}_` : '';
       specs.push({
-        label: `Local · ${sg}${scResult.nConfigs > 1 ? ` (${scResult.nConfigs} cfg)` : ''}`,
+        label: `Local · ${cellTag}${sg}${scResult.nConfigs > 1 ? ` (${scResult.nConfigs} cfg)` : ''}`,
         spaceGroup: sg,
+        cellMult: cm,
+        cellLabel: cellLbl,
         kind: 'local-subgroup',
         symprec: localSymprec,
-        filename: `${stem}_local_${sg.replace(/[^A-Za-z0-9_-]+/g, '')}.cif`,
-        cifText: buildAlignedCifText(scResult.aligned, { projected: true, title: `${stem}_${sg}` }),
+        supercell: scaledSc,
+        filename: `${stem}_local_${fileCellTag}${sg.replace(/[^A-Za-z0-9_-]+/g, '')}.cif`,
+        cifText: buildAlignedCifText(scResult.aligned, { projected: true, title: `${stem}_${fileCellTag}${sg}` }),
       });
     }
     return specs;
@@ -298,7 +412,7 @@ export default function SymmetryPage({
 
   const mlipParams = () => ({
     model: mlipModel,
-    supercell: mlipSupercell.trim().split(/\s+/).map(Number),
+    supercell: parseSupercellVec(),
     temperature: mlipTemp,
     relax: mlipRelax,
   });
@@ -316,9 +430,10 @@ export default function SymmetryPage({
   const handleCopyCli = () => {
     const specs = buildSelectedSpecs();
     const relaxFlag = mlipRelax ? '' : ' --no-relax';
-    const cmds = specs.map(s =>
-      `uv run rmcph-mlip run ${s.filename} --model ${mlipModel} --supercell ${mlipSupercell} -T ${mlipTemp} --symprec ${s.symprec ?? 'auto'}${relaxFlag} --out results/${s.filename.replace(/\.cif$/i, '')}`
-    ).join('\n');
+    const cmds = specs.map(s => {
+      const scStr = (s.supercell || parseSupercellVec()).join(' ');
+      return `uv run rmcph-mlip run ${s.filename} --model ${mlipModel} --supercell ${scStr} -T ${mlipTemp} --symprec ${s.symprec ?? 'auto'}${relaxFlag} --out results/${s.filename.replace(/\.cif$/i, '')}`;
+    }).join('\n');
     navigator.clipboard?.writeText(cmds);
     setCopiedCli(true);
     setTimeout(() => setCopiedCli(false), 1800);
@@ -397,6 +512,8 @@ export default function SymmetryPage({
   const localSg = hasRealDisplacements
     ? (scResult?.aligned?.verifiedSpaceGroup || activeSubgroup?.spaceGroup || null)
     : (activeSubgroup?.spaceGroup || null);
+  const localCellLabel = scResult?.aligned?.cellLabel || activeSubgroup?.cellLabel || '1×1×1';
+  const localCellPrefix = localCellLabel !== '1×1×1' ? `${localCellLabel} · ` : '';
   const selectedCount = (includeParent ? 1 : 0) + (includeLocal && localSg ? 1 : 0);
   const anyRunning = candidates.some(c => c.mlipRunning);
   const readyModels = candidates.filter(c => c.model?.bands);
@@ -455,7 +572,7 @@ export default function SymmetryPage({
             {localSg && (
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--line)', background: includeLocal ? 'var(--note-bg)' : 'transparent', fontSize: 12.5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={includeLocal} onChange={e => setIncludeLocal(e.target.checked)} />
-                <span>Local <b>{localSg}</b></span>
+                <span>Local <b>{localCellPrefix}{localSg}</b></span>
                 {activeSubgroup && (
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--note-ink)' }}>
                     {activeSubgroup.zScore !== null
@@ -608,7 +725,7 @@ export default function SymmetryPage({
                 Parent ({parentSg})
               </button>
               <button type="button" className={`m-btn sm ${crystalMode === 'aligned' ? 'active' : ''}`} disabled={!scResult?.aligned} onClick={() => setCrystalMode('aligned')}>
-                Local ({localSg || '—'})
+                Local ({localSg ? `${localCellPrefix}${localSg}` : '—'})
               </button>
             </div>
           </div>
@@ -619,7 +736,10 @@ export default function SymmetryPage({
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px solid var(--line)', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
             <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
-              {readout?.counts.map(([el, count]) => (
+              {(crystalMode === 'aligned' && scResult?.aligned?.elementStats
+                ? scResult.aligned.elementStats.map(es => [es.el, es.count])
+                : readout?.counts || []
+              ).map(([el, count]) => (
                 <span key={el} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: DEFAULT_COLORS[el] || '#ccc', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.2)' }} />
                   <b style={{ color: 'var(--ink)' }}>{el}</b>×{count}
@@ -640,7 +760,7 @@ export default function SymmetryPage({
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>
-                Domains {activeSubgroup ? `· ${activeSubgroup.spaceGroup}` : ''}
+                Domains {activeSubgroup ? `· ${activeSubgroup.cellLabel && activeSubgroup.cellLabel !== '1×1×1' ? `${activeSubgroup.cellLabel} ` : ''}${activeSubgroup.spaceGroup}` : ''}
               </span>
               <div className="m-tools" role="tablist" aria-label="Domain view" style={{ gap: 6 }}>
                 <button type="button" role="tab" aria-selected={domainView === 'both'} className={domainView === 'both' ? 'on' : 'dim'} onClick={() => setDomainView('both')}>
@@ -791,7 +911,7 @@ export default function SymmetryPage({
                     >
                       <span style={{ width: 9, height: 9, borderRadius: 2, background: DOMAIN_PALETTE[i % DOMAIN_PALETTE.length] }} />
                       <span>
-                        D{i + 1} {(100 * f).toFixed(1)}%
+                        {activeSubgroup.domainKind === 'antiphase' ? 'A' : 'D'}{i + 1} {(100 * f).toFixed(1)}%
                         {activeSubgroup.domainFractionSE ? `±${(100 * activeSubgroup.domainFractionSE[i]).toFixed(1)}` : ''}
                       </span>
                     </button>
@@ -855,22 +975,59 @@ export default function SymmetryPage({
                       Zero atomic displacements detected (this looks like an ideal/initial <code style={{ fontFamily: 'var(--font-mono)' }}>.rmc6f</code>). Load converged RMC configurations to measure local symmetry breaking.
                     </div>
                   )}
-                  <div className="m-table-wrap" tabIndex={0} role="region" aria-label="Candidate local subgroups">
+
+                  {cellGroups.length > 1 && (
+                    <div
+                      ref={cellToolbarRef}
+                      role="toolbar"
+                      aria-label="Filter candidate subgroups by supercell"
+                      aria-controls={subgroupTableId}
+                      {...({ focusgroup: 'toolbar wrap' })}
+                      className="sym-cell-toolbar"
+                    >
+                      <button
+                        type="button"
+                        className="sym-cell-pill"
+                        aria-pressed={cellFilter === 'all'}
+                        onClick={() => handleSelectCellFilter('all')}
+                      >
+                        <span>All</span>
+                        <span className="sym-cell-pill-count">{sortedSubgroups.length}</span>
+                      </button>
+                      {cellGroups.map(cg => (
+                        <button
+                          key={cg.key}
+                          type="button"
+                          className="sym-cell-pill"
+                          aria-pressed={cellFilter === cg.key}
+                          onClick={() => handleSelectCellFilter(cg.key)}
+                        >
+                          <span>{cg.key === '1×1×1 (P)' ? '1×1×1·P' : cg.key} · {cg.star === 'X (prim)' ? 'X' : cg.star}</span>
+                          <span className="sym-cell-pill-count">{cg.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div id={subgroupTableId} className="m-table-wrap" tabIndex={0} role="region" aria-label="Candidate local subgroups">
                     <table>
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          <th style={{ padding: '6px 6px' }}>Subgroup</th>
-                          <th style={{ padding: '6px 6px' }}>Vars</th>
-                          <th style={{ padding: '6px 6px' }} title="Bias-corrected ΔF minus exact isotropic-noise null expectation">Excess ΔF {isMulti ? '(±SE)' : ''}</th>
-                          <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Spatial neighbor cross-validated ΔF (zero within-cell selection bias)">CV ΔF</th>
-                          {isMulti && <th style={{ padding: '6px 6px', textAlign: 'right' }} title="Fraction of RMC configs ranking this subgroup #1">Win %</th>}
-                          <th style={{ padding: '6px 6px', textAlign: 'right' }}>ξ (Å)</th>
+                          <th scope="col" style={{ padding: '6px 6px' }}>Subgroup</th>
+                          <th scope="col" style={{ padding: '6px 6px' }} title="Orientational twin variants (and antiphase coset domains when single-variant)">Vars</th>
+                          <th scope="col" style={{ padding: '6px 6px' }} title="Bias-corrected ΔF minus exact isotropic-noise null expectation (evaluated on pure non-Γ zone-boundary subspace for multi-cell channels)">Excess ΔF {isMulti ? '(±SE)' : ''}</th>
+                          <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }} title="Spatial neighbor cross-validated ΔF (zero within-cell selection bias)">CV ΔF</th>
+                          {isMulti && <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }} title="Fraction of RMC configs ranking this subgroup #1 across all channels">Win %</th>}
+                          <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }}>ξ (Å)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedSubgroups.slice(0, 12).map((sg, i) => {
-                          const isSel = activeSubgroup?.spaceGroup === sg.spaceGroup;
+                        {filteredSubgroups.slice(0, 14).map((sg, i) => {
+                          const isSel = activeSubgroup?.id ? activeSubgroup.id === sg.id : activeSubgroup?.spaceGroup === sg.spaceGroup;
                           const scoreVal = isMulti ? sg.medianExcessDeltaF : sg.excessDeltaF;
+                          const cellLbl = sg.cellLabel || '1×1×1';
+                          const isZb = Boolean(sg.isZoneBoundary || cellLbl !== '1×1×1');
+                          const nDom = sg.nDomains || sg.nVariants;
                           return (
                             <tr
                               key={sg.id || i}
@@ -883,10 +1040,16 @@ export default function SymmetryPage({
                             >
                               <td style={{ padding: '8px 6px', fontWeight: isSel ? 700 : 500, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                                 {isSel && <span style={{ color: 'var(--ok-ink)', marginRight: 5 }}>●</span>}
-                                {sg.spaceGroup}
+                                <span>{sg.spaceGroup}</span>
+                                <span className={`sym-cell-badge ${isZb ? 'is-zb' : ''}`} title={`Cell: ${cellLbl} (${sg.zoneStar || 'Γ'}-star)`}>
+                                  {cellLbl === '1×1×1 (P)' ? '1×1×1·P' : cellLbl}
+                                </span>
                               </td>
-                              <td style={{ padding: '8px 6px', fontFamily: 'var(--font-mono)', color: 'var(--secondary)' }}>
-                                {sg.nVariants}
+                              <td
+                                style={{ padding: '8px 6px', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', whiteSpace: 'nowrap' }}
+                                title={sg.domainKind === 'antiphase' ? `1 orientational variant × ${nDom} antiphase domains` : `${sg.nVariants} orientational twin variants`}
+                              >
+                                {sg.nVariants === 1 && nDom > 1 ? `1×${nDom}a` : sg.nVariants}
                               </td>
                               <td style={{ padding: '8px 6px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -910,7 +1073,7 @@ export default function SymmetryPage({
                                 </td>
                               )}
                               <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
-                                {sg.nVariants > 1 && sg.corrLengthAng > 0.1 ? `${sg.corrLengthAng.toFixed(1)}` : '—'}
+                                {nDom > 1 && sg.corrLengthAng > 0.1 ? `${sg.corrLengthAng.toFixed(1)}` : '—'}
                               </td>
                             </tr>
                           );
