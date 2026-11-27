@@ -268,36 +268,6 @@ export function removeCellDrift(u, nBasis, out) {
 
 // ── Method 1: Supercell k-Space Mode Power Spectrum ──────────────────────────
 
-// Simple radix-arbitrary 1D DFT (N is typically 4..16 for RMC supercells, so exact DFT is fast & exact for any N)
-function dft1d(inRe, inIm, stride, count, N, outRe, outIm, sign = -1) {
-  const cosT = new Float64Array(N * N);
-  const sinT = new Float64Array(N * N);
-  for (let k = 0; k < N; k++) {
-    for (let n = 0; n < N; n++) {
-      const ang = sign * TWO_PI * k * n / N;
-      cosT[k * N + n] = Math.cos(ang);
-      sinT[k * N + n] = Math.sin(ang);
-    }
-  }
-  const scale = 1 / Math.sqrt(N);
-  for (let c = 0; c < count; c++) {
-    const base = c * stride;
-    for (let k = 0; k < N; k++) {
-      let sr = 0, si = 0;
-      const row = k * N;
-      for (let n = 0; n < N; n++) {
-        const idx = base + n;
-        const cr = cosT[row + n], ci = sinT[row + n];
-        const xr = inRe[idx], xi = inIm[idx];
-        sr += xr * cr - xi * ci;
-        si += xr * ci + xi * cr;
-      }
-      outRe[base + k] = sr * scale;
-      outIm[base + k] = si * scale;
-    }
-  }
-}
-
 /**
  * 3D unitary DFT of a single supercell displacement field u[nx, ny, nz, d]
  * where d = 0 .. 3*nBasis-1.
@@ -578,7 +548,6 @@ export function localSubgroupAnalysis(configs, dim, A, basis, opts = {}) {
 
   // Reusable buffers
   const uCell = new Float64Array(D);
-  const tmp = new Float64Array(D);
   // Pre-allocate per-operation transformed vectors: gU[opIdx] = Γ(g) u_l
   const gU = Array.from({ length: reps.length }, () => new Float64Array(D));
   const proj = new Float64Array(D);
@@ -1152,7 +1121,7 @@ export function domainAlignedStructure(configs, dim, A, basis, subgroupSpec, opt
   // Idealize the parent basis onto exact G_0 Wyckoff positions before adding
   // the H_0-projected displacement, so symmetrizedBasis has exact H_0 symmetry
   // even when the input refBasis has single-config RMC statistical noise.
-  const idealParentBasis = basis.map((b, s) => ({ rn: b.rn, el: b.el, frac: [...b.frac] }));
+  const idealParentBasis = basis.map(b => ({ rn: b.rn, el: b.el, frac: [...b.frac] }));
   {
     const sumDf = Array.from({ length: nBasis }, () => [0, 0, 0]);
     for (let gi = 0; gi < reps.length; gi++) {

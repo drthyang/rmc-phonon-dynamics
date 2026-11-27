@@ -3,38 +3,18 @@
 [![Deploy](https://github.com/drthyang/rmc-phonon-dynamics/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/drthyang/rmc-phonon-dynamics/actions/workflows/deploy-pages.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
-A **browser-based phonon calculator** for [RMCProfile](https://rmcprofile.ornl.gov)
-ensembles — no install, no setup, no server. Open the page, pick your run folder,
-and get phonon band structures, animated 3D modes, and simulated neutron spectra
-in seconds.
-
-> **What makes it different:** the phonons come straight from your
-> **RMC ensemble — atomic configurations fitted to experimental total-scattering
-> and diffraction data** (real-space PDF + reciprocal-space S(Q)/Bragg). They are
-> extracted from the *displacement covariance* of those configurations, so the
-> dynamics are a direct consequence of the measured structure — **not** taken
-> from a spectroscopy measurement (INS/Raman/IR) or a lattice-dynamics/DFT model.
+A **browser-based symmetry, phonon, and inelastic neutron scattering (INS) studio** for [RMCProfile](https://rmcprofile.ornl.gov) supercell ensembles — plus an optional universal MLIP companion (`rmcph-mlip`).
 
 ### ▶️ Open the app — [drthyang.github.io/rmc-phonon-dynamics](https://drthyang.github.io/rmc-phonon-dynamics/)
 
-1. Visit the link above.
-2. Click **Select directory** and choose your RMC ensemble folder (a numbered
-   `.rmc6f` ensemble, or `Frac*.txt` configs with a companion `.rmc6f`).
-3. Build a **k-path** on the Brillouin zone, set the temperature, and **Run** —
-   the band structure, 3D modes, INS S(|Q|,E), and phonon DOS render right in
-   your browser.
+## Workflow
 
-🔒 **Your data never leaves your device.** Run files are read and *every*
-calculation happens locally in your browser — nothing is ever uploaded to any
-server. It's a private, secure way to analyze unpublished data. (Your browser's
-folder picker may say “Upload”, but nothing is sent anywhere.)
+1. **Step 1 · Supercell Symmetry & Domain Studio** — Stream 1 to 500+ `.rmc6f` supercells in `O(1)` memory with Monte Carlo null calibration, spatial cross-validation (`CV ΔF`), domain correlation length `ξ(r)`, and automatic `Γ` (`1×1×1`), centering-breaking (`1×1×1·P`), and zone-boundary (`1×1×2`, `2×2×1`, `2×2×2`) subgroup discovery.Works in **any modern browser** (Chrome, Safari, Firefox, Edge).
+2. **Step 2 · Phonons & Unfolded Parent Brillouin Zone** — Inspect harmonic MLIP (`_mlip_dm.json` / `band.yaml`) or RMC covariance dispersions, unfold lower-symmetry supercell modes onto the parent Brillouin zone (`A(Q, E)`), animate 3D eigenvectors, inspect `FixSymmetry` energetics (`ΔE/atom`), and compute coherent + incoherent powder `S(|Q|, E)`.
+3. **Step 3 · Experimental INS Compare** — Quantitatively rank candidate local symmetries (`Rw`, `cos`, `χ²`) against experimental 1D GDOS / `S(E)` and 2D `S(|Q|, E)` with direct-geometry TOF chopper resolution (`SEQUOIA`, `CNCS`, `ARCS`, `LET`) and parameter-free Sjolander multiphonon (`n ≥ 2`) backgrounds.
+4. **Legacy WebGPU RMC Runner** — Direct displacement-covariance `S(k)` diagonalization across 500+ RMC configurations on WebGPU (Chrome / Edge).
 
-⚡ **Computed on your GPU.** The phonon displacement-covariance S(k) →
-diagonalization runs on **WebGPU**, directly on your machine — fast, with no
-backend to install or wait on.
-
-🖥️ **Use a Chromium browser** (Chrome or Edge): the app needs WebGPU and the
-File System Access API, which Firefox/Safari don't yet provide.
+🔒 **Your data stays on your device.** All browser analysis runs 100% locally on your machine — nothing is uploaded to any external server.
 
 ## What it does
 
@@ -86,7 +66,8 @@ in-browser results map to the original Python implementation.
 
 | Path | Purpose |
 | --- | --- |
-| [`web/`](web/) | The application — React + Vite + WebGPU (the hosted link above). |
+| [`web/`](web/) | React + Vite web application (Steps 1–3 work in all modern browsers; Legacy RMC uses WebGPU). |
+| [`mlip/`](mlip/) | Optional Python `rmcph-mlip` CLI & local companion server (`uv run rmcph-mlip serve`) for `FixSymmetry` relaxation, multi-uMLIP (`MACE-MP-0`, `MACE-MPA-0`, `MACE-OMAT-0`, `MACE-r²SCAN`, `MatterSim`, `ORB-v3`, `SevenNet`, `CHGNet`) phonons, and coherent powder INS `S(|Q|, E)`. |
 | [`archive/`](archive/) | Retired Python engines (`src/`, `src_gpu/`), the FastAPI GUI (`rmcph_gui/`), the standalone viewer (`viz/`), design handoffs, and historical notes. |
 | `.github/workflows/` | CI that builds `web/` and deploys it to GitHub Pages on every push to `main`. |
 
