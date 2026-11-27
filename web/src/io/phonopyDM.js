@@ -222,6 +222,29 @@ function qDirectionAt(qpoints, i) {
 }
 
 /**
+ * Solve the mass-weighted Phonopy dynamical matrix D(q) at a single fractional
+ * wave vector `qpoint` (in the payload's primitive reciprocal basis).
+ *
+ * Phonopy uses the C-type (atomic-position) Bloch phase convention:
+ *   D_{ij}(q) = (m_i m_j)^(-1/2) * sum_R Phi_{0i, Rj} * exp(+i * 2*pi * q . (R + x_j - x_i))
+ *
+ * Returns ascending phonon energies in meV (negative values indicate imaginary /
+ * soft modes) alongside unit-norm complex eigenvectors `eigvecs[m] = { real, imag }`.
+ */
+export function solveDynamicalMatrixAtQ(payload, qpoint, qDirection = null) {
+  const conv = Number(payload.frequency_conversion_factor) || 1;
+  const { re, im, N } = dynamicalMatrix(payload, qpoint, qDirection);
+  const { eigenvalues, eigenvectors } = eigh(re, im, N);
+  const energiesMev = new Array(N);
+  const eigvecs = new Array(N);
+  for (let m = 0; m < N; m++) {
+    energiesMev[m] = eigToCm1(eigenvalues[m], conv) * CM1_TO_MEV;
+    eigvecs[m] = { real: eigenvectors[m].real, imag: eigenvectors[m].imag };
+  }
+  return { energiesMev, eigvecs };
+}
+
+/**
  * Build the app's viewer model from a phonopy-dynamical-matrix JSON object.
  * Diagonalizes D(q) at every q-point (with Gonze NAC when present) → bands (meV)
  * + eigendisplacements, and packages structure + k-path metadata.
@@ -234,29 +257,21 @@ export function fromPhonopyDM(obj) {
   const atomTypes = obj.atom_types;
   const posRed = obj.atom_pos_red;
   const masses = payload.masses;
-  const conv = Number(payload.frequency_conversion_factor) || 1;
   if (!payload.force_constants_compact || !lattice || !atomTypes || !posRed) {
     throw new Error('Not a recognized phonopy-dynamical-matrix file (missing force constants / structure).');
   }
   const natoms = masses.length;
   const qpoints = obj.qpoints;
-  const avgMass = Number(obj.average_mass) || (masses.reduce((a, b) => a + b, 0) / masses.length);
 
   const bands = [], eigvecs = [];
   for (let qi = 0; qi < qpoints.length; qi++) {
-    const { re, im, N } = dynamicalMatrix(payload, qpoints[qi], qDirectionAt(qpoints, qi));
-    const { eigenvalues, eigenvectors } = eigh(re, im, N);   // ascending
-    const row = new Array(N), evRow = new Array(N);
-    for (let m = 0; m < N; m++) {
-      bandsSet(row, m, eigToCm1(eigenvalues[m], conv) * CM1_TO_MEV);
-      // Keep the raw unit-norm eigenvectors of the MASS-WEIGHTED dynamical
-      // matrix — the phonopy convention shared by every model source.
-      // Consumers apply their own mass weighting (the 3D viewer divides by
-      // sqrt(m) via baseStructure.masses; the S(Q,E) structure factor uses
-      // b^2/m directly on these vectors).
-      evRow[m] = { real: eigenvectors[m].real, imag: eigenvectors[m].imag };
-    }
-    bands.push(row); eigvecs.push(evRow);
+    const { energiesMev, eigvecs: evRow } = solveDynamicalMatrixAtQ(
+      payload,
+      qpoints[qi],
+      qDirectionAt(qpoints, qi)
+    );
+    bands.push(energiesMev);
+    eigvecs.push(evRow);
   }
 
   // Structure → baseStructure (one primitive cell; row order = atom order).
@@ -272,9 +287,25 @@ export function fromPhonopyDM(obj) {
     cellIdx: new Float64Array(natoms * 3),
   };
 
-  // k-path metadata: continuous path (one segment) + high-symmetry labels.
+  // k-path metadata: infer discontinuous segment breaks (e.g. seekpath K|U jumps)
+  // whenever two consecutive q-point indices both carry high-symmetry labels.
   const hsymIndex = {};
   for (const [idx, label] of (obj.highsym_qpts || [])) hsymIndex[idx] = label === 'GAMMA' ? 'Γ' : label;
+
+  let segSizes = Array.isArray(obj.segment_sizes) && obj.segment_sizes.length
+    ? obj.segment_sizes
+    : null;
+  if (!segSizes) {
+    segSizes = [];
+    let curStart = 0;
+    for (let i = 1; i < qpoints.length; i++) {
+      if (hsymIndex[i - 1] !== undefined && hsymIndex[i] !== undefined) {
+        segSizes.push(i - curStart);
+        curStart = i;
+      }
+    }
+    if (qpoints.length > curStart) segSizes.push(qpoints.length - curStart);
+  }
 
   const temperature = Number.isFinite(obj.powder_ins?.temperature_k)
     ? obj.powder_ins.temperature_k
@@ -283,17 +314,15 @@ export function fromPhonopyDM(obj) {
   return {
     name: obj.name || null,
     bands, eigvecs, qPoints: qpoints,
-    kpathMeta: { segSizes: [qpoints.length], hsymIndex },
+    kpathMeta: { segSizes, hsymIndex },
     temperature, source: 'file',
     baseStructure,
+    dynamicalMatrixPayload: payload,
     mlipMetadata: obj.mlip_metadata || null,
     neutronDos: obj.neutron_dos || null,
     powderIns: obj.powder_ins || null,
   };
 }
-
-// Tiny helper so the band-energy assignment reads clearly above.
-function bandsSet(row, m, v) { row[m] = v; }
 
 /**
  * Load a viewer model from raw file text, auto-detecting the format:

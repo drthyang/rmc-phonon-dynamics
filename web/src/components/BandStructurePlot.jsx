@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useId } from 'react';
 import { conventionalLattice, reciprocalLattice, pathDistances } from '../math/reciprocal';
+import { computeSpectralFunctionGrid } from '../math/unfolding';
 import { clientToSvg } from './svgCoords';
 
 /**
@@ -23,7 +24,6 @@ import { clientToSvg } from './svgCoords';
 const W = 760, H = 880;
 const XL = 64, XR = 740, YT = 30, YB = 810;   // plot frame (pixel/user space)
 const PW = XR - XL, PH = YB - YT;
-const CLIP = 'bsp-frame-clip';
 // Red family — distinct hue/lightness per branch while reading as "red".
 const branchColor = (m) => `hsl(${(m * 6) % 16}, 72%, ${40 + (m % 7) * 3.2}%)`;
 
@@ -35,8 +35,97 @@ function niceStep(range, target = 6) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
 }
 
-export default function BandStructurePlot({ bands, qPoints, baseStructure, kpathMeta, selected, onPick, eMin, eMax, unit = 'meV', resetSignal = 0, overlays = [] }) {
+// Perceptual warm-editorial spectral ramp (transparent -> amber -> terracotta -> deep crimson-ink)
+function spectralRGBA(normVal) {
+  if (!(normVal > 0.012)) return [0, 0, 0, 0];
+  const t = Math.pow(Math.min(1, normVal), 0.58);
+  // 3-stop interpolation: 0 -> (245, 198, 132), 0.5 -> (201, 93, 58), 1.0 -> (98, 22, 18)
+  let r, g, b;
+  if (t < 0.5) {
+    const u = t * 2;
+    r = 245 + (201 - 245) * u;
+    g = 198 + (93 - 198) * u;
+    b = 132 + (58 - 132) * u;
+  } else {
+    const u = (t - 0.5) * 2;
+    r = 201 + (98 - 201) * u;
+    g = 93 + (22 - 93) * u;
+    b = 58 + (18 - 58) * u;
+  }
+  const alpha = Math.round(Math.min(1, t * 1.08) * 238);
+  return [Math.round(r), Math.round(g), Math.round(b), alpha];
+}
+
+function renderSpectralHeatmapUrl(specGrid, dist, xLo, xHi, nXPixels = 340) {
+  if (typeof document === 'undefined' || !specGrid || !(specGrid.maxIntensity > 0)) return null;
+  const { intensity, nQ, nEnergyBins, maxIntensity } = specGrid;
+  const canvas = document.createElement('canvas');
+  canvas.width = nXPixels;
+  canvas.height = nEnergyBins;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const img = ctx.createImageData(nXPixels, nEnergyBins);
+  const data = img.data;
+  const xSpan = (xHi - xLo) || 1;
+  const invMax = 1 / maxIntensity;
+
+  // Map each horizontal pixel column px -> fractional index along dist[0..nQ-1]
+  let qCursor = 0;
+  for (let px = 0; px < nXPixels; px++) {
+    const targetDist = xLo + ((px + 0.5) / nXPixels) * xSpan;
+    while (qCursor + 1 < nQ - 1 && dist[qCursor + 1] < targetDist) qCursor++;
+    const d0 = dist[qCursor];
+    const d1 = dist[Math.min(nQ - 1, qCursor + 1)];
+    const frac = d1 > d0 + 1e-12 ? Math.max(0, Math.min(1, (targetDist - d0) / (d1 - d0))) : 0;
+    const col0 = qCursor * nEnergyBins;
+    const col1 = Math.min(nQ - 1, qCursor + 1) * nEnergyBins;
+
+    for (let bin = 0; bin < nEnergyBins; bin++) {
+      const val = (intensity[col0 + bin] * (1 - frac) + intensity[col1 + bin] * frac) * invMax;
+      const [r, g, b, a] = spectralRGBA(val);
+      if (a === 0) continue;
+      // Flip y so bin 0 (yMin) is at bottom of image and bin nEnergyBins-1 (yMax) is at top
+      const row = (nEnergyBins - 1) - bin;
+      const off = (row * nXPixels + px) * 4;
+      data[off] = r;
+      data[off + 1] = g;
+      data[off + 2] = b;
+      data[off + 3] = a;
+    }
+  }
+
+  ctx.putImageData(img, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+function buildSegmentStarts(segSizes, nTotal) {
+  const starts = new Set([0]);
+  let off = 0;
+  for (const sz of (segSizes || [nTotal])) {
+    starts.add(off);
+    off += sz;
+  }
+  return starts;
+}
+
+export default function BandStructurePlot({
+  bands,
+  weights = null,
+  spectralStyle = 'both', // 'both' | 'heatmap' | 'weighted'
+  qPoints,
+  baseStructure,
+  kpathMeta,
+  selected,
+  onPick,
+  eMin,
+  eMax,
+  unit = 'meV',
+  resetSignal = 0,
+  overlays = [],
+}) {
   const svgRef = useRef(null);
+  const clipId = useId();
   const [domain, setDomain] = useState(null);    // zoom window {xMin,xMax,yMin,yMax} in DATA coords, or null = full
   const [sel, setSel] = useState(null);          // live drag box {x0,y0,x1,y1} in pixel space
   const [hover, setHover] = useState(null);      // nearest point under the cursor {k,m,x,y}
@@ -71,19 +160,64 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     const invX = (px) => xLo + ((px - XL) / PW) * xSpan;
     const invY = (py) => yLo + ((YB - py) / PH) * ySpan;
 
-    // One polyline per branch, plus a separate path of only its sub-zero spans.
+    const segStarts = buildSegmentStarts(kpathMeta?.segSizes, bands.length);
+
+    // Unfolded mode vs. standard unweighted band-line mode
+    const hasWeights = Array.isArray(weights) && weights.length === bands.length;
+    let spectralImageUrl = null;
     const branches = [];
-    for (let m = 0; m < nModes; m++) {
-      let d = '', neg = '', penNeg = false;
-      for (let k = 0; k < bands.length; k++) {
-        const v = bands[k][m];
-        if (!isFinite(v)) { penNeg = false; continue; }
-        const X = xOf(dist[k]).toFixed(1), Y = yOf(v).toFixed(1);
-        d += (d ? 'L' : 'M') + X + ' ' + Y + ' ';
-        if (v < 0) { neg += (penNeg ? 'L' : 'M') + X + ' ' + Y + ' '; penNeg = true; }
-        else penNeg = false;
+    const weightedDots = [];
+
+    if (hasWeights) {
+      if (spectralStyle !== 'weighted') {
+        const specGrid = computeSpectralFunctionGrid(bands, weights, {
+          eMin: yLo,
+          eMax: yHi,
+          nEnergyBins: 240,
+        });
+        spectralImageUrl = renderSpectralHeatmapUrl(specGrid, dist, xLo, xHi, 360);
       }
-      branches.push({ d, neg, color: branchColor(m) });
+      if (spectralStyle !== 'heatmap') {
+        const minW = spectralStyle === 'both' ? 0.06 : 0.025;
+        for (let k = 0; k < bands.length; k++) {
+          const dx = dist[k];
+          if (dx < xLo - xSpan * 0.02 || dx > xHi + xSpan * 0.02) continue;
+          const X = xOf(dx);
+          const wRow = weights[k];
+          const eRow = bands[k];
+          for (let m = 0; m < nModes; m++) {
+            const w = wRow[m];
+            if (!(w >= minW)) continue;
+            const v = eRow[m];
+            if (!isFinite(v) || v < yLo - ySpan * 0.02 || v > yHi + ySpan * 0.02) continue;
+            weightedDots.push({
+              x: X,
+              y: yOf(v),
+              r: spectralStyle === 'both' ? (1.1 + 1.8 * Math.min(1, w)) : (1.3 + 2.4 * Math.min(1, w)),
+              opacity: spectralStyle === 'both'
+                ? Math.min(0.88, 0.22 + 0.66 * w)
+                : Math.min(0.95, 0.16 + 0.82 * Math.pow(w, 0.75)),
+              neg: v < 0,
+            });
+          }
+        }
+      }
+    } else {
+      // Standard unweighted polyline per branch (broken cleanly at discontinuous segment jumps)
+      for (let m = 0; m < nModes; m++) {
+        let d = '', neg = '', pen = false, penNeg = false;
+        for (let k = 0; k < bands.length; k++) {
+          if (k > 0 && segStarts.has(k)) { pen = false; penNeg = false; }
+          const v = bands[k][m];
+          if (!isFinite(v)) { pen = false; penNeg = false; continue; }
+          const X = xOf(dist[k]).toFixed(1), Y = yOf(v).toFixed(1);
+          d += (pen ? 'L' : 'M') + X + ' ' + Y + ' ';
+          pen = true;
+          if (v < 0) { neg += (penNeg ? 'L' : 'M') + X + ' ' + Y + ' '; penNeg = true; }
+          else penNeg = false;
+        }
+        branches.push({ d, neg, color: branchColor(m) });
+      }
     }
 
     // High-symmetry ticks — only those whose distance falls in the x-window.
@@ -112,33 +246,56 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
 
     const zeroIn = 0 >= yLo && 0 <= yHi;
 
-    // Optional overlay candidate bands (normalized onto [0, xMax] so different cell paths align cleanly)
+    // Optional overlay candidate bands (supports both standard line overlays and unfolded weighted overlays!)
     const overlayBranches = [];
     for (const ov of (overlays || [])) {
       if (!ov?.bands?.length || !ov?.qPoints?.length || !ov?.baseStructure) continue;
       const ovRecip = ov.baseStructure.bandRecip || reciprocalLattice(conventionalLattice(
         ov.baseStructure.v1, ov.baseStructure.v2, ov.baseStructure.v3, ov.baseStructure.dim
       ));
+      const ovSegStarts = buildSegmentStarts(ov.kpathMeta?.segSizes, ov.bands.length);
       const ovDist = pathDistances(ov.qPoints, ovRecip, ov.kpathMeta?.segSizes);
       const ovMax = ovDist[ovDist.length - 1] || 1;
-      const xScale = xMax / ovMax;
+      const xScale = ov.exactParentPath ? 1 : (xMax / ovMax);
       const ovModes = ov.bands[0]?.length || 0;
-      const paths = [];
-      for (let m = 0; m < ovModes; m++) {
-        let d = '';
+
+      if (ov.weights) {
+        const dots = [];
         for (let k = 0; k < ov.bands.length; k++) {
-          const v = ov.bands[k][m];
-          if (!isFinite(v)) continue;
-          const X = xOf(ovDist[k] * xScale).toFixed(1), Y = yOf(v).toFixed(1);
-          d += (d ? 'L' : 'M') + X + ' ' + Y + ' ';
+          const X = xOf(ovDist[k] * xScale);
+          for (let m = 0; m < ovModes; m++) {
+            const w = ov.weights[k]?.[m] ?? 0;
+            if (w < 0.08) continue;
+            const v = ov.bands[k][m];
+            if (!isFinite(v)) continue;
+            dots.push({ x: X, y: yOf(v), r: 1.2 + 2.0 * Math.min(1, w), opacity: Math.min(0.85, 0.2 + 0.65 * w) });
+          }
         }
-        if (d) paths.push(d);
+        overlayBranches.push({ id: ov.id, label: ov.label, color: ov.color || '#2563eb', paths: [], dots });
+      } else {
+        const paths = [];
+        for (let m = 0; m < ovModes; m++) {
+          let d = '', pen = false;
+          for (let k = 0; k < ov.bands.length; k++) {
+            if (k > 0 && ovSegStarts.has(k)) pen = false;
+            const v = ov.bands[k][m];
+            if (!isFinite(v)) { pen = false; continue; }
+            const X = xOf(ovDist[k] * xScale).toFixed(1), Y = yOf(v).toFixed(1);
+            d += (pen ? 'L' : 'M') + X + ' ' + Y + ' ';
+            pen = true;
+          }
+          if (d) paths.push(d);
+        }
+        overlayBranches.push({ id: ov.id, label: ov.label, color: ov.color || '#2563eb', paths, dots: [] });
       }
-      overlayBranches.push({ id: ov.id, label: ov.label, color: ov.color || '#2563eb', paths });
     }
 
-    return { dist, xOf, yOf, invX, invY, branches, overlayBranches, xticks, ygrid, nModes, zeroY: yOf(0), zeroIn };
-  }, [bands, qPoints, baseStructure, kpathMeta, eMin, eMax, domain, overlays]);
+    return {
+      dist, xOf, yOf, invX, invY,
+      hasWeights, spectralImageUrl, branches, weightedDots, overlayBranches,
+      xticks, ygrid, nModes, zeroY: yOf(0), zeroIn,
+    };
+  }, [bands, weights, spectralStyle, qPoints, baseStructure, kpathMeta, eMin, eMax, domain, overlays]);
 
   if (!model) return null;
 
@@ -149,17 +306,18 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
   const clampX = (x) => Math.max(XL, Math.min(XR, x));
   const clampY = (y) => Math.max(YT, Math.min(YB, y));
 
-  // Nearest selectable (k, mode) to a point, with its pixel position.
+  // Nearest selectable (k, mode) to a point, skipping zero-weight shadow ghosts when unfolded.
   const pickNearest = (loc) => {
     let best = null, bestD = Infinity;
     for (let k = 0; k < bands.length; k++) {
       const x = model.xOf(model.dist[k]);
       for (let m = 0; m < model.nModes; m++) {
+        if (model.hasWeights && (weights[k]?.[m] ?? 0) < 0.02) continue;
         const v = bands[k][m];
         if (!isFinite(v)) continue;
         const y = model.yOf(v);
         const dd = (x - loc.x) ** 2 + (y - loc.y) ** 2;
-        if (dd < bestD) { bestD = dd; best = { k, m, x, y }; }
+        if (dd < bestD) { bestD = dd; best = { k, m, x, y, w: model.hasWeights ? weights[k][m] : null }; }
       }
     }
     return best;
@@ -201,7 +359,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
     : null;
   const inFrame = (p) => p && p.x >= XL - 1 && p.x <= XR + 1 && p.y >= YT - 1 && p.y <= YB + 1;
   const hoverLabel = hover && !sel && isFinite(bands[hover.k]?.[hover.m])
-    ? `band ${hover.m + 1} · ${bands[hover.k][hover.m].toFixed(2)} ${unit} · q=[${(qPoints[hover.k] || []).map(v => v.toFixed(2)).join(', ')}]`
+    ? `band ${hover.m + 1} · ${bands[hover.k][hover.m].toFixed(2)} ${unit}${hover.w !== null && hover.w !== undefined ? ` · W=${hover.w.toFixed(2)}` : ''} · q=[${(qPoints[hover.k] || []).map(v => v.toFixed(2)).join(', ')}]`
     : null;
 
   return (
@@ -209,7 +367,7 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
       onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onDoubleClick={() => setDomain(null)}
       onMouseLeave={() => { dragRef.current = null; setSel(null); setHover(null); }}>
 
-      <defs><clipPath id={CLIP}><rect x={XL} y={YT} width={PW} height={PH} /></clipPath></defs>
+      <defs><clipPath id={clipId}><rect x={XL} y={YT} width={PW} height={PH} /></clipPath></defs>
 
       {/* y grid + labels */}
       {model.ygrid.map((g, i) => (
@@ -234,14 +392,38 @@ export default function BandStructurePlot({ bands, qPoints, baseStructure, kpath
       <line x1={XL} x2={XL} y1={YT} y2={YB} stroke="var(--dim)" strokeWidth="1.1" />
       <line x1={XL} x2={XR} y1={YB} y2={YB} stroke="var(--dim)" strokeWidth="1.1" />
 
-      {/* bands (clipped to the frame so zoomed-out-of-range parts don't overflow) */}
-      <g clipPath={`url(#${CLIP})`}>
+      {/* bands & unfolded spectral density (clipped to plot frame) */}
+      <g clipPath={`url(#${clipId})`}>
+        {model.spectralImageUrl && (
+          <image
+            href={model.spectralImageUrl}
+            x={XL}
+            y={YT}
+            width={PW}
+            height={PH}
+            preserveAspectRatio="none"
+            style={{ imageRendering: 'auto', pointerEvents: 'none' }}
+          />
+        )}
         {model.overlayBranches.map((ov) => (
-          <g key={ov.id} opacity="0.58">
+          <g key={ov.id} opacity="0.68">
             {ov.paths.map((d, m) => (
-              <path key={m} d={d} fill="none" stroke={ov.color} strokeWidth="1.35" strokeDasharray="4 3" strokeLinejoin="round" />
+              <path key={m} d={d} fill="none" stroke={ov.color} strokeWidth="1.45" strokeDasharray="4 3" strokeLinejoin="round" />
+            ))}
+            {ov.dots?.map((pt, idx) => (
+              <circle key={idx} cx={pt.x} cy={pt.y} r={pt.r} fill={ov.color} opacity={pt.opacity} />
             ))}
           </g>
+        ))}
+        {model.weightedDots.map((pt, idx) => (
+          <circle
+            key={idx}
+            cx={pt.x}
+            cy={pt.y}
+            r={pt.r}
+            fill={pt.neg ? '#dc2626' : '#8f2d1e'}
+            opacity={pt.opacity}
+          />
         ))}
         {model.branches.map((b, m) => (
           <g key={m}>

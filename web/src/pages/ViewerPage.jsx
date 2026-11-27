@@ -6,6 +6,12 @@ import ModeInspector from '../components/ModeInspector';
 import InsPanel from '../components/InsPanel';
 import { generatePhonopyBandYaml, generateBandJson, downloadString } from '../io/writers';
 import { modelFromText } from '../io/phonopyDM';
+import {
+  extractCellFromBaseStructure,
+  findSupercellRelation,
+  unfoldModelOntoParentPath,
+  inferIntrinsicParentPath,
+} from '../math/unfolding';
 
 const THZ_PER_MEV = 1 / THZ_TO_MEV;
 
@@ -60,14 +66,63 @@ export default function ViewerPage({
   const [gifSignal, setGifSignal] = useState(0);
 
   const [thz, setThz] = useState(false);
+  const [zoneMode, setZoneMode] = useState('unfolded');     // 'unfolded' | 'native'
+  const [spectralStyle, setSpectralStyle] = useState('both'); // 'both' | 'heatmap' | 'weighted'
   const [loadErr, setLoadErr] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
-  useEffect(() => {
-    if (!model?.bands?.length) { setSelK(0); setSelM(0); return; }
-    setSelK(k => Math.max(0, Math.min(model.bands.length - 1, k)));
-    setSelM(m => Math.max(0, Math.min((model.bands[0]?.length || 1) - 1, m)));
-  }, [model]);
+  const phononCandidates = useMemo(() => candidates.filter(c => c.model?.bands), [candidates]);
+  const toggleOverlay = (id) => setHiddenOverlays(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+
+  // Identify a Parent Brillouin-Zone reference for unfolding the active supercell/subgroup model:
+  //   1. Prefer an explicit `kind === 'parent'` candidate (or smallest compatible unit-cell candidate).
+  //   2. Otherwise, infer an intrinsic higher-symmetry parent cell from the supercell geometry itself.
+  const parentReference = useMemo(() => {
+    if (!model?.dynamicalMatrixPayload || !model?.baseStructure) return null;
+    const activeCell = extractCellFromBaseStructure(model.baseStructure);
+    if (!activeCell) return null;
+
+    const otherCands = phononCandidates
+      .filter(c => c.id !== activeCandidateId && c.model?.qPoints?.length && c.model?.baseStructure)
+      .sort((a, b) => {
+        const pa = a.kind === 'parent' ? 0 : 1;
+        const pb = b.kind === 'parent' ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return (a.model.baseStructure.uniqueRN?.length || 999) - (b.model.baseStructure.uniqueRN?.length || 999);
+      });
+
+    for (const cand of otherCands) {
+      const pCell = extractCellFromBaseStructure(cand.model.baseStructure);
+      const rel = findSupercellRelation(pCell, activeCell);
+      if (rel && (rel.multiplicity > 1 || cand.kind === 'parent')) {
+        return {
+          label: cand.spaceGroup || cand.label || 'Parent',
+          qPoints: cand.model.qPoints,
+          kpathMeta: cand.model.kpathMeta,
+          baseStructure: cand.model.baseStructure,
+          relation: rel,
+          candidateId: cand.id,
+        };
+      }
+    }
+
+    const inferred = inferIntrinsicParentPath(model);
+    if (inferred) {
+      const pCell = extractCellFromBaseStructure(inferred.baseStructure);
+      const rel = findSupercellRelation(pCell, activeCell);
+      if (rel && rel.multiplicity > 1) {
+        return { ...inferred, relation: rel, candidateId: null };
+      }
+    }
+    return null;
+  }, [model, phononCandidates, activeCandidateId]);
+
+  const unfoldedDispersion = useMemo(() => {
+    if (!parentReference || !model?.dynamicalMatrixPayload) return null;
+    return unfoldModelOntoParentPath(model, parentReference, { relation: parentReference.relation });
+  }, [model, parentReference]);
+
+  const isUnfoldedActive = Boolean(zoneMode === 'unfolded' && unfoldedDispersion);
 
   const elements = model ? Object.keys(model.baseStructure.atomDic) : [];
   const colorOf = (el) => elementColors[el] || DEFAULT_COLORS[el] || '#cccccc';
@@ -76,9 +131,30 @@ export default function ViewerPage({
   const escale = thz ? THZ_PER_MEV : 1;
   const fmtE = (e) => Number.isFinite(e) ? `${(e * escale).toFixed(3)} ${unit}` : '—';
 
+  const activeRawBands = isUnfoldedActive ? unfoldedDispersion.bands : model?.bands;
+  const activeQPoints = isUnfoldedActive ? unfoldedDispersion.qPoints : model?.qPoints;
+  const activePlotStructure = isUnfoldedActive ? unfoldedDispersion.parentStructure : model?.baseStructure;
+  const activeKpathMeta = isUnfoldedActive ? unfoldedDispersion.kpathMeta : model?.kpathMeta;
+  const activeWeights = isUnfoldedActive ? unfoldedDispersion.weights : null;
+  const activeEigvecs = isUnfoldedActive ? unfoldedDispersion.eigvecs : model?.eigvecs;
+  const modeInspectorResults = useMemo(() => (
+    model ? {
+      bands: activeRawBands,
+      qPoints: activeQPoints,
+      eigvecs: activeEigvecs,
+      baseStructure: model.baseStructure,
+    } : null
+  ), [model, activeRawBands, activeQPoints, activeEigvecs]);
+
+  useEffect(() => {
+    if (!activeRawBands?.length) { setSelK(0); setSelM(0); return; }
+    setSelK(k => Math.max(0, Math.min(activeRawBands.length - 1, k)));
+    setSelM(m => Math.max(0, Math.min((activeRawBands[0]?.length || 1) - 1, m)));
+  }, [activeRawBands]);
+
   const displayBands = useMemo(
-    () => !model ? null : (escale === 1 ? model.bands : model.bands.map(row => row.map(v => v * escale))),
-    [model, escale]
+    () => !activeRawBands ? null : (escale === 1 ? activeRawBands : activeRawBands.map(row => row.map(v => v * escale))),
+    [activeRawBands, escale]
   );
 
   const parseLoadedFile = async (file) => {
@@ -90,22 +166,64 @@ export default function ViewerPage({
     } catch (err) { setLoadErr(err.message); }
   };
 
-  const phononCandidates = useMemo(() => candidates.filter(c => c.model?.bands), [candidates]);
-  const toggleOverlay = (id) => setHiddenOverlays(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
-
   const overlayModels = useMemo(() => {
+    if (!model || !activePlotStructure || !activeQPoints) return [];
+    const targetPathSource = {
+      qPoints: activeQPoints,
+      kpathMeta: activeKpathMeta,
+      baseStructure: activePlotStructure,
+    };
+    const targetCell = extractCellFromBaseStructure(activePlotStructure);
+
     return phononCandidates
       .filter(c => c.id !== activeCandidateId && !hiddenOverlays.includes(c.id))
-      .map(c => ({
-        id: c.id,
-        label: c.label,
-        color: c.color,
-        bands: escale === 1 ? c.model.bands : c.model.bands.map(row => row.map(v => v * escale)),
-        qPoints: c.model.qPoints,
-        baseStructure: c.model.baseStructure,
-        kpathMeta: c.model.kpathMeta,
-      }));
-  }, [phononCandidates, activeCandidateId, hiddenOverlays, escale]);
+      .map(c => {
+        // Case A: This overlay IS the Parent reference of our currently unfolded Local model -> exact path match!
+        if (isUnfoldedActive && parentReference?.candidateId === c.id) {
+          return {
+            id: c.id,
+            label: c.label,
+            color: c.color,
+            bands: escale === 1 ? c.model.bands : c.model.bands.map(row => row.map(v => v * escale)),
+            qPoints: c.model.qPoints,
+            baseStructure: c.model.baseStructure,
+            kpathMeta: c.model.kpathMeta,
+            exactParentPath: true,
+          };
+        }
+        // Case B: Active model is Parent (or unfolded onto Parent) and this overlay is a Local supercell with DM ->
+        //         unfold the overlay directly onto `targetPathSource` so both share the exact Parent Brillouin Zone!
+        if (c.model.dynamicalMatrixPayload && targetCell) {
+          const ovCell = extractCellFromBaseStructure(c.model.baseStructure);
+          const rel = findSupercellRelation(targetCell, ovCell);
+          if (rel && (rel.multiplicity > 1 || c.kind === 'local-subgroup')) {
+            const ovUnf = unfoldModelOntoParentPath(c.model, targetPathSource, { relation: rel });
+            if (ovUnf) {
+              return {
+                id: c.id,
+                label: `${c.label} (unfolded ×${rel.multiplicity})`,
+                color: c.color,
+                bands: escale === 1 ? ovUnf.bands : ovUnf.bands.map(row => row.map(v => v * escale)),
+                weights: ovUnf.weights,
+                qPoints: ovUnf.qPoints,
+                baseStructure: ovUnf.parentStructure,
+                kpathMeta: ovUnf.kpathMeta,
+                exactParentPath: true,
+              };
+            }
+          }
+        }
+        return {
+          id: c.id,
+          label: c.label,
+          color: c.color,
+          bands: escale === 1 ? c.model.bands : c.model.bands.map(row => row.map(v => v * escale)),
+          qPoints: c.model.qPoints,
+          baseStructure: c.model.baseStructure,
+          kpathMeta: c.model.kpathMeta,
+        };
+      });
+  }, [phononCandidates, activeCandidateId, hiddenOverlays, escale, model, activePlotStructure, activeQPoints, activeKpathMeta, isUnfoldedActive, parentReference]);
 
   const loadFile = (e) => parseLoadedFile(e.target.files?.[0]);
 
@@ -149,11 +267,14 @@ export default function ViewerPage({
     );
   }
 
-  const eig = model.eigvecs?.[selK]?.[selM] || null;
-  const qPoint = model.qPoints?.[selK];
-  const nModes = model.bands[0]?.length || 0;
-  const nK = model.bands.length;
-  const energy = model.bands[selK]?.[selM];
+  const eig = activeEigvecs?.[selK]?.[selM] || null;
+  const qPointFor3D = isUnfoldedActive
+    ? unfoldedDispersion.qPointsSuper?.[selK]
+    : model.qPoints?.[selK];
+  const nModes = activeRawBands?.[0]?.length || 0;
+  const nK = activeRawBands?.length || 0;
+  const energy = activeRawBands?.[selK]?.[selM];
+  const selectedWeight = isUnfoldedActive ? unfoldedDispersion.weights?.[selK]?.[selM] : null;
 
   const exportYaml = () => downloadString(generatePhonopyBandYaml(model.baseStructure, model.qPoints, model.bands, model.eigvecs, model.kpathMeta), 'band_gpu.yaml', 'text/yaml');
   const exportJson = () => downloadString(generateBandJson(model.baseStructure, model.qPoints, model.bands, model.eigvecs, model.kpathMeta), 'band_gpu.json', 'application/json');
@@ -298,7 +419,50 @@ export default function ViewerPage({
                 </button>
               </div>
 
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+                {unfoldedDispersion && (
+                  <div className="m-tools" role="group" aria-label="Brillouin zone representation" style={{ gap: 6 }}>
+                    <button
+                      type="button"
+                      aria-pressed={zoneMode === 'unfolded'}
+                      className={zoneMode === 'unfolded' ? 'on' : 'dim'}
+                      onClick={() => { setZoneMode('unfolded'); setBandReset(n => n + 1); }}
+                      title={`Project ${unfoldedDispersion.relation.nSuperAtoms}-atom supercell modes onto the ${unfoldedDispersion.relation.nParentAtoms}-atom parent Brillouin zone (×${unfoldedDispersion.relation.multiplicity})`}
+                    >
+                      Unfolded BZ (×{unfoldedDispersion.relation.multiplicity})
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={zoneMode === 'native'}
+                      className={zoneMode === 'native' ? 'on' : 'dim'}
+                      onClick={() => { setZoneMode('native'); setBandReset(n => n + 1); }}
+                      title="Plot folded branches in the supercell's own smaller Brillouin zone"
+                    >
+                      Supercell BZ
+                    </button>
+                  </div>
+                )}
+
+                {isUnfoldedActive && (
+                  <div className="m-tools" role="group" aria-label="Spectral display style" style={{ gap: 5 }}>
+                    {[
+                      ['both', 'A(Q,E) + Modes'],
+                      ['heatmap', 'A(Q,E) Map'],
+                      ['weighted', 'Weighted Modes'],
+                    ].map(([k, lbl]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        aria-pressed={spectralStyle === k}
+                        className={spectralStyle === k ? 'on' : 'dim'}
+                        onClick={() => setSpectralStyle(k)}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <span>E range</span>
                 <input
                   type="number"
@@ -332,14 +496,24 @@ export default function ViewerPage({
               {/* Band Structure */}
               <div className="m-frame" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>Phonon band structure</span>
-                  <span style={{ fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>click a point to inspect</span>
+                  <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>
+                    {isUnfoldedActive
+                      ? `Unfolded spectral dispersion A(Q,E) · ×${unfoldedDispersion.relation.multiplicity} → ${parentReference?.label || 'Parent BZ'}`
+                      : 'Phonon band structure'}
+                  </span>
+                  <span style={{ fontSize: 'var(--fz-small)', color: 'var(--faint)' }}>
+                    {isUnfoldedActive
+                      ? `RMS static shift ${unfoldedDispersion.relation.rmsDispAng.toFixed(3)} Å · click mode to animate`
+                      : 'click a point to inspect'}
+                  </span>
                 </div>
                 <BandStructurePlot
                   bands={displayBands}
-                  qPoints={model.qPoints}
-                  baseStructure={model.baseStructure}
-                  kpathMeta={model.kpathMeta}
+                  weights={activeWeights}
+                  spectralStyle={spectralStyle}
+                  qPoints={activeQPoints}
+                  baseStructure={activePlotStructure}
+                  kpathMeta={activeKpathMeta}
                   selected={{ k: selK, m: selM }}
                   unit={unit}
                   resetSignal={bandReset}
@@ -366,11 +540,11 @@ export default function ViewerPage({
                 </div>
 
                 <div className="ph-mode-canvas">
-                  {model.eigvecs ? (
+                  {activeEigvecs ? (
                     <CrystalViewer
                       baseStructure={model.baseStructure}
                       eigenvector={eig}
-                      qPoint={qPoint}
+                      qPoint={qPointFor3D}
                       isPlaying={playing}
                       amplitude={amplitude}
                       speed={speed}
@@ -400,14 +574,15 @@ export default function ViewerPage({
                   )}
                 </div>
 
-                {model.eigvecs && (
+                {activeEigvecs && (
                   <ModeInspector
-                    results={model}
+                    results={modeInspectorResults}
                     selectedK={selK}
                     selectedMode={selM}
                     unit={unit}
                     scale={escale}
                     colors={elementColors}
+                    spectralWeight={selectedWeight}
                   />
                 )}
 

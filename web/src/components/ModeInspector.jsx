@@ -4,7 +4,15 @@ import { DEFAULT_COLORS } from '../constants';
 /**
  * Selected-mode readout footer in MOTIF's quiet warm-paper style.
  */
-export default function ModeInspector({ results, selectedK, selectedMode, unit = 'meV', scale = 1, colors = {} }) {
+export default function ModeInspector({
+  results,
+  selectedK,
+  selectedMode,
+  unit = 'meV',
+  scale = 1,
+  colors = {},
+  spectralWeight = null,
+}) {
   const info = useMemo(() => {
     if (!results) return null;
     const { bands, qPoints, eigvecs, baseStructure } = results;
@@ -42,7 +50,7 @@ export default function ModeInspector({ results, selectedK, selectedMode, unit =
 
   return (
     <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px', background: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-      <div className="tabular-nums" style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 162, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
+      <div className="tabular-nums" style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 172, fontFamily: 'var(--font-mono)', fontSize: 11.5 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <span style={{ color: 'var(--faint)' }}>mode</span>
           <span style={{ color: 'var(--ink)' }}>band {selectedMode + 1} · k{selectedK + 1}</span>
@@ -51,6 +59,12 @@ export default function ModeInspector({ results, selectedK, selectedMode, unit =
           <span style={{ color: 'var(--faint)' }}>energy</span>
           <b style={{ color: info.e < 0 ? 'var(--warn-ink)' : 'var(--ink)' }}>{(info.e * scale).toFixed(3)} {unit}</b>
         </div>
+        {Number.isFinite(spectralWeight) && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }} title="Unfolded Bloch spectral weight W(Q, ν) in [0, 1] on the parent Brillouin zone">
+            <span style={{ color: 'var(--faint)' }}>unfolded W</span>
+            <b style={{ color: 'var(--note-ink)' }}>{spectralWeight.toFixed(3)}</b>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <span style={{ color: 'var(--faint)' }}>q</span>
           <span style={{ color: 'var(--secondary)', fontSize: 10.5 }}>[{info.q.map(v => v.toFixed(3)).join(', ')}]</span>
