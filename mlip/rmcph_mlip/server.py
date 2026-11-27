@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from .calculators import build_calculator
+from .calculators import build_calculator, list_available_models
 from .export import export_phonopy_dm_json
 from .phonons import compute_harmonic_phonons
 
@@ -45,9 +45,12 @@ def _run_job(job_id: str, req: dict[str, Any], default_device: str) -> None:
         fwhm = float(req.get("fwhm", 0.8))
         ei = req.get("ei", 50.0)
         ei_val = float(ei) if ei is not None and float(ei) > 0 else None
+        instrument = str(req.get("instrument", "SEQUOIA"))
         symprec_raw = req.get("symprec", "auto")
         symprec = None if str(symprec_raw).lower() == "auto" else float(symprec_raw)
         relax = bool(req.get("relax", True))
+        relax_cell = bool(req.get("relax_cell", False))
+        relax_mode = str(req.get("relax_mode") or ("fix_symmetry" if relax else "frozen"))
         cif_text = str(req["cif_text"])
         filename = Path(str(req.get("filename", "candidate.cif"))).name
 
@@ -61,19 +64,23 @@ def _run_job(job_id: str, req: dict[str, Any], default_device: str) -> None:
             in_path.write_text(cif_text, encoding="utf-8")
 
             with _JOBS_LOCK:
-                rel_tag = "relax" if relax else "no-relax"
                 sp_tag = "auto" if symprec is None else f"{symprec}Å"
-                _JOBS[job_id]["message"] = f"MLIP phonons ({'×'.join(map(str, supercell))}, {rel_tag}, tol={sp_tag})…"
+                _JOBS[job_id]["message"] = (
+                    f"{model} · {'×'.join(map(str, supercell))} · {relax_mode} (tol={sp_tag})…"
+                )
 
             result = compute_harmonic_phonons(
                 structure_path=in_path,
                 calculator=calc,
                 supercell=supercell,
                 symprec=symprec,
-                relax=relax,
+                relax=(relax_mode != "frozen"),
+                relax_cell=relax_cell,
+                relax_mode=relax_mode,
                 temperature_k=temperature,
                 fwhm_mev=fwhm,
                 ei_mev=ei_val,
+                instrument=instrument,
                 model_name=model,
             )
 
@@ -81,8 +88,9 @@ def _run_job(job_id: str, req: dict[str, Any], default_device: str) -> None:
             dm_payload = json.loads(dm_path.read_text(encoding="utf-8"))
 
         with _JOBS_LOCK:
+            elapsed = result.metadata.get("elapsed_seconds", "?")
             _JOBS[job_id]["status"] = "done"
-            _JOBS[job_id]["message"] = f"Done · {result.spacegroup} · {result.metadata.get('runtime_s', '?')} s"
+            _JOBS[job_id]["message"] = f"Done · {result.spacegroup} · {elapsed}s"
             _JOBS[job_id]["result"] = dm_payload
     except Exception as exc:
         traceback.print_exc()
@@ -117,7 +125,15 @@ def serve(host: str = "127.0.0.1", port: int = 8765, device: str = "auto") -> No
 
         def do_GET(self):
             if self.path == "/health":
-                self._send_json(200, {"ok": True, "version": "0.1.0", "device": device})
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "version": "0.2.0",
+                        "device": device,
+                        "models": list_available_models(),
+                    },
+                )
                 return
             if self.path.startswith("/jobs/"):
                 job_id = self.path.split("/jobs/", 1)[1].strip("/")
@@ -155,8 +171,8 @@ def serve(host: str = "127.0.0.1", port: int = 8765, device: str = "auto") -> No
             print(f"[rmcph-mlip serve] {fmt % args}")
 
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"[rmcph-mlip] Local companion server listening on http://{host}:{port} (device={device})")
-    print("[rmcph-mlip] Open the web app and click 'Run MLIP' on any pinned symmetry candidate.")
+    print(f"[rmcph-mlip] Local companion server v0.2.0 listening on http://{host}:{port} (device={device})")
+    print("[rmcph-mlip] Open the web app and click 'Compute Phonons' on any symmetry candidate.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

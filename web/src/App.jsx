@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { PhononPipeline } from './compute/pipeline';
 import { fromResults } from './io/viewermodel';
 import { fromPhonopyDM } from './io/phonopyDM';
-import { checkMlipServer, runMlipJob, DEFAULT_MLIP_URL } from './io/mlipClient';
+import { checkMlipServer, runMlipJob, shortModelName, DEFAULT_MLIP_URL, FALLBACK_MLIP_MODELS } from './io/mlipClient';
 import { generatePhonopyBandYaml, downloadString } from './io/writers';
 import ThemeCue from './components/ThemeCue';
 import LayoutCue from './components/LayoutCue';
@@ -28,7 +28,7 @@ export default function App() {
   const [candidates, setCandidates] = useState([]);
   const [activeCandidateId, setActiveCandidateId] = useState(null);
   const [ready, setReady] = useState(false);
-  const [mlipServer, setMlipServer] = useState({ connected: false, url: DEFAULT_MLIP_URL });
+  const [mlipServer, setMlipServer] = useState({ connected: false, url: DEFAULT_MLIP_URL, models: FALLBACK_MLIP_MODELS });
   const pipelineRef = useRef(null);
   const nextId = useRef(1);
 
@@ -100,8 +100,10 @@ export default function App() {
 
   const runMlipForId = useCallback(async (candId, cifText, filename, params) => {
     if (!mlipServer.connected || !cifText) return;
+    const modelId = params.model || 'mace-mp-medium';
+    const relaxMode = params.relaxMode ?? (params.relax === false ? 'frozen' : 'fix_symmetry');
     setCandidates(prev => prev.map(c => (
-      c.id === candId ? { ...c, mlipRunning: true, mlipError: null, mlipStatus: 'Starting MLIP…' } : c
+      c.id === candId ? { ...c, mlipRunning: true, mlipError: null, mlipStatus: `Starting ${shortModelName(modelId)}…` } : c
     )));
     try {
       const dmPayload = await runMlipJob(
@@ -109,27 +111,38 @@ export default function App() {
         {
           cif_text: cifText,
           filename: filename || 'candidate.cif',
-          model: params.model || 'mace-mp-medium',
+          model: modelId,
           supercell: params.supercell?.length === 3 ? params.supercell : [2, 2, 2],
           temperature: params.temperature ?? 250,
           symprec: params.symprec ?? 'auto',
-          relax: params.relax ?? true,
+          relax: relaxMode !== 'frozen',
+          relax_mode: relaxMode,
+          relax_cell: Boolean(params.relaxCell),
+          instrument: params.instrument || 'SEQUOIA',
         },
         (msg) => setCandidates(prev => prev.map(c => (c.id === candId ? { ...c, mlipStatus: msg } : c)))
       );
       const model = fromPhonopyDM(dmPayload);
-      const usedSg = model.mlipMetadata?.spacegroup || '';
+      const meta = model.mlipMetadata || {};
+      const usedSg = meta.relax?.relaxed_spacegroup || meta.spacegroup || '';
       const nPrim = model.baseStructure?.uniqueRN?.length || '';
+      const collapseWarn = meta.relax?.collapsed_to_supergroup ? ' · ⚠ supergroup collapse' : '';
+      const statusParts = [
+        usedSg,
+        nPrim ? `${nPrim} at` : null,
+        Number.isFinite(meta.energy_per_atom_eV) ? `${meta.energy_per_atom_eV.toFixed(3)} eV/at` : null,
+      ].filter(Boolean);
       setCandidates(prev => prev.map(c => (
         c.id === candId
           ? {
               ...c,
               model,
+              mlipModelId: modelId,
               mlipRunning: false,
               mlipError: null,
               mlipSpaceGroup: usedSg,
               mlipPrimAtoms: nPrim,
-              mlipStatus: usedSg ? `${usedSg} · ${nPrim} prim atoms` : 'Ready ✓',
+              mlipStatus: (statusParts.join(' · ') || 'Ready ✓') + collapseWarn,
             }
           : c
       )));
@@ -144,26 +157,47 @@ export default function App() {
   }, [mlipServer]);
 
   /**
-   * One-click batch runner from the Symmetry studio:
-   * Upserts each selected structure spec as a candidate and runs MLIP sequentially.
+   * One-click batch & multi-uMLIP consensus runner from the Symmetry studio:
+   * Expands `(model × structureSpec)` pairs and runs them sequentially.
    */
   const runMlipBatch = useCallback(async (specs, params) => {
     if (!mlipServer.connected || !specs?.length) return;
-    const queued = specs.map((spec, idx) => {
-      const id = `cand-${nextId.current++}`;
-      const color = CANDIDATE_PALETTE[(candidates.length + idx) % CANDIDATE_PALETTE.length];
-      return { id, color, ...spec, mlipRunning: true, mlipError: null, mlipStatus: 'Queued…' };
-    });
-    setCandidates(prev => [...prev, ...queued]);
-    for (const item of queued) {
+    const modelList = Array.isArray(params.models) && params.models.length
+      ? params.models
+      : [params.model || 'mace-mp-medium'];
+    const multiModel = modelList.length > 1;
+
+    const expanded = [];
+    let colorIdx = candidates.length;
+    for (const modelId of modelList) {
+      for (const spec of specs) {
+        const id = `cand-${nextId.current++}`;
+        const color = CANDIDATE_PALETTE[colorIdx % CANDIDATE_PALETTE.length];
+        colorIdx += 1;
+        const label = multiModel ? `${spec.label} [${shortModelName(modelId)}]` : spec.label;
+        expanded.push({
+          id,
+          color,
+          ...spec,
+          label,
+          mlipModelId: modelId,
+          mlipRunning: true,
+          mlipError: null,
+          mlipStatus: `Queued (${shortModelName(modelId)})…`,
+        });
+      }
+    }
+    setCandidates(prev => [...prev, ...expanded]);
+    for (const item of expanded) {
       const itemParams = {
         ...params,
+        model: item.mlipModelId,
         supercell: item.supercell ?? params.supercell,
         symprec: item.symprec ?? params.symprec ?? 'auto',
       };
       await runMlipForId(item.id, item.cifText, item.filename, itemParams);
     }
-    setActiveCandidateId(queued[0].id);
+    if (expanded.length) setActiveCandidateId(expanded[0].id);
   }, [mlipServer, candidates.length, runMlipForId]);
 
   const onLegacyResults = (results, kpathMeta, dos = null) => {
@@ -296,6 +330,7 @@ export default function App() {
           onRunMlipBatch={runMlipBatch}
           onRetryCandidate={(c, params) => runMlipForId(c.id, c.cifText, c.filename, {
             ...params,
+            model: c.mlipModelId || params.model,
             supercell: c.supercell ?? params.supercell,
             symprec: c.symprec ?? params.symprec ?? 'auto',
           })}

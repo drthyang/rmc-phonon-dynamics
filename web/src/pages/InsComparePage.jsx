@@ -302,6 +302,34 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
     return [...scored1D].sort((a, b) => (a.fit?.rw ?? Infinity) - (b.fit?.rw ?? Infinity));
   }, [scored1D]);
 
+  // Multi-uMLIP consensus summary across potentials when Parent vs Local pairs are evaluated
+  const consensus1D = useMemo(() => {
+    const fitted = scored1D.filter(s => Number.isFinite(s.fit?.rw));
+    if (fitted.length < 2) return null;
+    const byModel = new Map();
+    for (const s of fitted) {
+      const modKey = s.mlipModelId || s.model?.mlipMetadata?.model || null;
+      if (!modKey) continue;
+      if (!byModel.has(modKey)) byModel.set(modKey, {});
+      const grp = byModel.get(modKey);
+      if (s.kind === 'parent') grp.parent = s;
+      else if (s.kind === 'local-subgroup') grp.local = s;
+    }
+    const pairs = [...byModel.entries()]
+      .filter(([, g]) => g.parent && g.local)
+      .map(([modKey, g]) => ({
+        model: modKey,
+        rwParent: g.parent.fit.rw,
+        rwLocal: g.local.fit.rw,
+        localWins: g.local.fit.rw < g.parent.fit.rw,
+      }));
+    if (pairs.length < 2) return null;
+    const nWins = pairs.filter(p => p.localWins).length;
+    const meanLocal = pairs.reduce((a, p) => a + p.rwLocal, 0) / pairs.length;
+    const meanParent = pairs.reduce((a, p) => a + p.rwParent, 0) / pairs.length;
+    return { nModels: pairs.length, nWins, meanLocal, meanParent };
+  }, [scored1D]);
+
   // Live chopper resolution summary text for aria-describedby & inspector readout
   const chopperSummary = useMemo(() => {
     if (instrument1D === 'constant' || !(ei1D > 0)) return null;
@@ -685,6 +713,14 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--faint)', marginBottom: 8 }}>
                 Candidate Scoreboard
               </div>
+              {consensus1D && (
+                <div style={{ padding: '7px 10px', marginBottom: 8, borderRadius: 6, border: '1px solid var(--line)', background: 'var(--note-bg)', color: 'var(--note-ink)', fontSize: 11.5 }}>
+                  <b>Multi-uMLIP consensus ({consensus1D.nWins}/{consensus1D.nModels} favor Local)</b>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, marginTop: 2 }}>
+                    ⟨Rw⟩ Local {(100 * consensus1D.meanLocal).toFixed(1)}% vs Parent {(100 * consensus1D.meanParent).toFixed(1)}%
+                  </div>
+                </div>
+              )}
               {ranked1D.length === 0 ? (
                 <div style={{ fontSize: 12, color: 'var(--faint)' }}>No MLIP candidates loaded yet.</div>
               ) : (

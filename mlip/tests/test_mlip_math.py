@@ -7,9 +7,13 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from ase import Atoms
+from ase.calculators.calculator import Calculator, all_changes
 from phonopy import Phonopy
 from phonopy.structure.atoms import PhonopyAtoms
 
+from rmcph_mlip.calculators import list_available_models
+from rmcph_mlip.cli import main as cli_main
 from rmcph_mlip.neutron import (
     HBAR2_OVER_2MN,
     NEUTRON_SCATT_SIGMA,
@@ -21,7 +25,66 @@ from rmcph_mlip.neutron import (
     gaussian_broaden,
     variable_gaussian_broaden,
 )
+from rmcph_mlip.phonons import relax_structure
 from rmcph_mlip.rmc6f import read_rmc6f_folded
+
+
+class _DoubleWellSubgroupCalc(Calculator):
+    """Analytic Landau-like potential for a 2-atom AB cubic cell (A fixed near 0, B near (0.5, 0.5, 0.5 + dz)).
+
+    If `favor_collapse=False`:
+      * Has a genuine P4mm minimum along z at delta_z = +0.20 Å, WHILE being unstable along x/y
+        (a rank-2 saddle point toward R3m if unconstrained with tiny transverse noise!).
+    If `favor_collapse=True`:
+      * Purely harmonic quadratic well centered at ideal centrosymmetric (0.5, 0.5, 0.5), so any
+        initial P4mm polar offset collapses back to Pm-3m (#221) during relaxation.
+    """
+
+    implemented_properties = ["energy", "forces"]
+
+    def __init__(self, favor_collapse: bool = False):
+        super().__init__()
+        self.favor_collapse = favor_collapse
+
+    def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):
+        super().calculate(atoms, properties, system_changes)
+        pos = self.atoms.get_positions()
+        cell = self.atoms.cell.array
+        center = 0.5 * (cell[0] + cell[1] + cell[2])
+        # Relative displacement of atom 1 from body center minus atom 0
+        u = (pos[1] - center) - pos[0]
+        ux, uy, uz = float(u[0]), float(u[1]), float(u[2])
+
+        k_anchor = 8.0
+        r_cm = 0.5 * (pos[0] + (pos[1] - center))
+        e_cm = 0.5 * k_anchor * float(np.dot(r_cm, r_cm))
+        f_cm = -k_anchor * r_cm
+
+        if self.favor_collapse:
+            k_harm = 5.0
+            e_rel = 0.5 * k_harm * (ux * ux + uy * uy + uz * uz)
+            grad_u = np.array([k_harm * ux, k_harm * uy, k_harm * uz], dtype=float)
+        else:
+            # Double well: along z, E(uz) = -2*(uz^2) + 25*(uz^4) -> min at uz = 0.20 Å!
+            # Along x, y: steeper negative curvature -4*(ux^2 + uy^2) + 25*(ux^4 + uy^4) so P4mm is a saddle!
+            e_rel = (
+                -2.0 * uz**2 + 25.0 * uz**4
+                - 4.0 * (ux**2 + uy**2) + 25.0 * (ux**4 + uy**4)
+            )
+            grad_u = np.array(
+                [
+                    -8.0 * ux + 100.0 * ux**3,
+                    -8.0 * uy + 100.0 * uy**3,
+                    -4.0 * uz + 100.0 * uz**3,
+                ],
+                dtype=float,
+            )
+
+        forces = np.zeros((2, 3), dtype=float)
+        forces[0] = 0.5 * f_cm + grad_u
+        forces[1] = 0.5 * f_cm - grad_u
+        self.results["energy"] = float(e_cm + e_rel)
+        self.results["forces"] = forces
 
 
 class TestMlipMath(unittest.TestCase):
@@ -188,6 +251,86 @@ Atoms:
                 q_lo, q_hi = abs(ki - kf), ki + kf
                 outside = (ins.q_grid < q_lo) | (ins.q_grid > q_hi)
                 self.assertTrue(np.allclose(ins.sqe[ie, outside], 0.0))
+
+    def test_fix_symmetry_relaxation_and_model_registry(self):
+        # 1. Registry check: MACE-MP-0, MPA-0, OMAT-0, r2SCAN, MatterSim, ORB-v3, SevenNet, CHGNet
+        models = list_available_models()
+        ids = {m["id"] for m in models}
+        for expected in (
+            "mace-mp-medium",
+            "mace-mpa-0",
+            "mace-omat-0",
+            "mace-matpes-r2scan-0",
+            "mattersim-5m",
+            "orb-v3",
+            "sevennet-0",
+            "chgnet",
+        ):
+            self.assertIn(expected, ids)
+        mace_med = next(m for m in models if m["id"] == "mace-mp-medium")
+        self.assertTrue(mace_med["installed"])
+        self.assertEqual(cli_main(["models"]), 0)
+
+        # 2. P4mm (#99) polar subgroup with tiny 2e-4 Å transverse noise:
+        #    FixSymmetry locks structure onto P4mm manifold (uz -> 0.20 Å, ux=uy=0),
+        #    whereas unconstrained BFGS slides off the P4mm saddle into Cm / P1!
+        a = 4.0
+        p4mm_noisy = Atoms(
+            symbols=["Ba", "Ti"],
+            cell=np.eye(3) * a,
+            positions=[[0.0, 0.0, 0.0], [2.0002, 1.9999, 2.08]],  # dz = +0.08 Å + tiny transverse noise
+            pbc=True,
+        )
+        calc_saddle = _DoubleWellSubgroupCalc(favor_collapse=False)
+
+        rel_fix, fmax_fix, steps_fix, diag_fix = relax_structure(
+            p4mm_noisy,
+            calc_saddle,
+            fmax=1e-4,
+            relax_mode="fix_symmetry",
+            symprec=1e-2,
+        )
+        self.assertGreater(steps_fix, 0)
+        self.assertLess(fmax_fix, 1e-4)
+        self.assertEqual(diag_fix["initial_spacegroup"], "P4mm (99)")
+        self.assertEqual(diag_fix["relaxed_spacegroup"], "P4mm (99)")
+        self.assertTrue(diag_fix["symmetry_preserved"])
+        self.assertFalse(diag_fix["collapsed_to_supergroup"])
+        self.assertLess(diag_fix["energy_drop_meV_per_atom"], -5.0)
+        # Returned Atoms must have constraints stripped so Phonopy displacements are unrestricted
+        self.assertEqual(len(rel_fix.constraints), 0)
+
+        # Unconstrained BFGS on the same noisy saddle rolls off P4mm into lower symmetry!
+        _, _, _, diag_free = relax_structure(
+            p4mm_noisy,
+            calc_saddle,
+            fmax=1e-4,
+            relax_mode="unconstrained",
+            symprec=1e-2,
+        )
+        self.assertNotEqual(diag_free["relaxed_spacegroup"], "P4mm (99)")
+
+        # 3. Supergroup collapse detection: when potential restores dz -> 0 (Pm-3m #221)
+        calc_collapse = _DoubleWellSubgroupCalc(favor_collapse=True)
+        _, _, _, diag_col = relax_structure(
+            p4mm_noisy,
+            calc_collapse,
+            fmax=1e-4,
+            relax_mode="fix_symmetry",
+            symprec=1e-2,
+        )
+        self.assertTrue(diag_col["collapsed_to_supergroup"])
+        self.assertEqual(diag_col["relaxed_spacegroup"], "Pm-3m (221)")
+
+        # 4. Frozen RMC mode: 0 steps, exact coordinates preserved, energy evaluated
+        _, _, steps_frz, diag_frz = relax_structure(
+            p4mm_noisy,
+            calc_saddle,
+            relax_mode="frozen",
+            symprec=1e-2,
+        )
+        self.assertEqual(steps_frz, 0)
+        self.assertEqual(diag_frz["max_atom_disp_A"], 0.0)
 
 
 if __name__ == "__main__":

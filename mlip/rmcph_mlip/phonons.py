@@ -1,8 +1,37 @@
-"""Harmonic phonon calculation workflow using ASE + spglib + Phonopy + MLIP.
+"""Harmonic phonon workflow with symmetry-preserving subgroup relaxation (FixSymmetry).
 
-Supports single RMCProfile .rmc6f supercell configurations (folded to the
-average unit cell with automatic symmetry-ladder detection) as well as .cif
-and other ASE-readable crystal structure files.
+Why Symmetry-Constrained Relaxation Matters for RMC Local Subgroups
+===================================================================
+When Reverse Monte Carlo (RMC) supercell symmetry analysis identifies both a high-symmetry
+Parent average structure G (e.g. cubic Pm-3m) and a lower-symmetry Local motif H < G
+(e.g. polar R3m, Amm2, P4mm, or octahedral-tilt I4/mcm, P4/mbm), evaluating harmonic
+MLIP phonons requires careful treatment of structural relaxation:
+
+1. `relax_mode = "fix_symmetry"` (Default — Symmetry-Constrained Wyckoff Relaxation):
+   * Attaches `ase.constraints.FixSymmetry(atoms, symprec=...)` during BFGS optimization.
+   * At every step, atomic forces F_i and cell stresses are projected onto the totally
+     symmetric A_1g subspace of space group H.
+   * Physical benefits:
+     (a) High-frequency bond-length noise from finite RMC statistics relaxes cleanly to
+         ||P_H F||_inf < fmax, eliminating spurious stiff bond-stretch artifacts.
+     (b) Space group H cannot drift into P1 from floating-point roundoff, AND rank-k
+         saddle-point subgroups (such as orthorhombic Amm2 or tetragonal P4mm between
+         cubic Pm-3m and rhombohedral R3m) stay locked on their symmetry manifold so
+         each candidate hypothesis can be tested independently against experimental INS!
+     (c) If an anharmonic high-temperature RMC distortion has zero restoring barrier at
+         T = 0 K and its order-parameter amplitude collapses to zero inside H (promoting
+         the relaxed structure back into supergroup G), we explicitly detect this via
+         post-relaxation `spglib` space-group verification (`collapsed_to_supergroup = True`)
+         so the user knows to also inspect `relax_mode = "frozen"`.
+
+2. `relax_mode = "frozen"` (Instantaneous RMC Local Geometry, 0 BFGS Steps):
+   * Evaluates the single-point energy E_0/atom and finite-displacement Hessian directly
+     at the symmetrized RMC coordinates without moving atoms. Useful when local distortions
+     are dynamically/entropically stabilized at finite temperature.
+
+3. `relax_mode = "unconstrained"` (Free BFGS Optimization):
+   * Allows atoms to relax freely without symmetry projection to locate the nearest
+     T = 0 K local minimum (even if it lowers symmetry further to H' < H).
 """
 
 from __future__ import annotations
@@ -10,12 +39,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import seekpath
 import spglib
 from ase import Atoms
+from ase.constraints import FixSymmetry
 from ase.filters import FrechetCellFilter
 from ase.io import read as ase_read
 from ase.optimize import BFGS
@@ -23,6 +53,7 @@ from phonopy import Phonopy
 from phonopy.structure.atoms import PhonopyAtoms
 
 from .neutron import (
+    THZ_TO_MEV,
     NeutronDosResult,
     PowderInsResult,
     compute_neutron_dos,
@@ -51,7 +82,7 @@ class PhononResult:
     bands_thz: np.ndarray
     neutron_dos: NeutronDosResult
     powder_ins: PowderInsResult
-    metadata: dict
+    metadata: dict[str, Any]
 
 
 def atoms_to_spglib(atoms: Atoms):
@@ -62,7 +93,23 @@ def atoms_to_spglib(atoms: Atoms):
     )
 
 
-def load_unit_cell(structure_path: str | Path) -> tuple[Atoms, dict]:
+def detect_spacegroup_info(atoms: Atoms, symprec: float) -> tuple[str, int]:
+    """Return (`'Symbol (Number)'`, `number`) at tolerance `symprec`."""
+    ds = spglib.get_symmetry_dataset(atoms_to_spglib(atoms), symprec=max(float(symprec), 1e-5))
+    if ds is None:
+        return "P1 (1)", 1
+    return f"{ds.international} ({ds.number})", int(ds.number)
+
+
+def _minimum_image_displacements(before: Atoms, after: Atoms) -> np.ndarray:
+    """Compute per-atom Cartesian displacement magnitudes [Å] under periodic minimum image."""
+    df = after.get_scaled_positions() - before.get_scaled_positions()
+    df -= np.round(df)
+    d_cart = df @ after.cell.array
+    return np.linalg.norm(d_cart, axis=1)
+
+
+def load_unit_cell(structure_path: str | Path) -> tuple[Atoms, dict[str, Any]]:
     """Load a crystal structure from .rmc6f (single supercell folded to unit cell) or .cif/etc."""
     p = Path(structure_path)
     if p.suffix.lower() == ".rmc6f":
@@ -113,16 +160,123 @@ def relax_structure(
     fmax: float = 1e-3,
     max_steps: int = 200,
     relax_cell: bool = False,
-) -> tuple[Atoms, float, int]:
-    """Relax atomic positions (and optionally lattice vectors) with BFGS."""
+    relax_mode: str = "fix_symmetry",
+    symprec: float = 1e-2,
+) -> tuple[Atoms, float, int, dict[str, Any]]:
+    """Relax atomic positions (and optionally cell) while tracking energetics & space-group invariants.
+
+    Parameters
+    ----------
+    relax_mode : {'fix_symmetry', 'unconstrained', 'frozen'}
+        * `'fix_symmetry'` (default): applies `ase.constraints.FixSymmetry` at `symprec` so
+          forces and strains remain strictly inside the initial space group's Wyckoff manifold.
+        * `'unconstrained'`: standard unconstrained BFGS relaxation.
+        * `'frozen'`: 0 optimization steps; evaluates initial energy & forces only.
+
+    Returns
+    -------
+    (clean_atoms, final_fmax, nsteps, diagnostics_dict)
+        `clean_atoms` is returned WITHOUT active ASE constraints so subsequent Phonopy
+        finite-displacement supercells evaluate unrestricted restoring forces.
+    """
+    mode = (relax_mode or "fix_symmetry").strip().lower()
+    if mode not in ("fix_symmetry", "unconstrained", "frozen"):
+        raise ValueError(f"Unknown relax_mode={relax_mode!r}; expected 'fix_symmetry', 'unconstrained', or 'frozen'.")
+
+    sp_check = max(min(float(symprec), 0.05), 1e-3)
+    init_sg_label, init_sg_num = detect_spacegroup_info(atoms, symprec=sp_check)
+
     work = atoms.copy()
     work.calc = calculator
+
+    # Measure pre-relaxation potential energy & unprojected forces at the input geometry
+    e_init_total = float(work.get_potential_energy())
+    e_init_per_atom = e_init_total / len(work)
+    raw_forces_init = work.get_forces(apply_constraint=False)
+    init_fmax = float(np.linalg.norm(raw_forces_init, axis=1).max())
+
+    if mode == "frozen":
+        clean = atoms.copy()
+        diagnostics = {
+            "performed": False,
+            "mode": "frozen",
+            "relax_cell": False,
+            "steps": 0,
+            "initial_fmax_eV_per_A": round(init_fmax, 6),
+            "final_fmax_eV_per_A": round(init_fmax, 6),
+            "raw_fmax_eV_per_A": round(init_fmax, 6),
+            "initial_energy_per_atom_eV": round(e_init_per_atom, 7),
+            "relaxed_energy_per_atom_eV": round(e_init_per_atom, 7),
+            "energy_drop_meV_per_atom": 0.0,
+            "max_atom_disp_A": 0.0,
+            "rms_atom_disp_A": 0.0,
+            "initial_spacegroup": init_sg_label,
+            "relaxed_spacegroup": init_sg_label,
+            "symmetry_preserved": True,
+            "collapsed_to_supergroup": False,
+        }
+        return clean, init_fmax, 0, diagnostics
+
+    if mode == "fix_symmetry":
+        work.set_constraint(
+            FixSymmetry(
+                work,
+                symprec=max(float(symprec), 1e-4),
+                adjust_positions=True,
+                adjust_cell=bool(relax_cell),
+            )
+        )
+
     target = FrechetCellFilter(work) if relax_cell else work
     opt = BFGS(target, logfile=None)
     opt.run(fmax=fmax, steps=max_steps)
-    forces = work.get_forces()
-    final_fmax = float(np.linalg.norm(forces, axis=1).max())
-    return work, final_fmax, opt.nsteps
+
+    e_final_total = float(work.get_potential_energy())
+    e_final_per_atom = e_final_total / len(work)
+    proj_forces = work.get_forces(apply_constraint=True)
+    raw_forces = work.get_forces(apply_constraint=False)
+    final_fmax = float(np.linalg.norm(proj_forces, axis=1).max())
+    raw_fmax = float(np.linalg.norm(raw_forces, axis=1).max())
+
+    # Detach FixSymmetry before returning so Phonopy displaced supercells are unconstrained
+    clean = Atoms(
+        numbers=work.get_atomic_numbers(),
+        scaled_positions=work.get_scaled_positions(),
+        cell=work.cell.array.copy(),
+        pbc=True,
+    )
+
+    disp_mags = _minimum_image_displacements(atoms, clean)
+    max_disp = float(disp_mags.max()) if len(disp_mags) else 0.0
+    rms_disp = float(np.sqrt(np.mean(disp_mags ** 2))) if len(disp_mags) else 0.0
+
+    # Check relaxed space group at tight tolerance (1e-3 Å) to detect supergroup collapse or drift
+    relaxed_sg_label, relaxed_sg_num = detect_spacegroup_info(clean, symprec=sp_check)
+    _, tight_relaxed_num = detect_spacegroup_info(clean, symprec=1e-3)
+    _, tight_init_num = detect_spacegroup_info(atoms, symprec=1e-3)
+
+    collapsed_to_supergroup = bool(tight_relaxed_num > max(init_sg_num, tight_init_num))
+    symmetry_preserved = bool(relaxed_sg_num == init_sg_num and not collapsed_to_supergroup)
+
+    diagnostics = {
+        "performed": True,
+        "mode": mode,
+        "relax_cell": bool(relax_cell),
+        "steps": int(opt.nsteps),
+        "initial_fmax_eV_per_A": round(init_fmax, 6),
+        "final_fmax_eV_per_A": round(final_fmax, 6),
+        "raw_fmax_eV_per_A": round(raw_fmax, 6),
+        "initial_energy_per_atom_eV": round(e_init_per_atom, 7),
+        "relaxed_energy_per_atom_eV": round(e_final_per_atom, 7),
+        "energy_drop_meV_per_atom": round((e_final_per_atom - e_init_per_atom) * 1000.0, 4),
+        "max_atom_disp_A": round(max_disp, 5),
+        "rms_atom_disp_A": round(rms_disp, 5),
+        "initial_spacegroup": init_sg_label,
+        "relaxed_spacegroup": relaxed_sg_label,
+        "symmetry_preserved": symmetry_preserved,
+        "collapsed_to_supergroup": collapsed_to_supergroup,
+    }
+    return clean, final_fmax, int(opt.nsteps), diagnostics
 
 
 def build_kpath(prim_atoms: Atoms, npoints_per_segment: int = 51):
@@ -169,6 +323,7 @@ def compute_harmonic_phonons(
     displacement: float = 0.01,
     relax: bool = True,
     relax_cell: bool = False,
+    relax_mode: str | None = None,
     fmax: float = 1e-3,
     npoints: int = 41,
     dos_mesh: Sequence[int] = (15, 15, 15),
@@ -176,9 +331,10 @@ def compute_harmonic_phonons(
     fwhm_mev: float = 0.8,
     q_max: float = 8.0,
     ei_mev: float | None = 50.0,
+    instrument: str = "SEQUOIA",
     model_name: str = "mace-mp-medium",
 ) -> PhononResult:
-    """Run end-to-end harmonic phonon + neutron-weighted DOS + INS calculation."""
+    """Run end-to-end harmonic phonon + FixSymmetry relaxation + neutron GDOS/INS calculation."""
     t0 = time.perf_counter()
     unit_atoms, input_info = load_unit_cell(structure_path)
 
@@ -209,28 +365,31 @@ def compute_harmonic_phonons(
         pbc=True,
     )
 
-    relax_info = {"performed": False}
-    if relax:
-        t_rel = time.perf_counter()
-        prim_atoms, final_fmax, nsteps = relax_structure(
-            prim_atoms,
-            calculator,
-            fmax=fmax,
-            relax_cell=relax_cell,
-        )
-        dt_rel = time.perf_counter() - t_rel
+    eff_relax_mode = relax_mode if relax_mode is not None else ("fix_symmetry" if relax else "frozen")
+    t_rel = time.perf_counter()
+    prim_atoms, final_fmax, nsteps, relax_info = relax_structure(
+        prim_atoms,
+        calculator,
+        fmax=fmax,
+        relax_cell=relax_cell,
+        relax_mode=eff_relax_mode,
+        symprec=max(min(chosen_symprec, 0.02), 1e-3),
+    )
+    dt_rel = time.perf_counter() - t_rel
+    if relax_info["performed"]:
+        collapse_note = " [NOTE: amplitude relaxed into higher-symmetry supergroup!]" if relax_info["collapsed_to_supergroup"] else ""
         print(
-            f"[mlip] Relaxed ({'cell+pos' if relax_cell else 'pos-only'}) in {nsteps} steps "
-            f"({dt_rel:.1f}s), fmax={final_fmax:.2e} eV/Å"
+            f"[mlip] Relaxed ({eff_relax_mode}, {'cell+pos' if relax_cell else 'pos-only'}) in {nsteps} steps "
+            f"({dt_rel:.1f}s): fmax={final_fmax:.2e} eV/Å, ΔE={relax_info['energy_drop_meV_per_atom']:+.2f} meV/atom, "
+            f"max Δr={relax_info['max_atom_disp_A']:.4f} Å, SG={relax_info['relaxed_spacegroup']}{collapse_note}"
         )
-        relax_info = {
-            "performed": True,
-            "relax_cell": relax_cell,
-            "steps": int(nsteps),
-            "final_fmax_eV_per_A": final_fmax,
-        }
+    else:
+        print(
+            f"[mlip] Frozen geometry (0 steps): E0={relax_info['relaxed_energy_per_atom_eV']:.5f} eV/atom, "
+            f"initial fmax={final_fmax:.2e} eV/Å"
+        )
 
-    # Build Phonopy on the exact seekpath primitive cell (primitive_matrix = I)
+    # Build Phonopy on the standardized primitive cell (primitive_matrix = I)
     unitcell = PhonopyAtoms(
         symbols=prim_atoms.get_chemical_symbols(),
         cell=prim_atoms.cell.array,
@@ -270,8 +429,10 @@ def compute_harmonic_phonons(
     # Band structure along standardized k-path
     qpoints, highsym, seg_sizes, _ = build_kpath(prim_atoms, npoints_per_segment=npoints)
     ph.run_band_structure([qpoints.tolist()], with_eigenvectors=True)
-    band_dict = ph.get_band_structure_dict()
-    bands_thz = np.asarray(band_dict["frequencies"][0], dtype=float)
+    if getattr(ph, "band_structure", None) is not None:
+        bands_thz = np.asarray(ph.band_structure.frequencies[0], dtype=float)
+    else:
+        bands_thz = np.asarray(ph.get_band_structure_dict()["frequencies"][0], dtype=float)
 
     # Neutron-weighted DOS (GDOS) + simulated powder INS S(|Q|, E)
     t_ins = time.perf_counter()
@@ -283,19 +444,24 @@ def compute_harmonic_phonons(
         temperature_k=temperature_k,
         q_max=q_max,
         ei_mev=ei_mev,
+        instrument=instrument,
     )
     dt_ins = time.perf_counter() - t_ins
     weights_str = ", ".join(f"{el}:{w:.3f}" for el, w in ndos.element_weights.items())
     print(
         f"[mlip] Neutron-weighted DOS & INS S(|Q|,E) computed in {dt_ins:.1f}s "
-        f"(T={temperature_k} K, FWHM={fwhm_mev} meV, σ/M [barn/amu]: {weights_str})"
+        f"(T={temperature_k} K, inst={instrument}, σ/M [barn/amu]: {weights_str})"
     )
 
     total_time = time.perf_counter() - t0
+    bands_mev = bands_thz * THZ_TO_MEV
+    min_freq_mev = float(bands_mev.min())
+    max_freq_mev = float(bands_mev.max())
+    n_imag_branches = int(np.sum(np.min(bands_mev, axis=0) < -0.5))
     print(
         f"[mlip] Done in {total_time:.1f}s — freq range: "
         f"{bands_thz.min():.2f} .. {bands_thz.max():.2f} THz "
-        f"({bands_thz.min() * 4.1356677:.2f} .. {bands_thz.max() * 4.1356677:.2f} meV)"
+        f"({min_freq_mev:.2f} .. {max_freq_mev:.2f} meV, imaginary branches={n_imag_branches})"
     )
 
     clean_model = Path(model_name).stem if str(model_name).endswith(".model") else str(model_name)
@@ -323,8 +489,14 @@ def compute_harmonic_phonons(
             "displacement_A": displacement,
             "n_displacements": len(supercells),
             "temperature_K": temperature_k,
+            "temperature_k": temperature_k,
             "fwhm_meV": fwhm_mev,
             "ei_meV": ei_mev,
+            "instrument": instrument,
+            "energy_per_atom_eV": relax_info["relaxed_energy_per_atom_eV"],
+            "min_freq_meV": round(min_freq_mev, 3),
+            "max_freq_meV": round(max_freq_mev, 3),
+            "n_imaginary_branches": n_imag_branches,
             "relax": relax_info,
             "elapsed_seconds": round(total_time, 2),
         },

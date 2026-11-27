@@ -1,7 +1,7 @@
 [project]
 name = "rmcph-mlip"
-version = "0.1.0"
-description = "MLIP-based phonon band structure and dynamical matrix calculator for RMC Phonon Dynamics"
+version = "0.2.0"
+description = "MLIP-based phonon band structure, FixSymmetry subgroup relaxation, and INS S(|Q|, E) calculator for RMC Phonon Dynamics"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "ase>=3.23.0",

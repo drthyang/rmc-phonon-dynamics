@@ -848,7 +848,13 @@ export default function ViewerPage({
             )}
 
             {/* ── INFO TAB ── */}
-            {sideTab === 'info' && <StructureTables model={model} />}
+            {sideTab === 'info' && (
+              <StructureTables
+                model={model}
+                candidates={phononCandidates}
+                activeCandidateId={activeCandidateId}
+              />
+            )}
           </div>
         </aside>
       )}
@@ -885,7 +891,7 @@ function SliderRow({ label, value, valueLabel, min, max, step, onChange }) {
   );
 }
 
-function StructureTables({ model }) {
+function StructureTables({ model, candidates = [], activeCandidateId = null }) {
   const bs = model.baseStructure;
   const A = [bs.v1, bs.v2, bs.v3];
   const rev = {};
@@ -894,8 +900,84 @@ function StructureTables({ model }) {
     el: rev[rn] || '?', rn,
     pos: [bs.hsym_xyz[r * 3], bs.hsym_xyz[r * 3 + 1], bs.hsym_xyz[r * 3 + 2]],
   }));
+
+  const meta = model.mlipMetadata;
+  const rel = meta?.relax;
+  const activeCand = candidates.find(c => c.id === activeCandidateId) || null;
+  // Find matching Parent candidate calculated with the same MLIP potential for ΔE(local - parent)
+  const matchingParent = meta && activeCand?.kind !== 'parent'
+    ? candidates.find(c => c.kind === 'parent' && c.model?.mlipMetadata?.model === meta.model)
+    : null;
+  const eActive = meta?.energy_per_atom_eV ?? rel?.relaxed_energy_per_atom_eV;
+  const eParent = matchingParent?.model?.mlipMetadata?.energy_per_atom_eV
+    ?? matchingParent?.model?.mlipMetadata?.relax?.relaxed_energy_per_atom_eV;
+  const deltaEMev = Number.isFinite(eActive) && Number.isFinite(eParent)
+    ? (eActive - eParent) * 1000
+    : null;
+
   return (
     <>
+      {meta && (
+        <details open className="m-section">
+          <summary><span>MLIP &amp; Symmetry Relaxation</span></summary>
+          <div className="m-section-body" style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 11.5, fontFamily: 'var(--font-mono)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ color: 'var(--secondary)' }}>Potential</span>
+              <b style={{ color: 'var(--ink)' }}>{meta.model || '—'}</b>
+            </div>
+            {rel?.mode && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>Relaxation</span>
+                <span style={{ color: 'var(--ink)' }}>
+                  {rel.mode === 'fix_symmetry' ? 'FixSymmetry' : rel.mode} ({rel.steps ?? 0} steps)
+                </span>
+              </div>
+            )}
+            {(rel?.relaxed_spacegroup || meta.spacegroup) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>Space group</span>
+                <span style={{ color: rel?.collapsed_to_supergroup ? 'var(--warn-ink)' : 'var(--note-ink)', textAlign: 'right' }}>
+                  {rel?.initial_spacegroup && rel.initial_spacegroup !== rel.relaxed_spacegroup
+                    ? `${rel.initial_spacegroup} → ${rel.relaxed_spacegroup}`
+                    : (rel?.relaxed_spacegroup || meta.spacegroup)}
+                  {rel?.symmetry_preserved ? ' ✓' : rel?.collapsed_to_supergroup ? ' (collapsed)' : ''}
+                </span>
+              </div>
+            )}
+            {Number.isFinite(eActive) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>E₀ / atom</span>
+                <span className="tabular-nums" style={{ color: 'var(--ink)' }}>{eActive.toFixed(5)} eV</span>
+              </div>
+            )}
+            {deltaEMev !== null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>ΔE (vs Parent)</span>
+                <b className="tabular-nums" style={{ color: deltaEMev <= 0 ? 'var(--note-ink)' : 'var(--warn-ink)' }}>
+                  {deltaEMev >= 0 ? '+' : ''}{deltaEMev.toFixed(2)} meV/atom
+                </b>
+              </div>
+            )}
+            {Number.isFinite(rel?.max_atom_disp_A) && rel.performed && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>Max |Δr|</span>
+                <span className="tabular-nums" style={{ color: 'var(--ink)' }}>{rel.max_atom_disp_A.toFixed(4)} Å</span>
+              </div>
+            )}
+            {Number.isFinite(meta.n_imaginary_branches) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ color: 'var(--secondary)' }}>Stability</span>
+                <span style={{ color: meta.n_imaginary_branches === 0 ? 'var(--note-ink)' : 'var(--warn-ink)' }}>
+                  {meta.n_imaginary_branches === 0
+                    ? '0 imaginary ✓'
+                    : `${meta.n_imaginary_branches} soft (${meta.min_freq_meV} meV)`}
+                </span>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
       <details open className="m-section">
         <summary><span>Lattice (Å)</span></summary>
         <div className="m-section-body">

@@ -14,6 +14,7 @@ import { conventionalLattice } from '../math/reciprocal';
 import { findSpaceGroupOps, siteOrbits, symmetryLadder, wyckoffLetter } from '../math/symmetry';
 import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
+import { FALLBACK_MLIP_MODELS, shortModelName } from '../io/mlipClient';
 import { downloadString } from '../io/writers';
 import CrystalViewer from '../components/CrystalViewer';
 import DomainCube3D from '../components/DomainCube3D';
@@ -75,11 +76,21 @@ export default function SymmetryPage({
   const [includeParent, setIncludeParent] = useState(true);
   const [includeLocal, setIncludeLocal] = useState(true);
   const [mlipModel, setMlipModel] = useState('mace-mp-medium');
+  const [extraModels, setExtraModels] = useState([]);
   const [mlipSupercell, setMlipSupercell] = useState('2 2 2');
   const [mlipTemp, setMlipTemp] = useState(250);
-  const [mlipRelax, setMlipRelax] = useState(true);
+  const [relaxMode, setRelaxMode] = useState('fix_symmetry'); // 'fix_symmetry' | 'frozen' | 'unconstrained'
   const [localSymprec, setLocalSymprec] = useState(0.002);
   const [showMlipOpts, setShowMlipOpts] = useState(false);
+
+  const availableModels = mlipServer?.models?.length ? mlipServer.models : FALLBACK_MLIP_MODELS;
+  const activeModelList = useMemo(
+    () => [mlipModel, ...extraModels.filter(m => m !== mlipModel)],
+    [mlipModel, extraModels]
+  );
+  const toggleExtraModel = (id) => {
+    setExtraModels(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
 
   const cell111 = useMemo(() => [1, 1, 1], []);
 
@@ -412,9 +423,11 @@ export default function SymmetryPage({
 
   const mlipParams = () => ({
     model: mlipModel,
+    models: activeModelList,
     supercell: parseSupercellVec(),
     temperature: mlipTemp,
-    relax: mlipRelax,
+    relax: relaxMode !== 'frozen',
+    relaxMode,
   });
 
   const handleComputePhonons = () => {
@@ -429,12 +442,17 @@ export default function SymmetryPage({
 
   const handleCopyCli = () => {
     const specs = buildSelectedSpecs();
-    const relaxFlag = mlipRelax ? '' : ' --no-relax';
-    const cmds = specs.map(s => {
-      const scStr = (s.supercell || parseSupercellVec()).join(' ');
-      return `uv run rmcph-mlip run ${s.filename} --model ${mlipModel} --supercell ${scStr} -T ${mlipTemp} --symprec ${s.symprec ?? 'auto'}${relaxFlag} --out results/${s.filename.replace(/\.cif$/i, '')}`;
-    }).join('\n');
-    navigator.clipboard?.writeText(cmds);
+    const cmds = [];
+    for (const modId of activeModelList) {
+      for (const s of specs) {
+        const scStr = (s.supercell || parseSupercellVec()).join(' ');
+        const tag = activeModelList.length > 1 ? `_${modId}` : '';
+        cmds.push(
+          `uv run rmcph-mlip run ${s.filename} --model ${modId} --supercell ${scStr} -T ${mlipTemp} --symprec ${s.symprec ?? 'auto'} --relax-mode ${relaxMode} --out results/${s.filename.replace(/\.cif$/i, '')}${tag}`
+        );
+      }
+    }
+    navigator.clipboard?.writeText(cmds.join('\n'));
     setCopiedCli(true);
     setTimeout(() => setCopiedCli(false), 1800);
   };
@@ -583,13 +601,18 @@ export default function SymmetryPage({
               </label>
             )}
 
-            <button type="button" className="m-btn sm subtle" onClick={() => setShowMlipOpts(v => !v)}>
-              {mlipModel.replace('mace-mp-', 'MACE-')} · {mlipSupercell.replace(/\s+/g, '×')} · {mlipTemp}K ▾
+            <button
+              type="button"
+              className="m-btn sm subtle"
+              aria-expanded={showMlipOpts}
+              onClick={() => setShowMlipOpts(v => !v)}
+            >
+              {shortModelName(mlipModel)}{activeModelList.length > 1 ? `+${activeModelList.length - 1}` : ''} · {relaxMode === 'fix_symmetry' ? 'FixSym' : relaxMode === 'frozen' ? 'Frozen' : 'Free'} · {mlipSupercell.replace(/\s+/g, '×')} · {mlipTemp}K ▾
             </button>
 
             {mlipServer?.connected ? (
               <button type="button" className="m-btn primary" disabled={selectedCount === 0 || anyRunning || scBusy} onClick={handleComputePhonons}>
-                {anyRunning ? 'Computing phonons…' : `▶ Compute Phonons (${selectedCount})`}
+                {anyRunning ? 'Computing phonons…' : `▶ Compute Phonons (${selectedCount * activeModelList.length})`}
               </button>
             ) : (
               <>
@@ -640,36 +663,84 @@ export default function SymmetryPage({
           </div>
         )}
 
-        {/* Collapsible MLIP Settings Row */}
+        {/* Collapsible MLIP & FixSymmetry Settings Row */}
         {showMlipOpts && (
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 12 }}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: 'var(--secondary)' }}>MLIP Model</span>
-              <select value={mlipModel} onChange={e => setMlipModel(e.target.value)} className="m-input" style={{ height: 26, padding: '0 8px' }}>
-                <option value="mace-mp-medium">mace-mp-medium (local)</option>
-                <option value="mace-mp-small">mace-mp-small</option>
-                <option value="mace-mp-large">mace-mp-large</option>
-              </select>
-            </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: 'var(--secondary)' }}>Phonopy supercell</span>
-              <input value={mlipSupercell} onChange={e => setMlipSupercell(e.target.value)} className="m-input mono" style={{ width: 68, height: 26, textAlign: 'center' }} />
-            </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: 'var(--secondary)' }}>T (K)</span>
-              <input type="number" value={mlipTemp} onChange={e => setMlipTemp(Number(e.target.value) || 5)} className="m-input mono" style={{ width: 62, height: 26, textAlign: 'center' }} />
-            </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Tight tolerance keeps the local subgroup instead of snapping back to the parent symmetry">
-              <span style={{ color: 'var(--secondary)' }}>Local symprec (Å)</span>
-              <input type="number" step="0.001" min="0.0001" max="0.2" value={localSymprec} onChange={e => setLocalSymprec(Math.max(0.0001, parseFloat(e.target.value) || 0.002))} className="m-input mono" style={{ width: 68, height: 26, textAlign: 'center' }} />
-            </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} title="Uncheck to evaluate MLIP phonons directly at the RMC local geometry without BFGS relaxation">
-              <input type="checkbox" checked={mlipRelax} onChange={e => setMlipRelax(e.target.checked)} />
-              <span>Relax atoms</span>
-            </label>
-            <button type="button" className="m-btn sm" onClick={handleCopyCli} style={{ marginLeft: 'auto' }}>
-              {copiedCli ? 'Copied CLI ✓' : 'Copy CLI command'}
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 12 }}>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor={`${subgroupTableId}-mlip-model`} style={{ color: 'var(--secondary)' }}>Primary uMLIP</label>
+                <select
+                  id={`${subgroupTableId}-mlip-model`}
+                  value={mlipModel}
+                  onChange={e => setMlipModel(e.target.value)}
+                  className="m-input"
+                  style={{ height: 26, padding: '0 8px' }}
+                >
+                  {availableModels.map(m => (
+                    <option key={m.id} value={m.id} disabled={mlipServer?.connected && !m.installed}>
+                      {m.label}{m.cached_locally ? ' · cached' : (!m.installed ? ` · (${m.install_hint})` : '')}
+                    </option>
+                  ))}
+                </select>
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor={`${subgroupTableId}-relax-mode`} style={{ color: 'var(--secondary)' }}>Relaxation</label>
+                <select
+                  id={`${subgroupTableId}-relax-mode`}
+                  value={relaxMode}
+                  onChange={e => setRelaxMode(e.target.value)}
+                  className="m-input"
+                  style={{ height: 26, padding: '0 8px' }}
+                >
+                  <option value="fix_symmetry">FixSymmetry (lock space group)</option>
+                  <option value="frozen">Frozen RMC geometry (0 steps)</option>
+                  <option value="unconstrained">Unconstrained BFGS (allow P1)</option>
+                </select>
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor={`${subgroupTableId}-sc`} style={{ color: 'var(--secondary)' }}>Phonopy supercell</label>
+                <input id={`${subgroupTableId}-sc`} value={mlipSupercell} onChange={e => setMlipSupercell(e.target.value)} className="m-input mono" style={{ width: 68, height: 26, textAlign: 'center' }} />
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor={`${subgroupTableId}-temp`} style={{ color: 'var(--secondary)' }}>T (K)</label>
+                <input id={`${subgroupTableId}-temp`} type="number" value={mlipTemp} onChange={e => setMlipTemp(Number(e.target.value) || 5)} className="m-input mono" style={{ width: 62, height: 26, textAlign: 'center' }} />
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <label htmlFor={`${subgroupTableId}-symprec`} style={{ color: 'var(--secondary)' }}>Local symprec (Å)</label>
+                <input id={`${subgroupTableId}-symprec`} type="number" step="0.001" min="0.0001" max="0.2" value={localSymprec} onChange={e => setLocalSymprec(Math.max(0.0001, parseFloat(e.target.value) || 0.002))} className="m-input mono" style={{ width: 68, height: 26, textAlign: 'center' }} />
+              </span>
+
+              <button type="button" className="m-btn sm" onClick={handleCopyCli} style={{ marginLeft: 'auto' }}>
+                {copiedCli ? 'Copied CLI ✓' : 'Copy CLI command'}
+              </button>
+            </div>
+
+            {/* Multi-uMLIP Consensus Strip */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: 'var(--faint)', fontSize: 11.5 }}>Multi-uMLIP consensus (+compare):</span>
+              {availableModels
+                .filter(m => m.id !== mlipModel && (!mlipServer?.connected || m.installed))
+                .slice(0, 5)
+                .map(m => {
+                  const active = extraModels.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      aria-pressed={active}
+                      className={`m-btn sm ${active ? 'active' : 'subtle'}`}
+                      style={{ height: 22, fontSize: 11, padding: '0 8px' }}
+                      onClick={() => toggleExtraModel(m.id)}
+                    >
+                      {active ? '✓ ' : '+ '}{m.short} ({m.functional})
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         )}
 
