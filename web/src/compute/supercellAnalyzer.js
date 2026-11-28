@@ -1,9 +1,18 @@
 // web/src/compute/supercellAnalyzer.js
 //
 // Browser-universal streaming supercell symmetry & domain analyzer.
-// Scales smoothly from 1 dropped .rmc6f file to 500+ RMC ensemble configs
-// in O(1) memory per config via StreamingSymmetryAccumulator, yielding between
-// configs so the UI remains responsive with live progress & cancellation.
+//
+// Architecture & Memory Backpressure
+// ----------------------------------
+// Scales from 1 `.rmc6f` supercell to 500+ RMC ensemble configurations in O(1) RAM:
+//   * In browser contexts (`typeof Worker !== 'undefined'`), `analyzeSupercellFiles`
+//     spawns a dedicated module worker (`io/symmetryWorker.js`) and streams one
+//     configuration text at a time with explicit `ack` backpressure (so at most 1
+//     raw file string resides in memory at any instant while all 3D FFT, Monte Carlo
+//     null calibration, and subgroup/domain projections run off the main UI thread!).
+//     Aborting terminates the worker immediately in <1 ms.
+//   * In Node.js test environments (where `Worker` is absent), transparently executes
+//     the identical `createStreamingSymmetrySession` state machine in-process.
 
 import { conventionalLattice } from '../math/reciprocal.js';
 import { generateAlignedCIF } from '../math/supercell_symmetry.js';
@@ -70,6 +79,73 @@ function isZeroMoveRmc6f(text) {
 }
 
 /**
+ * Shared O(1)-memory streaming session used identically by `symmetryWorker.js` and
+ * in-thread Node.js execution.
+ */
+export function createStreamingSymmetrySession(family, baseStructure, options = {}) {
+  const { parentTol = 0.25, nNullSamples = 128, multiMode = false } = options;
+  const dim = baseStructure.dim;
+  const Aconv = conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, dim);
+
+  let acc = null;
+  let rnToSite = null;
+  let firstText = null;
+  let firstName = null;
+  const skippedHeader = [];
+
+  return {
+    pushText(text, name) {
+      if (firstText === null) {
+        firstText = text;
+        firstName = name;
+      }
+      if (multiMode && family !== 'frac' && isZeroMoveRmc6f(text)) {
+        skippedHeader.push({ name, rms: 0, reason: '0 accepted moves (unconverged)' });
+        return { accepted: false };
+      }
+
+      const frame = family === 'frac' ? parseFracFrame(text, dim) : parseRmc6fFrame(text, dim);
+      if (!acc) {
+        const refBasis = buildCircularRefBasis(frame, baseStructure);
+        rnToSite = new Map(refBasis.map((b, idx) => [b.rn, idx]));
+        acc = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
+          parentTol,
+          nNullSamples,
+          minConfigRms: multiMode ? 1e-3 : 0,
+        });
+      }
+      const u = frameToDisplacements(frame, dim, Aconv, acc.idealParentBasis, rnToSite);
+      acc.addConfig(u, name);
+      return { accepted: true, nConfigs: acc.nConfigs };
+    },
+
+    finalize(totalAvailableConfigs = 1) {
+      if (!acc || acc.nConfigs === 0) {
+        if (firstText === null) throw new Error('No configuration files streamed.');
+        const fr0 = family === 'frac' ? parseFracFrame(firstText, dim) : parseRmc6fFrame(firstText, dim);
+        const refBasis = buildCircularRefBasis(fr0, baseStructure);
+        const map0 = new Map(refBasis.map((b, idx) => [b.rn, idx]));
+        const acc0 = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
+          parentTol,
+          nNullSamples,
+          minConfigRms: 0,
+        });
+        acc0.addConfig(frameToDisplacements(fr0, dim, Aconv, acc0.idealParentBasis, map0), firstName || 'Config 1');
+        const out0 = acc0.finalize();
+        out0.skippedConfigs = [...skippedHeader, ...(out0.skippedConfigs || [])];
+        out0.totalAvailableConfigs = totalAvailableConfigs;
+        return out0;
+      }
+
+      const res = acc.finalize();
+      res.skippedConfigs = [...skippedHeader, ...(res.skippedConfigs || [])];
+      res.totalAvailableConfigs = totalAvailableConfigs;
+      return res;
+    },
+  };
+}
+
+/**
  * Analyze an array of already-parsed frames synchronously via StreamingSymmetryAccumulator.
  */
 export function analyzeSupercellFrames(frames, baseStructure, options = {}) {
@@ -81,7 +157,6 @@ export function analyzeSupercellFrames(frames, baseStructure, options = {}) {
   const refBasis = buildCircularRefBasis(frames[0], baseStructure);
   const rnToSite = new Map(refBasis.map((b, idx) => [b.rn, idx]));
 
-  // Allow zero-displacement single frame so initial .rmc6f files still preview gracefully
   const minConfigRms = frames.length > 1 ? 1e-3 : 0;
   const acc = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
     parentTol,
@@ -94,7 +169,6 @@ export function analyzeSupercellFrames(frames, baseStructure, options = {}) {
     acc.addConfig(u, `Config ${i + 1}`);
   }
 
-  // Fallback if every frame was zero-displacement
   if (acc.nConfigs === 0) {
     const acc0 = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
       parentTol,
@@ -111,9 +185,102 @@ export function analyzeSupercellFrames(frames, baseStructure, options = {}) {
   return acc.finalize();
 }
 
+async function analyzeSupercellFilesInWorker(sample, totalFilesCount, family, baseStructure, options) {
+  const { parentTol = 0.25, nNullSamples = 128, onProgress = null, signal = null } = options;
+  const multiMode = sample.length > 1;
+  const worker = new Worker(new URL('../io/symmetryWorker.js', import.meta.url), { type: 'module' });
+
+  let settled = false;
+  let pendingResolve = null;
+  let pendingReject = null;
+
+  const cleanup = () => {
+    settled = true;
+    try { worker.terminate(); } catch { /* ignore */ }
+  };
+
+  const waitNextMessage = () => new Promise((resolve, reject) => {
+    pendingResolve = resolve;
+    pendingReject = reject;
+  });
+
+  worker.onmessage = (ev) => {
+    const msg = ev.data;
+    if (msg.type === 'error') {
+      if (pendingReject) pendingReject(new Error(msg.error || 'Symmetry worker failed'));
+      pendingResolve = null;
+      pendingReject = null;
+      return;
+    }
+    if (pendingResolve) {
+      const res = pendingResolve;
+      pendingResolve = null;
+      pendingReject = null;
+      res(msg);
+    }
+  };
+
+  worker.onerror = (err) => {
+    if (pendingReject) pendingReject(new Error(err?.message || 'Symmetry worker crashed'));
+    pendingResolve = null;
+    pendingReject = null;
+  };
+
+  const onAbort = () => {
+    cleanup();
+    if (pendingReject) pendingReject(new Error('Cancelled'));
+  };
+  if (signal) {
+    if (signal.aborted) { cleanup(); throw new Error('Cancelled'); }
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  try {
+    const slimBase = {
+      v1: baseStructure.v1,
+      v2: baseStructure.v2,
+      v3: baseStructure.v3,
+      dim: baseStructure.dim,
+      atomDic: baseStructure.atomDic,
+    };
+    const initWait = waitNextMessage();
+    worker.postMessage({
+      type: 'init',
+      family,
+      baseStructure: slimBase,
+      options: { parentTol, nNullSamples, multiMode },
+    });
+    await initWait;
+
+    for (let i = 0; i < sample.length; i++) {
+      if (signal?.aborted || settled) throw new Error('Cancelled');
+      const item = sample[i];
+      const file = typeof item.getFile === 'function' ? await item.getFile() : item;
+      const name = item.name || file.name || `Config ${i + 1}`;
+      if (onProgress) onProgress(i, sample.length, `Streaming ${i + 1}/${sample.length} · ${name}`);
+
+      const text = await file.text();
+      if (signal?.aborted || settled) throw new Error('Cancelled');
+
+      const ackWait = waitNextMessage();
+      worker.postMessage({ type: 'frame', text, name });
+      await ackWait;
+    }
+
+    if (onProgress) onProgress(sample.length, sample.length, 'Finalizing ensemble statistics…');
+    const finWait = waitNextMessage();
+    worker.postMessage({ type: 'finalize', totalAvailableConfigs: totalFilesCount });
+    const doneMsg = await finWait;
+    return doneMsg.result;
+  } finally {
+    if (signal) signal.removeEventListener('abort', onAbort);
+    cleanup();
+  }
+}
+
 /**
  * Stream 1..N File or FileSystemFileHandle objects in O(1) memory with progress & cancellation.
- * Automatically skips unconverged (0 accepted moves) configs when multiple files are provided.
+ * Uses a dedicated background Web Worker in browsers and falls back to in-thread execution in Node.
  */
 export async function analyzeSupercellFiles(files, family, baseStructure, options = {}) {
   const {
@@ -130,71 +297,29 @@ export async function analyzeSupercellFiles(files, family, baseStructure, option
   const sample = files.slice(0, limit);
   if (!sample.length) throw new Error('No configuration files selected.');
 
-  const dim = baseStructure.dim;
-  const Aconv = conventionalLattice(baseStructure.v1, baseStructure.v2, baseStructure.v3, dim);
+  if (typeof Worker !== 'undefined') {
+    return analyzeSupercellFilesInWorker(sample, files.length, family, baseStructure, options);
+  }
 
-  let acc = null;
-  let rnToSite = null;
-  const skippedHeader = [];
   const multiMode = sample.length > 1;
+  const session = createStreamingSymmetrySession(family, baseStructure, {
+    parentTol,
+    nNullSamples,
+    multiMode,
+  });
 
   for (let i = 0; i < sample.length; i++) {
     if (signal?.aborted) throw new Error('Cancelled');
     const item = sample[i];
     const file = typeof item.getFile === 'function' ? await item.getFile() : item;
     const name = item.name || file.name || `Config ${i + 1}`;
-
     if (onProgress) onProgress(i, sample.length, `Streaming ${i + 1}/${sample.length} · ${name}`);
-
-    const text = await file.text();
-    if (multiMode && family !== 'frac' && isZeroMoveRmc6f(text)) {
-      skippedHeader.push({ name, rms: 0, reason: '0 accepted moves (unconverged)' });
-      continue;
-    }
-
-    const frame = family === 'frac' ? parseFracFrame(text, dim) : parseRmc6fFrame(text, dim);
-    if (!acc) {
-      const refBasis = buildCircularRefBasis(frame, baseStructure);
-      rnToSite = new Map(refBasis.map((b, idx) => [b.rn, idx]));
-      acc = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
-        parentTol,
-        nNullSamples,
-        minConfigRms: multiMode ? 1e-3 : 0,
-      });
-    }
-
-    const u = frameToDisplacements(frame, dim, Aconv, acc.idealParentBasis, rnToSite);
-    acc.addConfig(u, name);
-
-    // Yield to browser UI every config so progress bar & Cancel stay responsive
+    session.pushText(await file.text(), name);
     if (multiMode) await new Promise(r => setTimeout(r, 0));
   }
 
-  // If every single config in a multi-file selection was unconverged, fall back to analyzing the first file
-  if (!acc || acc.nConfigs === 0) {
-    const item0 = sample[0];
-    const f0 = typeof item0.getFile === 'function' ? await item0.getFile() : item0;
-    const t0 = await f0.text();
-    const fr0 = family === 'frac' ? parseFracFrame(t0, dim) : parseRmc6fFrame(t0, dim);
-    const refBasis = buildCircularRefBasis(fr0, baseStructure);
-    const map0 = new Map(refBasis.map((b, idx) => [b.rn, idx]));
-    const acc0 = new StreamingSymmetryAccumulator(dim, Aconv, refBasis, {
-      parentTol,
-      nNullSamples,
-      minConfigRms: 0,
-    });
-    acc0.addConfig(frameToDisplacements(fr0, dim, Aconv, acc0.idealParentBasis, map0), f0.name || 'Config 1');
-    const out0 = acc0.finalize();
-    out0.skippedConfigs = [...skippedHeader, ...(out0.skippedConfigs || [])];
-    if (onProgress) onProgress(sample.length, sample.length, 'Done');
-    return out0;
-  }
-
   if (onProgress) onProgress(sample.length, sample.length, 'Finalizing ensemble statistics…');
-  const res = acc.finalize();
-  res.skippedConfigs = [...skippedHeader, ...(res.skippedConfigs || [])];
-  res.totalAvailableConfigs = files.length;
-  return res;
+  return session.finalize(files.length);
 }
 
 /**

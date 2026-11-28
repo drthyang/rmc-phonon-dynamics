@@ -553,8 +553,13 @@ export function compare2DSqe(candIns, expIns, channel = 'total') {
   for (let ei = 0; ei < nE; ei++) {
     for (let qi = 0; qi < nQ; qi++) {
       const o = sExp[ei][qi];
-      const c = calcResampled[ei][qi] * scale;
+      const cRaw = calcResampled[ei][qi];
+      const c = Number.isFinite(cRaw) ? cRaw * scale : 0;
       calcScaled[ei][qi] = c;
+      if (!Number.isFinite(o)) {
+        diffGrid[ei][qi] = 0;
+        continue;
+      }
       diffGrid[ei][qi] = c - o;
       rss += (o - c) ** 2;
       obs2 += o * o;
@@ -575,30 +580,44 @@ export function compare2DSqe(candIns, expIns, channel = 'total') {
   };
 }
 
-/** Integrate 2D S(Q, E) over Q in [qLo, qHi] -> 1D S(E) curve. */
+/** Integrate 2D S(Q, E) over Q in [qLo, qHi] -> 1D S(E) curve (skipping NaN kinematic masks). */
 export function integrateOverQ(sqe, qGrid, qLo, qHi) {
   const nE = sqe.length;
   const out = new Array(nE).fill(0);
-  let count = 0;
+  const counts = new Int32Array(nE);
   for (let qi = 0; qi < qGrid.length; qi++) {
     if (qGrid[qi] < qLo || qGrid[qi] > qHi) continue;
-    count++;
-    for (let ei = 0; ei < nE; ei++) out[ei] += sqe[ei][qi] || 0;
+    for (let ei = 0; ei < nE; ei++) {
+      const v = sqe[ei]?.[qi];
+      if (Number.isFinite(v)) {
+        out[ei] += v;
+        counts[ei] += 1;
+      }
+    }
   }
-  if (count > 0) for (let ei = 0; ei < nE; ei++) out[ei] /= count;
+  for (let ei = 0; ei < nE; ei++) {
+    if (counts[ei] > 0) out[ei] /= counts[ei];
+  }
   return out;
 }
 
-/** Integrate 2D S(Q, E) over E in [eLo, eHi] -> 1D S(|Q|) curve. */
+/** Integrate 2D S(Q, E) over E in [eLo, eHi] -> 1D S(|Q|) curve (skipping NaN kinematic masks). */
 export function integrateOverE(sqe, eGrid, eLo, eHi) {
   const nQ = sqe[0]?.length || 0;
   const out = new Array(nQ).fill(0);
-  let count = 0;
+  const counts = new Int32Array(nQ);
   for (let ei = 0; ei < eGrid.length; ei++) {
     if (eGrid[ei] < eLo || eGrid[ei] > eHi) continue;
-    count++;
-    for (let qi = 0; qi < nQ; qi++) out[qi] += sqe[ei][qi] || 0;
+    for (let qi = 0; qi < nQ; qi++) {
+      const v = sqe[ei]?.[qi];
+      if (Number.isFinite(v)) {
+        out[qi] += v;
+        counts[qi] += 1;
+      }
+    }
   }
-  if (count > 0) for (let qi = 0; qi < nQ; qi++) out[qi] /= count;
+  for (let qi = 0; qi < nQ; qi++) {
+    if (counts[qi] > 0) out[qi] /= counts[qi];
+  }
   return out;
 }

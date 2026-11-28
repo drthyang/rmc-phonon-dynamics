@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, useEffect, useId } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, useId, lazy, Suspense } from 'react';
 import {
   listConfigs,
   findStructureFile,
@@ -12,13 +12,16 @@ import {
 } from '../compute/supercellAnalyzer';
 import { conventionalLattice } from '../math/reciprocal';
 import { findSpaceGroupOps, siteOrbits, symmetryLadder, wyckoffLetter } from '../math/symmetry';
+import { computeBondSplitting, buildExaggeratedAlignedStructure } from '../math/bondSplitting';
 import { DEFAULT_COLORS } from '../constants';
 import { modelFromText } from '../io/phonopyDM';
 import { FALLBACK_MLIP_MODELS, shortModelName } from '../io/mlipClient';
 import { downloadString } from '../io/writers';
-import CrystalViewer from '../components/CrystalViewer';
-import DomainCube3D from '../components/DomainCube3D';
 import LineChart from '../components/LineChart';
+
+// Lazy-load Three.js 3D viewers so the initial landing bundle stays lightweight (<300 kB)
+const CrystalViewer = lazy(() => import('../components/CrystalViewer'));
+const DomainCube3D = lazy(() => import('../components/DomainCube3D'));
 
 const SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
 const sub = (n) => String(n).split('').map(c => SUB[c] || c).join('');
@@ -55,7 +58,9 @@ export default function SymmetryPage({
   const [soloDomain, setSoloDomain] = useState(null);          // null or domain index 0..V-1
   const [showCorrChart, setShowCorrChart] = useState(false);
   const [crystalMode, setCrystalMode] = useState('aligned');   // 'parent' | 'aligned'
-  const [analysisTab, setAnalysisTab] = useState('subgroups'); // 'subgroups' | 'kspace' | 'convergence' | 'average'
+  const [exagScale, setExagScale] = useState(5);               // 1 | 5 | 10 | 25 visual exaggeration
+  const [showDistArrows, setShowDistArrows] = useState(true);  // show 3D static displacement vectors
+  const [analysisTab, setAnalysisTab] = useState('subgroups'); // 'subgroups' | 'bonds' | 'kspace' | 'convergence' | 'average'
   const [cellFilter, setCellFilter] = useState('all');         // 'all' | '1×1×1' | '1×1×1 (P)' | '1×1×2' | '2×2×1' | '2×2×2'
   const [sliceZ, setSliceZ] = useState(0);
   const [domainCfgIdx, setDomainCfgIdx] = useState(0);
@@ -217,36 +222,30 @@ export default function SymmetryPage({
     return sortedSubgroups.find(s => s.spaceGroup === targetSg) || sortedSubgroups[0];
   }, [sortedSubgroups, scResult]);
 
-  const previewStruct = useMemo(() => {
+  const previewBundle = useMemo(() => {
     if (!baseStructure?.basis) return null;
     const useAligned = crystalMode === 'aligned' && scResult?.aligned?.symmetrizedBasis;
-    const b = useAligned ? scResult.aligned.symmetrizedBasis : (activeParentBasis || baseStructure.basis);
     if (useAligned && scResult?.aligned?.A) {
-      const Ablk = scResult.aligned.A;
-      const dynAtomDic = {};
-      b.forEach((site, idx) => {
-        const rn = site.rn ?? (idx + 1);
-        if (!dynAtomDic[site.el]) dynAtomDic[site.el] = [];
-        dynAtomDic[site.el].push(rn);
-      });
-      return {
-        v1: Ablk[0], v2: Ablk[1], v3: Ablk[2], dim: [1, 1, 1],
-        atomDic: dynAtomDic,
-        uniqueRN: b.map((x, i) => x.rn ?? (i + 1)),
-        atomType: b.map((x, i) => x.rn ?? (i + 1)),
+      return buildExaggeratedAlignedStructure(scResult.aligned, exagScale);
+    }
+    const b = activeParentBasis || baseStructure.basis;
+    return {
+      baseStructure: {
+        v1: baseStructure.v1, v2: baseStructure.v2, v3: baseStructure.v3, dim: baseStructure.dim,
+        atomDic: baseStructure.atomDic,
+        uniqueRN: b.map((x, i) => x.rn ?? i),
+        atomType: b.map((x, i) => x.rn ?? i),
         hsym_xyz: Float64Array.from(b.flatMap(x => x.frac)),
         cellIdx: new Float64Array(b.length * 3),
-      };
-    }
-    return {
-      v1: baseStructure.v1, v2: baseStructure.v2, v3: baseStructure.v3, dim: baseStructure.dim,
-      atomDic: baseStructure.atomDic,
-      uniqueRN: b.map((x, i) => x.rn ?? i),
-      atomType: b.map((x, i) => x.rn ?? i),
-      hsym_xyz: Float64Array.from(b.flatMap(x => x.frac)),
-      cellIdx: new Float64Array(b.length * 3),
+      },
+      staticVectors: null,
     };
-  }, [baseStructure, activeParentBasis, crystalMode, scResult]);
+  }, [baseStructure, activeParentBasis, crystalMode, scResult, exagScale]);
+
+  const bondAnalysis = useMemo(
+    () => (scResult?.aligned ? computeBondSplitting(scResult.aligned) : { bondRows: [], siteRows: [], maxSplittingAng: 0 }),
+    [scResult]
+  );
 
   const runAnalysis = useCallback(async (files, family, base, nSample, tol) => {
     if (!files?.length || !base) return;
@@ -787,22 +786,65 @@ export default function SymmetryPage({
 
       {/* ════════ MULTI-LAYOUT WORKSPACE: Stack | Deck | Split | Panoramic ════════ */}
       <div className="sym-grid">
-        {/* ── CARD 1: 3D Crystal Structure ── */}
+        {/* ── CARD 1: 3D Crystal Structure + Exaggerated Distortion Vectors ── */}
         <section className="m-frame sym-crystal" aria-label="3D Crystal Structure">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', borderBottom: '1px solid var(--line)', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600, fontSize: 'var(--fz-control)' }}>3D Crystal Structure</span>
-            <div style={{ display: 'inline-flex', gap: 4 }}>
-              <button type="button" className={`m-btn sm ${crystalMode === 'parent' ? 'active' : ''}`} onClick={() => setCrystalMode('parent')}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+              <button type="button" aria-pressed={crystalMode === 'parent'} className={`m-btn sm ${crystalMode === 'parent' ? 'active' : ''}`} onClick={() => setCrystalMode('parent')}>
                 Parent ({parentSg})
               </button>
-              <button type="button" className={`m-btn sm ${crystalMode === 'aligned' ? 'active' : ''}`} disabled={!scResult?.aligned} onClick={() => setCrystalMode('aligned')}>
+              <button type="button" aria-pressed={crystalMode === 'aligned'} className={`m-btn sm ${crystalMode === 'aligned' ? 'active' : ''}`} disabled={!scResult?.aligned} onClick={() => setCrystalMode('aligned')}>
                 Local ({localSg ? `${localCellPrefix}${localSg}` : '—'})
               </button>
             </div>
           </div>
+
+          {crystalMode === 'aligned' && hasRealDisplacements && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap', padding: '4px 10px', borderBottom: '1px solid var(--line)', background: 'var(--muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+              <div role="group" aria-label="Local distortion exaggeration" style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <span style={{ color: 'var(--secondary)', marginRight: 3 }}>Δu:</span>
+                {[1, 5, 10, 25].map(mult => (
+                  <button
+                    key={mult}
+                    type="button"
+                    aria-pressed={exagScale === mult}
+                    className={`m-btn sm ${exagScale === mult ? 'active' : 'subtle'}`}
+                    style={{ height: 20, padding: '0 6px', fontSize: 10.5 }}
+                    onClick={() => setExagScale(mult)}
+                  >
+                    ×{mult}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                aria-pressed={showDistArrows}
+                className={`m-btn sm ${showDistArrows ? 'active' : 'subtle'}`}
+                style={{ height: 20, padding: '0 7px', fontSize: 10.5 }}
+                onClick={() => setShowDistArrows(v => !v)}
+              >
+                {showDistArrows ? '✓ Arrows' : 'Arrows'}
+              </button>
+            </div>
+          )}
+
           <div style={{ flex: 1, minHeight: 170, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {previewStruct && (
-              <CrystalViewer baseStructure={previewStruct} eigenvector={null} isPlaying={false} supercell={cell111} showCell showBonds />
+            {previewBundle?.baseStructure && (
+              <Suspense fallback={<span style={{ fontSize: 12, color: 'var(--faint)' }}>Loading 3D crystal…</span>}>
+                <CrystalViewer
+                  baseStructure={previewBundle.baseStructure}
+                  eigenvector={null}
+                  staticVectors={crystalMode === 'aligned' && hasRealDisplacements ? previewBundle.staticVectors : null}
+                  showVectors={crystalMode === 'aligned' && hasRealDisplacements && showDistArrows}
+                  vectorScale={Math.max(4, exagScale === 1 ? 10 : exagScale * 1.15)}
+                  vectorColor="#dc2626"
+                  isPlaying={false}
+                  supercell={cell111}
+                  showCell
+                  showBonds
+                />
+              </Suspense>
             )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 12px', borderTop: '1px solid var(--line)', fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
@@ -821,6 +863,7 @@ export default function SymmetryPage({
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fz-small)', color: 'var(--note-ink)' }}>
                 RMS {scResult.aligned.symRms.toFixed(4)}
                 {scResult.aligned.rmsSE > 0 ? ` ± ${scResult.aligned.rmsSE.toFixed(4)}` : ''} Å
+                {bondAnalysis.maxSplittingAng > 0.005 ? ` · max Δd ${bondAnalysis.maxSplittingAng.toFixed(3)} Å` : ''}
               </span>
             )}
           </div>
@@ -913,14 +956,16 @@ export default function SymmetryPage({
               <div className={`sym-domain-split ${domainView === 'both' ? 'is-both' : ''}`}>
                 {domainView !== 'slice' && (
                   <div className="sym-cube-box">
-                    <DomainCube3D
-                      grid={activeGrid}
-                      dim={scResult.dim}
-                      palette={DOMAIN_PALETTE}
-                      activeDomain={soloDomain}
-                      sliceZ={Math.min(sliceZ, scResult.dim[2] - 1)}
-                      sliceMode={sliceMode3D}
-                    />
+                    <Suspense fallback={<div style={{ padding: 12, fontSize: 12, color: 'var(--faint)' }}>Loading 3D domains…</div>}>
+                      <DomainCube3D
+                        grid={activeGrid}
+                        dim={scResult.dim}
+                        palette={DOMAIN_PALETTE}
+                        activeDomain={soloDomain}
+                        sliceZ={Math.min(sliceZ, scResult.dim[2] - 1)}
+                        sliceMode={sliceMode3D}
+                      />
+                    </Suspense>
                   </div>
                 )}
 
@@ -1015,6 +1060,9 @@ export default function SymmetryPage({
             <div className="m-tools" role="tablist" aria-label="Symmetry analysis views">
               <button type="button" role="tab" aria-selected={analysisTab === 'subgroups'} className={analysisTab === 'subgroups' ? 'on' : 'dim'} onClick={() => setAnalysisTab('subgroups')}>
                 Local Subgroups
+              </button>
+              <button type="button" role="tab" aria-selected={analysisTab === 'bonds'} className={analysisTab === 'bonds' ? 'on' : 'dim'} onClick={() => setAnalysisTab('bonds')}>
+                Bonds &amp; Shifts
               </button>
               <button type="button" role="tab" aria-selected={analysisTab === 'kspace'} className={analysisTab === 'kspace' ? 'on' : 'dim'} onClick={() => setAnalysisTab('kspace')}>
                 k-Space Modes
@@ -1155,6 +1203,94 @@ export default function SymmetryPage({
                 </>
               ) : (
                 <div style={{ color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>No symmetry-breaking local subgroups detected above the parent cell.</div>
+              )
+            ) : analysisTab === 'bonds' ? (
+              scResult?.aligned ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ fontSize: 'var(--fz-small)', color: 'var(--secondary)' }}>
+                    First-shell coordination splitting and Wyckoff off-centering between <b>Parent {parentSg}</b> and ensemble-aligned <b>Local {localCellPrefix}{localSg || 'subgroup'}</b>.
+                  </div>
+
+                  {bondAnalysis.bondRows.length > 0 && (
+                    <div
+                      className="m-table-wrap"
+                      tabIndex={0}
+                      role="region"
+                      aria-labelledby={`${subgroupTableId}-bonds-cap`}
+                    >
+                      <table>
+                        <caption id={`${subgroupTableId}-bonds-cap`} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--faint)', paddingBottom: 6 }}>
+                          Coordination Shell Splitting (Å)
+                        </caption>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                            <th scope="col" style={{ padding: '6px 6px' }}>Pair</th>
+                            <th scope="col" style={{ padding: '6px 6px' }}>Parent ({parentSg})</th>
+                            <th scope="col" style={{ padding: '6px 6px' }}>Local ({localSg})</th>
+                            <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }} title="Peak-to-peak bond length splitting d_max - d_min">Δd (Å)</th>
+                            <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }} title="Baur bond-length distortion index">D_Baur</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bondAnalysis.bondRows.map((row, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                              <th scope="row" style={{ padding: '7px 6px', fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                                {row.pairLabel} <span style={{ color: 'var(--faint)', fontWeight: 400 }}>CN={row.coordNum}</span>
+                              </th>
+                              <td style={{ padding: '7px 6px', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>{row.parentSummary}</td>
+                              <td style={{ padding: '7px 6px', color: 'var(--ink)', whiteSpace: 'nowrap' }}>{row.localSummary}</td>
+                              <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: row.splittingAng > 0.01 ? 700 : 400, color: row.splittingAng > 0.01 ? 'var(--note-ink)' : 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                {row.splittingAng.toFixed(3)}
+                              </td>
+                              <td style={{ padding: '7px 6px', textAlign: 'right', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                {(row.baurIndex * 100).toFixed(2)}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {bondAnalysis.siteRows.length > 0 && (
+                    <div
+                      className="m-table-wrap"
+                      tabIndex={0}
+                      role="region"
+                      aria-labelledby={`${subgroupTableId}-shifts-cap`}
+                    >
+                      <table>
+                        <caption id={`${subgroupTableId}-shifts-cap`} style={{ textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--faint)', paddingBottom: 6 }}>
+                          Per-Orbit Static Atomic Off-Centering (|u_local − u_parent|)
+                        </caption>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--faint)', fontSize: 10.5, textTransform: 'uppercase' }}>
+                            <th scope="col" style={{ padding: '6px 6px' }}>Orbit</th>
+                            <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }}>|Δr| (Å)</th>
+                            <th scope="col" style={{ padding: '6px 6px', textAlign: 'right' }}>Vector (Δx, Δy, Δz) [Å]</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bondAnalysis.siteRows.map((sr, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--line)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                              <th scope="row" style={{ padding: '6px 6px', fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                                {sr.el} ×{sr.count}
+                              </th>
+                              <td style={{ padding: '6px 6px', textAlign: 'right', fontWeight: sr.shiftAng > 0.01 ? 700 : 400, color: sr.shiftAng > 0.01 ? 'var(--note-ink)' : 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                {sr.shiftAng.toFixed(4)}{sr.seAng > 0 ? ` ± ${sr.seAng.toFixed(4)}` : ''}
+                              </td>
+                              <td style={{ padding: '6px 6px', textAlign: 'right', color: 'var(--secondary)', whiteSpace: 'nowrap' }}>
+                                ({sr.exampleVec.map(v => (v >= 0 ? '+' : '') + v.toFixed(3)).join(', ')})
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ color: 'var(--faint)', fontSize: 'var(--fz-control)' }}>Select a local subgroup candidate to inspect coordination bond splitting.</div>
               )
             ) : analysisTab === 'kspace' ? (
               scResult?.spectrum?.topK?.length ? (

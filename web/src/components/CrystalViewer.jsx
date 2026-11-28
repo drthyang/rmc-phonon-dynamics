@@ -23,7 +23,7 @@ const defRadius = (el) => COVALENT_R[el] || 1.0;
  * vectors, unit-cell wireframe, camera presets. WebM capture via `recording`.
  */
 export default function CrystalViewer({
-  baseStructure, eigenvector, qPoint,
+  baseStructure, eigenvector, qPoint, staticVectors = null,
   isPlaying = true, amplitude = 2.0, speed = 0.08,
   supercell = [2, 2, 1], showVectors = false, showCell = true, atomScale = 1.0, cameraAxis = null,
   elementColors = {}, elementRadii = {}, displayStyle = 'ballstick',
@@ -32,15 +32,16 @@ export default function CrystalViewer({
 }) {
   const mountRef = useRef(null);
   const objs = useRef(null);
-  const params = useRef({ isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor });
+  const params = useRef({ isPlaying, amplitude, speed, eigenvector, qPoint, staticVectors, vectorScale, bondThickness, vectorColor });
   const recRef = useRef(null);
   const gifRef = useRef(null);   // { active, frames, gif } during GIF capture
   const view = useRef(null);     // saved camera {pos,target} preserved across rebuilds
 
   // Live params read by the animation loop — bondThickness & vectorColor update
   // without a rebuild (so dragging their sliders is smooth and keeps the camera).
-  useEffect(() => { params.current = { isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor }; },
-    [isPlaying, amplitude, speed, eigenvector, qPoint, vectorScale, bondThickness, vectorColor]);
+  useEffect(() => {
+    params.current = { isPlaying, amplitude, speed, eigenvector, qPoint, staticVectors, vectorScale, bondThickness, vectorColor };
+  }, [isPlaying, amplitude, speed, eigenvector, qPoint, staticVectors, vectorScale, bondThickness, vectorColor]);
 
   // Live vector-arrow colour update (no rebuild).
   useEffect(() => { if (objs.current?.vecMat) objs.current.vecMat.color.set(vectorColor); }, [vectorColor]);
@@ -353,6 +354,35 @@ export default function CrystalViewer({
           }
         }
         if (bondMesh) updateBonds(P.bondThickness || 0.06);
+      } else if (P.staticVectors) {
+        // Static local symmetry-breaking displacement vectors u_local - u_parent [Å]
+        const sv = P.staticVectors;
+        const vs = P.vectorScale || 1;
+        for (const at of atoms) {
+          if (!at.arrow) continue;
+          const r = at.row;
+          if (r * 3 + 2 >= sv.length) { at.arrow.g.visible = false; continue; }
+          const dx = sv[r * 3], dy = sv[r * 3 + 1], dz = sv[r * 3 + 2];
+          const len = Math.hypot(dx, dy, dz);
+          const L = len * vs;
+          if (L > 1e-4 * span) {
+            at.arrow.g.visible = true;
+            const shaftR = Math.min(span * 0.022, Math.max(span * 0.006, arrowBaseW * 1.4));
+            const headR = shaftR * 2.8;
+            const idealHeadH = headR * 1.85;
+            const hH = Math.min(idealHeadH, L * 0.52);
+            const hR = headR * (hH / idealHeadH);
+            const shaftLen = Math.max(L - hH, L * 0.02);
+            at.arrow.shaft.scale.set(shaftR, shaftLen, shaftR);
+            at.arrow.head.scale.set(hR, hH, hR);
+            at.arrow.head.position.set(0, shaftLen + hH / 2, 0);
+            up.set(dx / len, dy / len, dz / len);
+            at.arrow.g.quaternion.setFromUnitVectors(Y0, up);
+            at.arrow.g.position.copy(at.mesh.position);
+          } else {
+            at.arrow.g.visible = false;
+          }
+        }
       }
 
       controls.update();

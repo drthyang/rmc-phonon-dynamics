@@ -52,6 +52,7 @@ from ase.optimize import BFGS
 from phonopy import Phonopy
 from phonopy.structure.atoms import PhonopyAtoms
 
+from .calculators import evaluate_supercell_forces_batched
 from .neutron import (
     THZ_TO_MEV,
     NeutronDosResult,
@@ -406,19 +407,22 @@ def compute_harmonic_phonons(
     )
 
     t_fc = time.perf_counter()
-    forces_list = []
-    for idx, sc in enumerate(supercells):
-        sc_atoms = Atoms(
+    sc_atoms_list = [
+        Atoms(
             symbols=sc.symbols,
             cell=sc.cell,
             scaled_positions=sc.scaled_positions,
             pbc=True,
         )
-        sc_atoms.calc = calculator
-        forces = sc_atoms.get_forces()
-        forces = forces - forces.mean(axis=0, keepdims=True)
-        forces_list.append(forces)
-        print(f"  displacement {idx + 1}/{len(supercells)}: max |F| = {np.linalg.norm(forces, axis=1).max():.4f} eV/Å")
+        for sc in supercells
+    ]
+    forces_list, batch_info = evaluate_supercell_forces_batched(sc_atoms_list, calculator)
+    if batch_info["batched"]:
+        max_f_all = max(float(np.linalg.norm(f, axis=1).max()) for f in forces_list)
+        print(
+            f"  evaluated {len(forces_list)} supercells in {batch_info['n_batches']} batched pass(es) "
+            f"(batch_size={batch_info['batch_size']}, peak |F|={max_f_all:.4f} eV/Å)"
+        )
 
     ph.forces = forces_list
     ph.produce_force_constants()

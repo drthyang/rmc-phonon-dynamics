@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useId } from 'react';
 import { parseExpIns1D, parseExpIns2D, parseNeutronDosCsv } from '../io/insReaders';
+import { isWorkspaceSnapshotObject } from '../io/sessionSnapshot';
 import { modelFromText } from '../io/phonopyDM';
 import { phononDOS } from '../math/dos';
 import {
@@ -151,11 +152,24 @@ const CHANNEL_2D_OPTIONS = [
   ['multiphonon', 'Multiphonon (n ≥ 2) only'],
 ];
 
-export default function InsComparePage({ candidates = [], onLoadModelFile, onPinDosCandidate }) {
+export default function InsComparePage({
+  candidates = [],
+  exp1D: controlledExp1D,
+  onChangeExp1D,
+  exp2D: controlledExp2D,
+  onChangeExp2D,
+  onLoadModelFile,
+  onPinDosCandidate,
+  onLoadWorkspace,
+}) {
   const uid = useId();
   const [mode, setMode] = useState('1d'); // '1d' | '2d'
-  const [exp1D, setExp1D] = useState(null);
-  const [exp2D, setExp2D] = useState(null);
+  const [localExp1D, setLocalExp1D] = useState(null);
+  const [localExp2D, setLocalExp2D] = useState(null);
+  const exp1D = controlledExp1D !== undefined ? controlledExp1D : localExp1D;
+  const setExp1D = onChangeExp1D || setLocalExp1D;
+  const exp2D = controlledExp2D !== undefined ? controlledExp2D : localExp2D;
+  const setExp2D = onChangeExp2D || setLocalExp2D;
   const [err, setErr] = useState(null);
 
   // 1D comparison & spectrometer physics controls
@@ -239,10 +253,21 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
     try {
       setErr(null);
       const text = await file.text();
+      if (file.name.toLowerCase().endsWith('.rmcph.json') || file.name.toLowerCase().endsWith('.rmcph')) {
+        await onLoadWorkspace?.(file);
+        return;
+      }
       if (file.name.toLowerCase().endsWith('.csv')) {
         const nd = parseNeutronDosCsv(text, file.name);
         onPinDosCandidate?.(nd, file.name);
       } else {
+        try {
+          const parsedObj = JSON.parse(text);
+          if (isWorkspaceSnapshotObject(parsedObj)) {
+            await onLoadWorkspace?.(file);
+            return;
+          }
+        } catch { /* non-JSON YAML falls through to modelFromText */ }
         const m = modelFromText(text);
         onLoadModelFile?.(m, file.name, { stayOnPage: true });
       }
@@ -477,8 +502,8 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
               <input type="file" accept=".csv,.txt,.dat,.xy,.xye" onChange={e => handleLoadExp1D(e.target.files?.[0])} style={{ display: 'none' }} />
             </label>
             <label className="m-button lg">
-              Load Exp 2D S(|Q|, E)…
-              <input type="file" accept=".csv,.txt,.dat" onChange={e => handleLoadExp2D(e.target.files?.[0])} style={{ display: 'none' }} />
+              Load Exp 2D S(|Q|, E) (.spe / .csv)…
+              <input type="file" accept=".spe,.csv,.txt,.dat" onChange={e => handleLoadExp2D(e.target.files?.[0])} style={{ display: 'none' }} />
             </label>
           </div>
           {err && <div className="m-notice bad" style={{ margin: '16px 0 0' }}>{err}</div>}
@@ -516,8 +541,8 @@ export default function InsComparePage({ candidates = [], onLoadModelFile, onPin
               </label>
             ) : (
               <label className="m-button primary sm">
-                {exp2D ? 'Replace Exp 2D…' : '+ Exp 2D S(|Q|,E)…'}
-                <input type="file" accept=".csv,.txt,.dat" onChange={e => handleLoadExp2D(e.target.files?.[0])} style={{ display: 'none' }} />
+                {exp2D ? 'Replace Exp 2D…' : '+ Exp 2D (.spe / .csv)…'}
+                <input type="file" accept=".spe,.csv,.txt,.dat" onChange={e => handleLoadExp2D(e.target.files?.[0])} style={{ display: 'none' }} />
               </label>
             )}
           </div>

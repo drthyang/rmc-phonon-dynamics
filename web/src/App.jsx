@@ -1,16 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
 import { PhononPipeline } from './compute/pipeline';
 import { fromResults } from './io/viewermodel';
 import { fromPhonopyDM } from './io/phonopyDM';
 import { checkMlipServer, runMlipJob, shortModelName, DEFAULT_MLIP_URL, FALLBACK_MLIP_MODELS } from './io/mlipClient';
+import { exportWorkspaceSnapshot, importWorkspaceSnapshot } from './io/sessionSnapshot';
 import { generatePhonopyBandYaml, downloadString } from './io/writers';
 import ThemeCue from './components/ThemeCue';
 import LayoutCue from './components/LayoutCue';
 import { detectAutoLayout, readLayout, saveLayout } from './layout';
 import SymmetryPage from './pages/SymmetryPage';
-import ViewerPage from './pages/ViewerPage';
-import InsComparePage from './pages/InsComparePage';
-import RunnerPage from './pages/RunnerPage';
+
+// Code-split secondary workspace steps so initial load stays fast & <500 kB;
+// once visited, each page remains mounted to preserve WebGL canvases & state.
+const ViewerPage = lazy(() => import('./pages/ViewerPage'));
+const InsComparePage = lazy(() => import('./pages/InsComparePage'));
+const RunnerPage = lazy(() => import('./pages/RunnerPage'));
 
 const CANDIDATE_PALETTE = [
   '#2563eb', // cobalt
@@ -22,11 +26,19 @@ const CANDIDATE_PALETTE = [
 ];
 
 export default function App() {
-  const [page, setPage] = useState('symmetry');   // 'symmetry' | 'phonons' | 'ins' | 'legacy'
+  const [page, setPageState] = useState('symmetry');   // 'symmetry' | 'phonons' | 'ins' | 'legacy'
+  const [visitedPages, setVisitedPages] = useState(() => ({ symmetry: true }));
+  const setPage = useCallback((nextPage) => {
+    setPageState(nextPage);
+    setVisitedPages(prev => (prev[nextPage] ? prev : { ...prev, [nextPage]: true }));
+  }, []);
   const [layoutPref, setLayoutPref] = useState(readLayout);
   const [autoLayout, setAutoLayout] = useState(() => detectAutoLayout());
   const [candidates, setCandidates] = useState([]);
   const [activeCandidateId, setActiveCandidateId] = useState(null);
+  const [exp1D, setExp1D] = useState(null);
+  const [exp2D, setExp2D] = useState(null);
+  const [snapshotErr, setSnapshotErr] = useState(null);
   const [ready, setReady] = useState(false);
   const [mlipServer, setMlipServer] = useState({ connected: false, url: DEFAULT_MLIP_URL, models: FALLBACK_MLIP_MODELS });
   const pipelineRef = useRef(null);
@@ -87,7 +99,7 @@ export default function App() {
     });
     setActiveCandidateId(id);
     if (!opts.stayOnPage) setPage('phonons');
-  }, [pinCandidate]);
+  }, [pinCandidate, setPage]);
 
   const pinDosCandidate = useCallback((neutronDos, filename = 'mlip_ndos.csv') => {
     pinCandidate({
@@ -216,6 +228,34 @@ export default function App() {
     } catch (e) { console.error('band.yaml auto-save failed:', e); }
   };
 
+  const handleSaveWorkspace = useCallback(() => {
+    const json = exportWorkspaceSnapshot({
+      candidates,
+      activeCandidateId: activeCandidate?.id || null,
+      page,
+      exp1D,
+      exp2D,
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadString(json, `session_${stamp}.rmcph.json`, 'application/json');
+  }, [candidates, activeCandidate, page, exp1D, exp2D]);
+
+  const handleLoadWorkspaceFile = useCallback(async (file) => {
+    if (!file) return;
+    try {
+      setSnapshotErr(null);
+      const snap = importWorkspaceSnapshot(await file.text());
+      setCandidates(snap.candidates);
+      setActiveCandidateId(snap.activeCandidateId);
+      setExp1D(snap.exp1D);
+      setExp2D(snap.exp2D);
+      setPage(snap.page);
+      nextId.current = snap.candidates.length + 10;
+    } catch (err) {
+      setSnapshotErr(err.message || 'Failed to load workspace snapshot.');
+    }
+  }, [setPage]);
+
   const nPhononModels = candidates.filter(c => c.model?.bands).length;
   const anyRunning = candidates.some(c => c.mlipRunning);
 
@@ -283,6 +323,32 @@ export default function App() {
         </nav>
 
         <div className="m-actions">
+          {(candidates.length > 0 || exp1D || exp2D) && (
+            <button
+              type="button"
+              className="m-btn sm subtle m-hide-xs"
+              onClick={handleSaveWorkspace}
+              title="Save all pinned candidates, phonons, and INS data as a portable .rmcph.json workspace"
+            >
+              Save .rmcph
+            </button>
+          )}
+          <label
+            className="m-button sm subtle m-hide-xs"
+            title="Restore a saved .rmcph.json workspace snapshot"
+            style={{ cursor: 'pointer' }}
+          >
+            Load .rmcph
+            <input
+              type="file"
+              accept=".json,.rmcph"
+              onChange={e => {
+                handleLoadWorkspaceFile(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+              style={{ display: 'none' }}
+            />
+          </label>
           <LayoutCue
             layoutPref={layoutPref}
             effectiveLayout={effectiveLayout}
@@ -308,6 +374,13 @@ export default function App() {
           </span>
         </div>
       </header>
+
+      {snapshotErr && (
+        <div className="m-notice bad" role="alert">
+          <span>{snapshotErr}</span>
+          <button type="button" className="m-btn sm subtle" onClick={() => setSnapshotErr(null)}>Dismiss</button>
+        </div>
+      )}
 
       {/* ── Browser notice ONLY on Legacy RMC tab ── */}
       {page === 'legacy' && missingLegacyFeatures.length > 0 && (
@@ -337,34 +410,51 @@ export default function App() {
         />
       </div>
 
-      <div className={page === 'phonons' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
-        <ViewerPage
-          model={activeModel}
-          candidates={candidates}
-          activeCandidateId={activeCandidate?.id || null}
-          onSelectCandidate={setActiveCandidateId}
-          onRemoveCandidate={removeCandidate}
-          onLoadModel={(m, name) => loadModelFile(m, name)}
-          onGoToIns={() => setPage('ins')}
-        />
-      </div>
+      {visitedPages.phonons && (
+        <div className={page === 'phonons' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
+          <Suspense fallback={<div style={{ padding: 24, color: 'var(--secondary)' }}>Loading Phonon Studio…</div>}>
+            <ViewerPage
+              model={activeModel}
+              candidates={candidates}
+              activeCandidateId={activeCandidate?.id || null}
+              onSelectCandidate={setActiveCandidateId}
+              onRemoveCandidate={removeCandidate}
+              onLoadModel={(m, name) => loadModelFile(m, name)}
+              onGoToIns={() => setPage('ins')}
+            />
+          </Suspense>
+        </div>
+      )}
 
-      <div className={page === 'ins' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
-        <InsComparePage
-          candidates={candidates}
-          onLoadModelFile={loadModelFile}
-          onPinDosCandidate={pinDosCandidate}
-        />
-      </div>
+      {visitedPages.ins && (
+        <div className={page === 'ins' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
+          <Suspense fallback={<div style={{ padding: 24, color: 'var(--secondary)' }}>Loading INS Compare…</div>}>
+            <InsComparePage
+              candidates={candidates}
+              exp1D={exp1D}
+              onChangeExp1D={setExp1D}
+              exp2D={exp2D}
+              onChangeExp2D={setExp2D}
+              onLoadModelFile={loadModelFile}
+              onPinDosCandidate={pinDosCandidate}
+              onLoadWorkspace={handleLoadWorkspaceFile}
+            />
+          </Suspense>
+        </div>
+      )}
 
-      <div className={page === 'legacy' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
-        <RunnerPage
-          pipeline={pipelineRef.current}
-          ready={ready}
-          onResults={onLegacyResults}
-          onLoadResult={(m) => loadModelFile(m, 'band')}
-        />
-      </div>
+      {visitedPages.legacy && (
+        <div className={page === 'legacy' ? 'm-page-slot' : 'm-page-slot is-hidden'}>
+          <Suspense fallback={<div style={{ padding: 24, color: 'var(--secondary)' }}>Loading Legacy WebGPU Runner…</div>}>
+            <RunnerPage
+              pipeline={pipelineRef.current}
+              ready={ready}
+              onResults={onLegacyResults}
+              onLoadResult={(m) => loadModelFile(m, 'band')}
+            />
+          </Suspense>
+        </div>
+      )}
 
       {/* ── Footer ── */}
       <footer className="m-foot">

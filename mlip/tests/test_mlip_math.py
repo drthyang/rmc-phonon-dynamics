@@ -12,7 +12,11 @@ from ase.calculators.calculator import Calculator, all_changes
 from phonopy import Phonopy
 from phonopy.structure.atoms import PhonopyAtoms
 
-from rmcph_mlip.calculators import list_available_models
+from rmcph_mlip.calculators import (
+    build_calculator,
+    evaluate_supercell_forces_batched,
+    list_available_models,
+)
 from rmcph_mlip.cli import main as cli_main
 from rmcph_mlip.neutron import (
     HBAR2_OVER_2MN,
@@ -331,6 +335,50 @@ Atoms:
         )
         self.assertEqual(steps_frz, 0)
         self.assertEqual(diag_frz["max_atom_disp_A"], 0.0)
+
+    def test_batched_mace_supercell_forces_parity(self):
+        # Verify fallback on custom non-MACE calculator
+        a = 4.0
+        sc_custom = [
+            Atoms("BaTi", cell=np.eye(3) * a, positions=[[0, 0, 0], [2.0, 2.0, 2.05 + 0.02 * k]], pbc=True)
+            for k in range(3)
+        ]
+        f_fb, info_fb = evaluate_supercell_forces_batched(sc_custom, _DoubleWellSubgroupCalc())
+        self.assertFalse(info_fb["batched"])
+        self.assertEqual(len(f_fb), 3)
+
+        # Verify exact machine-precision parity on locally cached MACECalculator
+        models = list_available_models()
+        mace_med = next((m for m in models if m["id"] == "mace-mp-medium"), None)
+        if mace_med and mace_med["cached_locally"]:
+            calc = build_calculator("mace-mp-medium", device="cpu", dtype="float64")
+            supercells = []
+            for k in range(4):
+                at = Atoms(
+                    symbols=["Ga", "Se", "Ga", "Se"],
+                    cell=np.diag([4.2, 4.2, 8.4]),
+                    positions=[
+                        [0.01 * (k + 1), 0.0, 0.0],
+                        [2.1, 2.1, 2.1 - 0.008 * k],
+                        [0.0, 0.01 * k, 4.2],
+                        [2.1, 2.1, 6.3 + 0.005 * k],
+                    ],
+                    pbc=True,
+                )
+                supercells.append(at)
+
+            f_batched, info_b = evaluate_supercell_forces_batched(supercells, calc, max_batch_atoms=64)
+            self.assertTrue(info_b["batched"])
+            self.assertEqual(info_b["n_batches"], 1)
+            self.assertEqual(info_b["batch_size"], 4)
+
+            for k, at in enumerate(supercells):
+                w = at.copy()
+                w.calc = calc
+                f_ref = w.get_forces()
+                f_ref = f_ref - f_ref.mean(axis=0, keepdims=True)
+                max_diff = float(np.max(np.abs(f_batched[k] - f_ref)))
+                self.assertLess(max_diff, 1e-11, f"Batched vs sequential MACE force diff={max_diff}")
 
 
 if __name__ == "__main__":
